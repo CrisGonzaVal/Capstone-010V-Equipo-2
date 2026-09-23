@@ -1,0 +1,65 @@
+<div class="flex h-screen bg-gray-100 font-sans">
+  <!-- Sidebar -->
+  <aside [class]="(sidebarOpen ? 'w-64' : 'w-20') + ' bg-slate-900 text-white transition-all duration-300 flex flex-col shadow-xl z-20'">
+    <!-- Logo / Brand -->
+    <div class="flex items-center justify-between h-16 px-4 bg-slate-950">
+      <div class="flex items-center space-x-3 overflow-hidden">
+        <div class="bg-blue-600 p-2 rounded-lg text-white font-bold text-lg flex items-center justify-center shadow-md">
+          📦
+        </div>
+        <span *ngIf="sidebarOpen" class="font-bold text-lg tracking-wide text-white whitespace-nowrap">CompuStock</span>
+      </div>
+      <button (click)="toggleSidebar()" class="text-slate-400 hover:text-white focus:outline-none">
+        ☰
+      </button>
+    </div>
+
+    <!-- Navigation Links -->
+    <nav class="flex-1 px-3 py-4 space-y-1">
+      <a routerLink="/dashboard" routerLinkActive="bg-blue-600 text-white" class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors">
+        <span class="text-xl">📊</span>
+        <span *ngIf="sidebarOpen" class="ml-3 font-medium">Dashboard</span>
+      </a>
+      <a routerLink="/inventario" routerLinkActive="bg-blue-600 text-white" class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors">
+        <span class="text-xl">📦</span>
+        <span *ngIf="sidebarOpen" class="ml-3 font-medium">Inventario</span>
+      </a>
+      <a routerLink="/tickets" routerLinkActive="bg-blue-600 text-white" class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors">
+        <span class="text-xl">🎫</span>
+        <span *ngIf="sidebarOpen" class="ml-3 font-medium">Tickets / Kanban</span>
+      </a>
+      <a routerLink="/administracion" routerLinkActive="bg-blue-600 text-white" class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors">
+        <span class="text-xl">⚙️</span>
+        <span *ngIf="sidebarOpen" class="ml-3 font-medium">Administración</span>
+      </a>
+    </nav>
+
+    <!-- User Profile Footer -->
+    <div class="p-4 bg-slate-950 border-t border-slate-800 flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center font-bold text-white shadow">
+        U
+      </div>
+      <div *ngIf="sidebarOpen" class="overflow-hidden">
+        <p class="text-sm font-semibold text-white truncate">Super Administrator</p>
+        <p class="text-xs text-slate-400 truncate">admin&#64;compustock.cl</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content Wrapper -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <!-- Topbar -->
+    <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10">
+      <h1 class="text-xl font-bold text-slate-800">Sistema ERP - Gestión de Insumos</h1>
+      <div class="flex items-center space-x-4">
+        <span class="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2.5 py-1 rounded-full">SaaS Multi-tenant Activo</span>
+        <span class="text-sm text-slate-600">Rol: <strong>Superadmin</strong></span>
+      </div>
+    </header>
+
+    <!-- Content Area -->
+    <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+</div>
