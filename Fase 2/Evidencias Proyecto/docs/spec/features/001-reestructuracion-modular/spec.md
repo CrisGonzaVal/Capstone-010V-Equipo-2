@@ -44,7 +44,7 @@ Dejar el proyecto alineado con `docs/spec/stack.md` sin alterar comportamiento o
 
 ### Fuera
 
-- Modelo de datos 3NF de 12 entidades (`AGENTS.md` §7). **`database/script_apt_erp.sql` no se toca.**
+- Modelo de datos 3NF de 12 entidades (`AGENTS.md` §7). **`database/01_esquema.sql` no se toca** (antes `script_apt_erp.sql`; renombrado en la Feature 002, sin cambios de DDL).
 - `core/security.py` y `endpoints/auth.py` — son funcionalidad nueva (JWT), no
   reestructuración. Quedan como desviación documentada.
 - Migrar `inventario` de datos hardcodeados a la API real. Es Feature 002.
@@ -97,7 +97,7 @@ En Angular, `auth.service.ts` exporta `AutenticacionService`, `role.guard.ts` ex
 - [x] **AC-9** `cd frontend && npm run build` compila sin errores.
 - [x] **AC-10** `app.routes.ts` usa `loadChildren`; ninguna feature importa otra.
 - [x] **AC-11** Cero `*ngIf`, `*ngFor`, `CommonModule` en `frontend/src/app/`.
-- [x] **AC-12** `database/script_apt_erp.sql` sin cambios en `git diff`.
+- [x] **AC-12** `database/01_esquema.sql` sin cambios en `git diff`. Cumplido: el archivo se renombró desde `script_apt_erp.sql` en la Feature 002 (prefijo de orden, ver `AGENTS.md` §4), pero el DDL es byte a byte idéntico; `git diff HEAD -M` solo reporta las líneas de comentario añadidas a la cabecera.
 - [x] **AC-13** `AGENTS.md` §9 sin la sección "Desviaciones de stack.md".
 - [x] **AC-14** `roadmap.md` sin bloque de código envolvente ni artefactos `[cite: N]`.
 - [x] **AC-15** Todo identificador del §4 renombrado; cero residuos en `grep`.

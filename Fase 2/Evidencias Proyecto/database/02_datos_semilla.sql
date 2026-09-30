@@ -6,12 +6,25 @@
 --
 -- PROPOSITO
 --   Pobla la base con datos de ejemplo para QA manual y pruebas.
---   Este script NO define el esquema: eso vive en `script_apt_erp.sql`.
+--   Este script NO define el esquema: eso vive en `01_esquema.sql`.
 --   Aqui solo hay TRUNCATE + INSERT, nunca ALTER/CREATE/DROP.
 --
+-- ORDEN DE EJECUCION (no lo cambies sin leer esto)
+--   Los .sql de esta carpeta los ejecuta PostgreSQL solo al crear el volumen,
+--   y los recorre en ORDEN ALFABETICO. Este archivo empieza con TRUNCATE sobre
+--   las 12 tablas, asi que exige que `01_esquema.sql` ya exista: por eso lleva
+--   el prefijo numerico. Con los nombres viejos (`datos_semilla.sql` y
+--   `script_apt_erp.sql`) la "d" sortea antes que la "s", la semilla corria
+--   contra un esquema inexistente y, con ON_ERROR_STOP=1, abortaba todo el
+--   arranque. Si renuevas un nombre, revisa que no invierta el orden.
+--
 -- USO
---   Desde la raiz del proyecto, en cmd.exe (NO en PowerShell):
---     docker exec -i compustock_db psql -U postgres -d apt_erp -v ON_ERROR_STOP=1 < database\datos_semilla.sql
+--   Automatica: al crear el volumen por primera vez (`docker compose up -d db`
+--   con el volumen vacio). No hay que correrla a mano en una maquina nueva.
+--
+--   Manual, para resetear el entorno de QA con la base ya creada. Desde la raiz
+--   del proyecto, en cmd.exe (NO en PowerShell):
+--     docker exec -i compustock_db psql -U postgres -d apt_erp -v ON_ERROR_STOP=1 < database\02_datos_semilla.sql
 --
 --   En PowerShell el pipe (`Get-Content -Raw | docker exec -i ...`) mete el
 --   contenido por la codificacion de la consola y destruye los acentos: se

@@ -8,6 +8,7 @@ import {
   MovimientoCrear,
   Producto,
   ProductoCrear,
+  ProductoExistencia,
   RespuestaMovimiento,
 } from '../../../shared/interfaces';
 
@@ -43,6 +44,18 @@ export class InventarioService {
       params = params.set('departamento_id', departamentoId);
     }
     return this.http.get<Inventario[]>(`${URL_API}/inventario/stock`, { params });
+  }
+
+  /**
+   * Catalogo clasificado por producto y por sede.
+   *
+   * Sin parametros a proposito: la vista filtra en cliente (`spec.md` D-1), asi que
+   * la consulta devuelve el catalogo completo una sola vez. Los filtros del
+   * endpoint (`q`, `categoria_id`, `departamento_id`, `solo_criticos`) existen para
+   * consumidores que necesiten acotar en el servidor.
+   */
+  obtenerExistencias(): Observable<ProductoExistencia[]> {
+    return this.http.get<ProductoExistencia[]>(`${URL_API}/inventario/existencias`);
   }
 
   registrarMovimiento(datos: MovimientoCrear): Observable<RespuestaMovimiento> {

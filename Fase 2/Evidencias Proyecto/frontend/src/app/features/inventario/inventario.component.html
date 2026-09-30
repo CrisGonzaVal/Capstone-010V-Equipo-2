@@ -1,87 +1,203 @@
 <div class="space-y-6">
-  <div class="flex justify-between items-center">
+  <header class="flex flex-wrap justify-between items-start gap-4">
     <div>
-      <h2 class="text-2xl font-bold text-slate-800">Gestión de Inventario</h2>
+      <h2 class="text-2xl font-bold text-slate-800">Catálogo de Insumos</h2>
       <p class="text-sm text-slate-500">
-        Control de stock y movimientos en tiempo real (Conectado a FastAPI &amp; PostgreSQL)
+        Existencias clasificadas por producto y por sede (Conectado a FastAPI &amp; PostgreSQL)
       </p>
     </div>
-    <button
-      type="button"
-      class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg shadow transition flex items-center space-x-2"
-    >
-      <span>+ Nuevo Producto</span>
-    </button>
-  </div>
 
-  <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-    <div class="p-4 border-b border-slate-100 flex items-center justify-between">
-      <input
-        type="text"
-        placeholder="Buscar insumos..."
-        aria-label="Buscar insumos"
-        class="w-full max-w-md px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-      <span class="text-sm text-slate-500">Total registros: {{ listaStock().length }}</span>
-    </div>
-
-    @if (mensajeError(); as mensaje) {
-      <div
-        role="alert"
-        class="m-4 p-4 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-800"
-      >
-        {{ mensaje }}
+    <dl class="flex gap-6 rounded-xl border border-slate-100 bg-white px-5 py-3 shadow-sm">
+      <div>
+        <dt class="text-xs uppercase tracking-wider text-slate-500">Insumos</dt>
+        <dd class="text-xl font-bold text-slate-800">{{ totalCatalogo() }}</dd>
       </div>
-    }
+      <div>
+        <dt class="text-xs uppercase tracking-wider text-slate-500">Con existencias</dt>
+        <dd class="text-xl font-bold text-emerald-600">{{ totalConStock() }}</dd>
+      </div>
+      <div>
+        <dt class="text-xs uppercase tracking-wider text-slate-500">Stock crítico</dt>
+        <dd class="text-xl font-bold text-rose-600">{{ totalCriticos() }}</dd>
+      </div>
+      <p class="self-end text-xs text-slate-400">Catálogo cargado</p>
+    </dl>
+  </header>
 
-    <table class="w-full text-left border-collapse">
-      <caption class="sr-only">
-        Existencias de inventario por sede
-      </caption>
-      <thead>
-        <tr class="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-100">
-          <th scope="col" class="py-3 px-6">ID</th>
-          <th scope="col" class="py-3 px-6">Producto</th>
-          <th scope="col" class="py-3 px-6">Ubicación</th>
-          <th scope="col" class="py-3 px-6">Stock Actual</th>
-          <th scope="col" class="py-3 px-6">Stock Mínimo</th>
-          <th scope="col" class="py-3 px-6 text-right">Acciones</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
-        @for (item of listaStock(); track item.inventario_id) {
-          <tr class="hover:bg-slate-50">
-            <td class="py-4 px-6 font-medium text-slate-900">{{ item.inventario_id }}</td>
-            <td class="py-4 px-6">
-              {{ item.producto?.nombre ?? 'Producto #' + item.producto_id }}
-            </td>
-            <td class="py-4 px-6">{{ item.ubicacion ?? 'Bodega Central' }}</td>
-            <td
-              class="py-4 px-6 font-bold"
-              [class.text-rose-600]="esStockCritico(item)"
-              [class.text-emerald-600]="!esStockCritico(item)"
-            >
-              {{ item.stock_actual }}
-            </td>
-            <td class="py-4 px-6 text-slate-500">{{ item.producto?.stock_minimo ?? 0 }}</td>
-            <td class="py-4 px-6 text-right space-x-2">
-              <button type="button" class="text-blue-600 hover:text-blue-800 font-medium">
-                Registrar Movimiento
-              </button>
-            </td>
-          </tr>
-        } @empty {
-          <tr>
-            <td colspan="6" class="py-8 text-center text-slate-400">
-              @if (cargando()) {
-                Cargando inventario...
-              } @else if (!mensajeError()) {
-                No hay registros de inventario en la base de datos.
-              }
-            </td>
-          </tr>
+  @if (mensajeError(); as mensaje) {
+    <div
+      role="alert"
+      class="p-4 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-800"
+    >
+      {{ mensaje }}
+    </div>
+  }
+
+  <div class="grid gap-6 xl:grid-cols-[220px_1fr]">
+    <nav
+      aria-label="Categorías de insumos"
+      class="flex gap-2 overflow-x-auto pb-2 xl:flex-col xl:overflow-visible xl:pb-0"
+    >
+      <button
+        type="button"
+        class="shrink-0 rounded-lg border px-3 py-2 text-left text-sm font-medium transition focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 xl:w-full"
+        [class.border-blue-500]="categoriaSeleccionada() === null"
+        [class.bg-blue-50]="categoriaSeleccionada() === null"
+        [class.text-blue-700]="categoriaSeleccionada() === null"
+        [class.border-slate-200]="categoriaSeleccionada() !== null"
+        [class.text-slate-600]="categoriaSeleccionada() !== null"
+        [attr.aria-current]="categoriaSeleccionada() === null ? 'true' : null"
+        (click)="seleccionarCategoria(null)"
+      >
+        <span class="block">Todas</span>
+        <span class="block text-xs text-slate-500">{{ insumosCoincidentes().length }} insumos</span>
+      </button>
+
+      @for (categoria of categorias(); track categoria.categoria_id) {
+        <button
+          type="button"
+          class="shrink-0 rounded-lg border px-3 py-2 text-left text-sm font-medium transition focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 xl:w-full"
+          [class.border-blue-500]="categoriaSeleccionada() === categoria.categoria_id"
+          [class.bg-blue-50]="categoriaSeleccionada() === categoria.categoria_id"
+          [class.text-blue-700]="categoriaSeleccionada() === categoria.categoria_id"
+          [class.border-slate-200]="categoriaSeleccionada() !== categoria.categoria_id"
+          [class.text-slate-600]="categoriaSeleccionada() !== categoria.categoria_id"
+          [attr.aria-current]="categoriaSeleccionada() === categoria.categoria_id ? 'true' : null"
+          (click)="seleccionarCategoria(categoria.categoria_id)"
+        >
+          <span class="block">{{ categoria.nombre_cat }}</span>
+          <span class="block text-xs text-slate-500">
+            {{ conteoPorCategoria().get(categoria.categoria_id) ?? 0 }} insumos
+          </span>
+        </button>
+      }
+    </nav>
+
+    <section class="space-y-4">
+      <div
+        class="flex flex-wrap items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm"
+      >
+        <input
+          #buscador
+          type="search"
+          placeholder="Buscar por nombre, descripción o categoría..."
+          aria-label="Buscar insumos"
+          class="w-full max-w-md px-4 py-2 border border-slate-200 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+          [value]="consulta()"
+          (input)="consulta.set(buscador.value)"
+        />
+
+        <label class="flex items-center gap-2 text-sm text-slate-600">
+          <input
+            #critico
+            type="checkbox"
+            class="h-4 w-4 rounded border-slate-300 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+            [checked]="soloCriticos()"
+            (change)="soloCriticos.set(critico.checked)"
+          />
+          Solo stock crítico
+        </label>
+
+        @if (hayFiltros()) {
+          <button
+            type="button"
+            class="ml-auto rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+            (click)="limpiarFiltros()"
+          >
+            Limpiar filtros
+          </button>
         }
-      </tbody>
-    </table>
+      </div>
+
+      @if (cargando()) {
+        <p class="rounded-xl border border-slate-100 bg-white p-8 text-center text-sm text-slate-500">
+          Cargando catálogo...
+        </p>
+      } @else if (hayFiltros() && !insumosVisibles().length) {
+        <p class="rounded-xl border border-slate-100 bg-white p-8 text-center text-sm text-slate-500">
+          Ningún insumo coincide con los filtros aplicados.
+        </p>
+      } @else if (!insumosVisibles().length) {
+        <p class="rounded-xl border border-slate-100 bg-white p-8 text-center text-sm text-slate-500">
+          El catálogo no tiene insumos cargados.
+        </p>
+      } @else {
+        <div class="overflow-x-auto rounded-xl border border-slate-100 bg-white shadow-sm">
+          <table class="w-full min-w-[760px] text-left border-collapse">
+            <caption class="sr-only">
+              Catálogo de insumos con el stock total y el desglose de existencias por sede
+            </caption>
+            <thead>
+              <tr class="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-100">
+                <th scope="col" class="py-3 px-6">Producto</th>
+                <th scope="col" class="py-3 px-6">Categoría</th>
+                <th scope="col" class="py-3 px-6">Existencias por sede</th>
+                <th scope="col" class="py-3 px-6 text-right">Stock</th>
+                <th scope="col" class="py-3 px-6 text-right">Mín.</th>
+                <th scope="col" class="py-3 px-6 text-right">Estado</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
+              @for (insumo of insumosVisibles(); track insumo.producto_id) {
+                <tr class="hover:bg-slate-50">
+                  <td class="py-4 px-6">
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium text-slate-900">{{ insumo.nombre }}</span>
+                      @if (insumo.unidad_medida) {
+                        <span
+                          class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
+                        >
+                          {{ insumo.unidad_medida }}
+                        </span>
+                      }
+                    </div>
+                    @if (insumo.descripcion) {
+                      <p class="text-slate-500">{{ insumo.descripcion }}</p>
+                    }
+                  </td>
+                  <td class="py-4 px-6 text-slate-600">{{ insumo.categoria_nombre }}</td>
+                  <td class="py-4 px-6">
+                    @if (insumo.sedes.length) {
+                      @for (sede of insumo.sedes; track sede.inventario_id) {
+                        <div>
+                          <span class="font-medium text-slate-800">{{ sede.departamento_nombre }}</span>
+                          <span class="text-slate-500"> · {{ sede.ubicacion ?? 'Sin ubicación' }}</span>
+                          <span class="ml-1 font-semibold">{{ sede.stock_actual }}</span>
+                        </div>
+                      }
+                    } @else {
+                      <span class="text-slate-400">Sin existencias registradas</span>
+                    }
+                  </td>
+                  <td
+                    class="py-4 px-6 text-right font-bold"
+                    [class.text-rose-600]="insumo.es_critico"
+                    [class.text-emerald-600]="!insumo.es_critico"
+                  >
+                    {{ insumo.stock_total }}
+                  </td>
+                  <td class="py-4 px-6 text-right text-slate-500">{{ insumo.stock_minimo }}</td>
+                  <td class="py-4 px-6 text-right">
+                    @if (insumo.es_critico) {
+                      <span
+                        class="rounded-full bg-rose-100 px-2 py-1 text-xs font-medium text-rose-700"
+                      >
+                        Crítico
+                      </span>
+                    } @else {
+                      <span
+                        class="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700"
+                      >
+                        Disponible
+                      </span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </section>
   </div>
 </div>

@@ -28,8 +28,9 @@ Evidencias Proyecto/
 ├── .env                       # Variables de entorno globales (oculto en git)
 ├── docs/
 │   └── spec/                  # Metodología SDD (Constitution, Features, Tasks)
-├── database/
-│   └── script_apt_erp.sql     # Script de inicialización 3NF para PostgreSQL
+├── database/                    # Orquestados por el prefijo: ver abajo
+│   ├── 01_esquema.sql           # DDL del modelo 3NF (12 entidades)
+│   └── 02_datos_semilla.sql     # TRUNCATE + INSERT de datos de QA
 ├── backend/                   # 🐍 Entorno FastAPI
 └── frontend/                  # 🅰️ Entorno Angular 18
 ```
@@ -86,6 +87,28 @@ backend/
 
 **Regla de oro del Backend**: El router en `api/v1/endpoints/tickets.py` solo recibe la petición HTTP, valida con schemas y llama a `services/ticket_service.py`. Todo el procesamiento complejo y las consultas a la base de datos se hacen en el servicio.
 
+#### Read models de consulta (Feature 002)
+
+Un schema Pydantic con `model_config = ConfigDict(from_attributes=True)` sirve para
+serializar **una** entidad ORM. En cuanto la consulta cruza tablas y agrega, ese schema
+miente: Pydantic busca los campos en el objeto y no los encuentra.
+
+El patrón que usa `listar_existencias()` en `inventario_service.py`:
+
+- El schema de salida **no** lleva `from_attributes`. Lo arma el service a mano.
+- **Una** consulta con `select()` de estilo Core, con los onclause **explícitos**
+  (`join` / `outerjoin` con la condición a la vista): al elegir columnas sueltas no hay
+  entidad en el `FROM` desde la que SQLAlchemy deduzca el join.
+- La fila es la **unidad de información** (una sede), así que se agrupa en Python con un
+  `dict` por clave primaria, en vez de con `GROUP BY`. `dict` conserva el orden de
+  inserción, con lo que el `ORDER BY` de SQL se propaga solo al arma
+  `list(acumuladores.values())`.
+- Un filtro que dependa del agregado (`solo_criticos` sobre `stock_total`) **no** puede ir
+  en el `WHERE`: se aplica en Python después de agrupar. La base de datos acota por texto,
+  categoría y sede; solo el agregado se resuelve en memoria, sobre un conjunto ya acotado.
+
+Es el patrón a seguir para cualquier consulta de lectura que no sea "una tabla, una fila".
+
 ### 3. Estructura del Frontend (Angular 18 Standalone)
 En Angular moderno (sin NgModules), la clave es el agrupamiento por Características (Features). Esto facilita el Lazy Loading (carga perezosa) y hace que la aplicación escale sin que el código se enrede.
 
@@ -135,7 +158,7 @@ frontend/
 
 **Nota 1**: existe además una cuarta feature, `features/administracion/`, que agrupa la gestión de usuarios, roles e instituciones. No figura en el diagrama original pero forma parte del sistema (`AGENTS.md` §2) y se documenta aquí para que la estructura real y la norma no diverjan.
 
-**Nota 2 — `shared/components/` y `shared/pipes/` están planificados pero vacíos.** Los diagramas los preveen; la Feature 001 no los creó porque ningún componente actual tendría un consumidor real, y un componente sin uso es código muerto. Se crean en la feature que agregue la vista que los necesita.
+**Nota 2 — `shared/components/` y `shared/pipes/` están planificados pero vacíos.** Los diagramas los preveen; la Feature 001 no los creó porque ningún componente actual tendría un consumidor real, y un componente sin uso es código muerto. **La Feature 002 vuelve a revisar la pregunta y vuelve a no crearlos**: la barra de filtros y el panel de categorías de la vista de inventario son específicos de ese dominio, y su lógica (los conteos por categoría antes del filtro) no le sirve a otra feature tal cual. Se crean en la feature que agregue **el segundo** consumidor; mientras haya uno, la regla es "código de la feature".
 
 **Nota 3 — sin subcarpeta `components/` en las features.** Los componentes viven en la raíz de su feature. `plan.md` de la Feature 001 los situaba en `features/*/components/`; prevalece este documento.
 
@@ -161,6 +184,21 @@ Frontend     obtenerTickets()     listaStock       AutenticacionService
 - Sufijos estructurales de Angular (`Component`, `Service`, `Guard`, `Interceptor`, `Pipe`, `Routes`): se traduce el dominio, no el sufijo. Por eso `auth.service.ts` exporta `AutenticacionService`.
 
 **Los 12 modelos de dominio ya cumplen** la regla: `Institucion`, `Departamento`, `Rol`, `Usuario`, `Categoria`, `Producto`, `Inventario`, `MovimientoInventario`, `Prioridad`, `EstadoTicket`, `Ticket`, `DetalleTicket`.
+
+**Los DTO de lectura también, y en las dos capas.** La Feature 002 agregó un par de
+schemas y su par de tipos de TypeScript, con el mismo nombre en ambos lados:
+
+```text
+Backend      SedeExistenciaRespuesta   ProductoExistenciaRespuesta
+             es_stock_critico()        listar_existencias()
+Frontend     SedeExistencia            ProductoExistencia
+             obtenerExistencias()
+```
+
+Los campos viajan en `snake_case` a propósito: el backend serializa sin alias de
+camelCase, y normalizar en la vista partaría la regla de "los tipos reflejan 1:1 los
+schemas". `shared/interfaces/index.ts` es el único lugar donde viven esos tipos: el
+componente los importa, no los declara.
 
 ## 5. ¿Por qué esta estructura es la correcta para tu Capstone?
 

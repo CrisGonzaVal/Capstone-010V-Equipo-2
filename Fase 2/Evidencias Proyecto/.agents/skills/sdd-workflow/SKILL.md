@@ -67,5 +67,5 @@ Esta skill decide **si** se puede escribir codigo. Las otras deciden **como**:
 ## Cuando terminar una tarea
 
 1. Marca `[ ]` → `[x]` en `tasks.md`.
-2. Corre las pruebas: `cd backend && pytest` y/o `cd frontend && npm test`.
+2. Corre las pruebas: `cd backend && pytest` y `cd frontend && npx ng test --watch=false --browsers=ChromeHeadless` (el `npm test` a secas se cuelga en modo watch; ver `AGENTS.md` §5 para el `CHROME_BIN`).
 3. Si la tarea resulto en una decision arquitectonica (un patron nuevo, un servicio nuevo, una excepcion a una regla), actualiza `stack.md` para que el proximo incremento no tenga que redescubrirlo.

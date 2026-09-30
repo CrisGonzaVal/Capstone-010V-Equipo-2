@@ -59,6 +59,32 @@ export interface RespuestaMovimiento {
   nuevo_stock: number;
 }
 
+/** Fila de `inventario` con el nombre del departamento resuelto. */
+export interface SedeExistencia {
+  inventario_id: number;
+  departamento_id: number;
+  departamento_nombre: string;
+  stock_actual: number;
+  ubicacion: string | null;
+}
+
+/**
+ * Read model de `GET /inventario/existencias`: un elemento por producto del
+ * catalogo, con el total ya calculado y el desglose por sede.
+ */
+export interface ProductoExistencia {
+  producto_id: number;
+  nombre: string;
+  descripcion: string | null;
+  unidad_medida: string | null;
+  stock_minimo: number;
+  categoria_id: number;
+  categoria_nombre: string;
+  stock_total: number;
+  es_critico: boolean;
+  sedes: SedeExistencia[];
+}
+
 // --- Tickets ---
 
 export interface DetalleTicket {

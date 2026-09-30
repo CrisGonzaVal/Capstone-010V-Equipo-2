@@ -18,6 +18,22 @@ Regla de oro del proyecto (`docs/spec/stack.md` §2): **el router es un controla
 7. **`snake_case`** para funciones y variables.
 8. **Identificadores en español** (ver sección siguiente).
 
+## DTO que cruza tablas: sin `from_attributes`
+
+`from_attributes=True` solo sirve para serializar **una** entidad ORM. Si la consulta cruza
+joins o agrega (`stock_total`, un conteo, una lista anidada), Pydantic busca esos campos en
+el objeto y no los encuentra. El schema de salida va **sin** `model_config`, y lo arma el
+service a mano. Patrón completo y razonado en `docs/spec/stack.md` §2 ("Read models de
+consulta"); ejemplo real en `listar_existencias()` de `app/services/inventario_service.py`.
+
+Dos corolarios que se olvidan:
+
+- Con `select()` de estilo Core (columnas sueltas) los joins van con **onclause explícito**:
+  `outerjoin(Inventario, Producto.producto_id == Inventario.producto_id)`. Sin entidad en el
+  `FROM`, SQLAlchemy no puede deducirlos y lanza error.
+- Un filtro sobre el **agregado** (`solo_criticos` sobre `stock_total`) no cabe en el
+  `WHERE`: se aplica en Python tras agrupar.
+
 ## Español en identificadores
 
 Variables, parámetros, funciones, métodos y clases se escriben **en español** (`AGENTS.md` §6).

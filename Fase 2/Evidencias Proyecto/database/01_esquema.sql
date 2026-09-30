@@ -3,6 +3,14 @@
 -- BASE DE DATOS: apt_erp
 -- PostgreSQL
 -- =====================================================
+--
+-- Esquema 3NF de 12 entidades. Solo DDL: aqui no hay TRUNCATE ni INSERT,
+-- los datos de ejemplo son responsabilidad de `02_datos_semilla.sql`.
+--
+-- El prefijo `01_` es obligatorio, no decorativo: este archivo crea las tablas
+-- y la semilla las trunca. PostgreSQL ejecuta los .sql de esta carpeta en orden
+-- alfabetico y con ON_ERROR_STOP=1, asi que si la semilla corriera primero el
+-- arranque abortaria. Ver la cabecera de `02_datos_semilla.sql`.
 
 -- =====================================================
 -- 1. INSTITUCION

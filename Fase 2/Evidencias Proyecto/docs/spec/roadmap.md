@@ -11,7 +11,7 @@ El proyecto se ejecuta en dos grandes Versiones (Releases), priorizando el motor
 #### Sprint 1 (22/Sep/2026 - 12/Oct/2026): Estructura, Catálogo y Emisión de Solicitudes
 - [x] Feature 000: Modelado relacional 3NF y entorno Docker local.
 - [x] Feature 001: Reestructuración modular del proyecto según `docs/spec/stack.md` (servicios, DTOs por dominio, `shared/`/`guards/` en Angular) y convención de identificadores en español.
-- [ ] Feature 002: Catálogo de insumos clasificado y consulta de existencias.
+- [ ] Feature 002: Catálogo de insumos clasificado y consulta de existencias. **Implementada y verificada** (26 AC en verde, 43 casos de backend y 12 tests de frontend); queda solo el recorrido visual manual de la vista, anotado como `[!]` en su `tasks.md`. Por eso la casilla sigue abierta (`AGENTS.md` §8.5).
 - [ ] Feature 003: Formulario modal reactivo y persistencia transaccional de tickets con ítems detallados.
 
 #### Sprint 2 (13/Oct/2026 - 02/Nov/2026): Gestión Kanban y Despacho Físico
@@ -45,3 +45,4 @@ Cada feature tiene su carpeta en `docs/spec/features/NNN-nombre-feature/` con `s
 |---|---|---|
 | 000 | — | Completada (modelado 3NF + Docker) |
 | 001 | `001-reestructuracion-modular/` | [spec.md](features/001-reestructuracion-modular/spec.md) · [plan.md](features/001-reestructuracion-modular/plan.md) · [tasks.md](features/001-reestructuracion-modular/tasks.md) |
+| 002 | `002-catalogo-insumos/` | [spec.md](features/002-catalogo-insumos/spec.md) · [plan.md](features/002-catalogo-insumos/plan.md) · [tasks.md](features/002-catalogo-insumos/tasks.md) |

@@ -1,5 +1,6 @@
-"""AC-7: los 15 endpoints de la API responden correctamente tras la
-reestructuracion (Feature 001, Fase C).
+"""AC-7: los endpoints de la API responden correctamente tras la
+reestructuracion (Feature 001, Fase C). La清单 de lectura incluye
+`/inventario/existencias` desde la Feature 002.
 
 Se verifica el seam HTTP completo, incluidas las rutas de error, porque una
 extraccion de servicios que rompe un `HTTPException` sigue pareciendo sana si
@@ -30,13 +31,14 @@ CASOS_LECTURA = [
     ("categorias", "GET", "/api/v1/inventario/categorias", 200),
     ("productos", "GET", "/api/v1/inventario/productos", 200),
     ("stock", "GET", "/api/v1/inventario/stock", 200),
+    ("existencias", "GET", "/api/v1/inventario/existencias", 200),
     ("tickets", "GET", "/api/v1/tickets/", 200),
 ]
 
 
 @pytest.mark.parametrize("nombre", [caso[0] for caso in CASOS_LECTURA])
 def test_endpoint_de_lectura_responde(cliente, datos_base, nombre):
-    """Las 10 operaciones GET responden 200 con el catalogo sembrado."""
+    """Las 11 operaciones GET responden 200 con el catalogo sembrado."""
     _, metodo, ruta, esperado = next(caso for caso in CASOS_LECTURA if caso[0] == nombre)
     respuesta = cliente.request(metodo, ruta)
     assert respuesta.status_code == esperado, respuesta.text

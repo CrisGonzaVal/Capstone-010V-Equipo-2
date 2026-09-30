@@ -34,7 +34,7 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 - `docs/spec/features/` — Especificaciones por incremento (`spec.md`, `plan.md`, `tasks.md`).
 - `backend/` — API REST FastAPI: `app/main.py`, `app/core/` (`config.py`, `security.py`), `app/db/database.py`, `app/models/` (por entidad), `app/schemas/` (DTOs), `app/services/` (lógica ACID), `app/api/dependencies.py`, `app/api/v1/api.py`, `app/api/v1/endpoints/` (auth, usuarios, inventario, tickets) y `tests/` (pytest).
 - `frontend/` — Aplicación web Angular: `src/app/core/` (guards, interceptors, services), `src/app/shared/` (components, interfaces, pipes), `src/app/features/` (dashboard, inventario, tickets — cada una con `routes.ts` y `services/`) y `src/assets/`.
-- `database/` — Scripts SQL (por ejemplo `script_apt_erp.sql`).
+- `database/` — Scripts SQL. El prefijo numérico **es funcional**, no decorativo: `docker-compose.yml` monta esta carpeta en `/docker-entrypoint-initdb.d` y PostgreSQL los ejecuta **en orden alfabético** al crear el volumen. `01_esquema.sql` (DDL) debe correr antes que `02_datos_semilla.sql` (TRUNCATE + INSERT), o la semilla trunca tablas inexistentes y el arranque aborta con `ON_ERROR_STOP=1`. No cambies un nombre sin revisar el orden.
 - `.agents/skills/` — Skills del proyecto (ver §9). `opencode.json` y `skills-lock.json` configuran tooling.
 
 > **Fuera de alcance**: `../../Fase 1/` y `../../Fase 3/` existen en el mismo repositorio pero **no se leen** (ver §0). No son fuente de verdad para este trabajo.
@@ -55,7 +55,17 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
   La suite corre sobre SQLite en memoria, asi que no necesita el contenedor `db`.
   Ojo: `backend/.dockerignore` excluye `tests/` y `requirements-dev.txt`, asi que
   los tests **no** viven dentro de la imagen; hay que correrlos desde el host.
-- Frontend tests (configurado): `cd frontend && npm test`
+- Frontend tests (configurado):
+  ```
+  cd frontend
+  npx ng test --watch=false --browsers=ChromeHeadless
+  ```
+  **No usar `npm test` a secas**: Karma arranca en modo watch y el comando se queda
+  esperando. Además esta máquina no tiene Chrome, solo Edge, así que hay que
+  apuntar el launcher antes:
+  ```
+  $env:CHROME_BIN = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+  ```
 - Frontend lint (meta — no configurado aún): `cd frontend && ng lint`
 
 ## 6. Convenciones de Código

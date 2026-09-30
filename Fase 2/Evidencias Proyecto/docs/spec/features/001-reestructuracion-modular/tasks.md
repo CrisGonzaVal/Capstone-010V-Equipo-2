@@ -45,7 +45,7 @@ cambios **sin commitear** respecto a la versión commiteada, y ambos tenian
 | `Ticket.prioridad` | `back_populates="prioridad"` (working copy) — no existe en `Prioridad` | `"tickets"` |
 | `Producto.detalle*` ↔ `DetalleTicket.producto` | commiteado: `Producto.detalles_ticket` vs `DetalleTicket` → `"detalles"` — no emparejaban | unificado a `Producto.detalles` ↔ `"detalles"` |
 
-El seed `database/script_apt_erp.sql` solo contiene DDL, sin `INSERT`, así que el
+El seed `database/01_esquema.sql` solo contiene DDL, sin `INSERT`, así que el
 comportamiento de los ids de `estado_ticket` nunca estuvo definido. Verificar con
 `configure_mappers()`: 12 modelos OK.
 
@@ -232,7 +232,7 @@ comportamiento actual, y el agrupamiento real llega con el catalogo de estados.
 
 ## Cierre
 
-- [x] `git diff database/script_apt_erp.sql` vacío (AC-12)
+- [x] `git diff database/01_esquema.sql` sin cambios de DDL (AC-12). Verificado en la Feature 002: 42 sentencias `CREATE TABLE`/`CONSTRAINT`/`REFERENCES` antes y después, `Compare-Object` sin diferencias.
 - [x] `grep -r "@NgModule" frontend/src` → 0 (AC-4)
 - [x] `find backend/app -name "__init__.py"` completo (AC-6)
 - [x] `grep -r "class Config" backend/` → 0 (AC-3)

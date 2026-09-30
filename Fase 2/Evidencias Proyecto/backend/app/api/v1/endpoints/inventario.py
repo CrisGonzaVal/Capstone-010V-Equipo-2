@@ -1,10 +1,14 @@
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.api import dependencies
-from app.schemas.inventario_schema import InventarioRespuesta, MovimientoCrear
+from app.schemas.inventario_schema import (
+    InventarioRespuesta,
+    MovimientoCrear,
+    ProductoExistenciaRespuesta,
+)
 from app.schemas.producto_schema import (
     CategoriaRespuesta,
     ProductoCrear,
@@ -18,6 +22,7 @@ router = APIRouter(prefix="/inventario", tags=["Inventario y Productos"])
 @router.get(
     "/categorias",
     response_model=List[CategoriaRespuesta],
+    status_code=status.HTTP_200_OK,
     summary="Listar categorias de productos",
 )
 def listar_categorias(db: Session = Depends(dependencies.get_db)):
@@ -27,6 +32,7 @@ def listar_categorias(db: Session = Depends(dependencies.get_db)):
 @router.get(
     "/productos",
     response_model=List[ProductoRespuesta],
+    status_code=status.HTTP_200_OK,
     summary="Listar productos del catalogo",
 )
 def listar_productos(db: Session = Depends(dependencies.get_db)):
@@ -44,8 +50,45 @@ def crear_producto(datos: ProductoCrear, db: Session = Depends(dependencies.get_
 
 
 @router.get(
+    "/existencias",
+    response_model=List[ProductoExistenciaRespuesta],
+    status_code=status.HTTP_200_OK,
+    summary="Catalogo de insumos con existencias agrupadas por producto",
+    description=(
+        "Devuelve **un elemento por producto del catalogo**, con el total de stock "
+        "y el desglose por sede. Un producto sin existencias aparece con `sedes` "
+        "vacio y `stock_total` en 0, en vez de desaparecer. `solo_criticos` se "
+        "evalua sobre el total: un producto con `stock_total <= stock_minimo` "
+        "queda marcado como critico."
+    ),
+)
+def listar_existencias(
+    q: Optional[str] = Query(
+        default=None,
+        description="Busqueda parcial, sin distincion de mayusculas, sobre nombre y descripcion.",
+    ),
+    categoria_id: Optional[int] = Query(default=None, description="Filtra por categoria."),
+    departamento_id: Optional[int] = Query(
+        default=None, description="Acota el stock y las sedes a un departamento.",
+    ),
+    solo_criticos: bool = Query(
+        default=False, description="Deja solo los productos con stock igual o bajo el minimo."
+    ),
+    db: Session = Depends(dependencies.get_db),
+):
+    return inventario_service.listar_existencias(
+        db,
+        q=q,
+        categoria_id=categoria_id,
+        departamento_id=departamento_id,
+        solo_criticos=solo_criticos,
+    )
+
+
+@router.get(
     "/stock",
     response_model=List[InventarioRespuesta],
+    status_code=status.HTTP_200_OK,
     summary="Listar existencias, opcionalmente por departamento",
 )
 def listar_inventario(
