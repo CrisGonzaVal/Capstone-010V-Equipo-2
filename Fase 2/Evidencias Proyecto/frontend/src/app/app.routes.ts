@@ -1,22 +1,36 @@
 import { Routes } from '@angular/router';
 
+/**
+ * Enrutador raiz. Cada feature se carga con `loadChildren`, de modo que su
+ * bundle se descarga solo cuando se navega a ella (AC-10).
+ *
+ * `canActivate` no se aplica a proposito: los guards existen
+ * (`core/guards/`) pero la autenticacion sigue decorativa y no hay login, asi
+ * que activarlos dejaria la app inaccesible. Ver la nota en `auth.guard.ts`.
+ */
 export const routes: Routes = [
   { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
-  { 
-    path: 'dashboard', 
-    loadComponent: () => import('./features/dashboard/dashboard.component').then(m => m.DashboardComponent) 
+  {
+    path: 'dashboard',
+    loadChildren: () =>
+      import('./features/dashboard/dashboard.routes').then((m) => m.dashboardRoutes),
   },
-  { 
-    path: 'inventario', 
-    loadComponent: () => import('./features/inventario/inventario.component').then(m => m.InventarioComponent) 
+  {
+    path: 'inventario',
+    loadChildren: () =>
+      import('./features/inventario/inventario.routes').then((m) => m.inventarioRoutes),
   },
-  { 
-    path: 'tickets', 
-    loadComponent: () => import('./features/tickets/tickets.component').then(m => m.TicketsComponent) 
+  {
+    path: 'tickets',
+    loadChildren: () =>
+      import('./features/tickets/tickets.routes').then((m) => m.ticketsRoutes),
   },
-  { 
-    path: 'administracion', 
-    loadComponent: () => import('./features/administracion/administracion.component').then(m => m.AdministracionComponent) 
+  {
+    path: 'administracion',
+    loadChildren: () =>
+      import('./features/administracion/administracion.routes').then(
+        (m) => m.administracionRoutes,
+      ),
   },
-  { path: '**', redirectTo: 'dashboard' }
+  { path: '**', redirectTo: 'dashboard' },
 ];

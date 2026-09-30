@@ -1,105 +1,103 @@
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 
+/** Encabezado de una columna del tablero. */
+interface ColumnaKanban {
+  estado: string;
+  tarjetas: TarjetaKanban[];
+}
+
+interface TarjetaKanban {
+  referencia: string;
+  prioridad: 'ALTA' | 'MEDIA' | 'BAJA';
+  departamento: string;
+  descripcion: string;
+}
+
+const CLASES_PRIO = {
+  ALTA: 'text-rose-600 bg-rose-50',
+  MEDIA: 'text-blue-600 bg-blue-50',
+  BAJA: 'text-amber-600 bg-amber-50',
+} as const;
+
+/**
+ * Tablero Kanban de tickets.
+ *
+ * **Los datos son de muestra, no vienen de la API.** Se conserva el
+ * comportamiento actual en vez de inventar el agrupamiento: para distribuir
+ * tickets en columnas haria falta un endpoint que exponga el *nombre* del
+ * estado, porque hoy `Ticket` solo trae `estado_id` y esos ids dependen del
+ * orden en que se llenaron las secuencias de identidad.
+ *
+ * Ya se documento ese problema en el backend como `ESTADO_CERRADO_ID` en
+ * `ticket_service.py`: un id fijo resulto ser falso. Codificar el mismo supuesto
+ * aca repetiria el error en otra capa. El agrupamiento real llega con el
+ * catalogo de estados (Feature 004/005).
+ */
 @Component({
   selector: 'app-tickets',
   standalone: true,
-  imports: [CommonModule],
-  template: `
-    <div class="space-y-6">
-      <div class="flex justify-between items-center">
-        <div>
-          <h2 class="text-2xl font-bold text-slate-800">Sistema de Tickets y Kanban</h2>
-          <p class="text-sm text-slate-500">Gestión de solicitudes e insumos entre departamentos</p>
-        </div>
-        <button class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg shadow transition">
-          + Crear Ticket
-        </button>
-      </div>
-
-      <!-- Tablero Kanban -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <!-- Columna 1: Ingresado -->
-        <div class="bg-slate-200/60 p-4 rounded-xl flex flex-col space-y-4">
-          <div class="flex justify-between items-center">
-            <h3 class="font-bold text-slate-700">INGRESADO</h3>
-            <span class="bg-white text-slate-700 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">2</span>
-          </div>
-          <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-2">
-            <div class="flex justify-between items-start">
-              <span class="text-xs font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded">ALTA</span>
-              <span class="text-xs text-slate-400">#101</span>
-            </div>
-            <h4 class="font-bold text-slate-800 text-sm">Dpto. Salud</h4>
-            <p class="text-xs text-slate-500">Insumos varios: Guantes, Mascarillas, Jeringas</p>
-          </div>
-          <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-2">
-            <div class="flex justify-between items-start">
-              <span class="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded">BAJA</span>
-              <span class="text-xs text-slate-400">#102</span>
-            </div>
-            <h4 class="font-bold text-slate-800 text-sm">Construcción</h4>
-            <p class="text-xs text-slate-500">Materiales: Cemento, Ladrillos</p>
-          </div>
-        </div>
-
-        <!-- Columna 2: En Preparación -->
-        <div class="bg-slate-200/60 p-4 rounded-xl flex flex-col space-y-4">
-          <div class="flex justify-between items-center">
-            <h3 class="font-bold text-slate-700">EN PREPARACIÓN</h3>
-            <span class="bg-white text-slate-700 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">2</span>
-          </div>
-          <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-2">
-            <div class="flex justify-between items-start">
-              <span class="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">MEDIA</span>
-              <span class="text-xs text-slate-400">#099</span>
-            </div>
-            <h4 class="font-bold text-slate-800 text-sm">Dpto. Administración</h4>
-            <p class="text-xs text-slate-500">Artículos de oficina: Papel, Toner, Carpetas</p>
-          </div>
-          <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-2">
-            <div class="flex justify-between items-start">
-              <span class="text-xs font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded">ALTA</span>
-              <span class="text-xs text-slate-400">#098</span>
-            </div>
-            <h4 class="font-bold text-slate-800 text-sm">Dpto. IT</h4>
-            <p class="text-xs text-slate-500">Componentes: Cable UTP, Monitores</p>
-          </div>
-        </div>
-
-        <!-- Columna 3: Despachado -->
-        <div class="bg-slate-200/60 p-4 rounded-xl flex flex-col space-y-4">
-          <div class="flex justify-between items-center">
-            <h3 class="font-bold text-slate-700">DESPACHADO</h3>
-            <span class="bg-white text-slate-700 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">1</span>
-          </div>
-          <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-2">
-            <div class="flex justify-between items-start">
-              <span class="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded">BAJA</span>
-              <span class="text-xs text-slate-400">#095</span>
-            </div>
-            <h4 class="font-bold text-slate-800 text-sm">Dpto. Logística</h4>
-            <p class="text-xs text-slate-500">Herramientas: Cajas plásticas, Etiquetas</p>
-          </div>
-        </div>
-
-        <!-- Columna 4: Entregado -->
-        <div class="bg-slate-200/60 p-4 rounded-xl flex flex-col space-y-4">
-          <div class="flex justify-between items-center">
-            <h3 class="font-bold text-slate-700">ENTREGADO</h3>
-            <span class="bg-white text-slate-700 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">1</span>
-          </div>
-          <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-2">
-            <div class="flex justify-between items-start">
-              <span class="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">MEDIA</span>
-              <span class="text-xs text-slate-400">#090</span>
-            </div>
-            <h4 class="font-bold text-slate-800 text-sm">Dpto. Ventas</h4>
-            <p class="text-xs text-slate-500">Material promocional: Folletos, Banners</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  `
+  templateUrl: './tickets.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class TicketsComponent {}
+export class TicketsComponent {
+  readonly columnas = signal<ColumnaKanban[]>([
+    {
+      estado: 'INGRESADO',
+      tarjetas: [
+        {
+          referencia: '#101',
+          prioridad: 'ALTA',
+          departamento: 'Dpto. Salud',
+          descripcion: 'Insumos varios: Guantes, Mascarillas, Jeringas',
+        },
+        {
+          referencia: '#102',
+          prioridad: 'BAJA',
+          departamento: 'Construcción',
+          descripcion: 'Materiales: Cemento, Ladrillos',
+        },
+      ],
+    },
+    {
+      estado: 'EN PREPARACIÓN',
+      tarjetas: [
+        {
+          referencia: '#099',
+          prioridad: 'MEDIA',
+          departamento: 'Dpto. Administración',
+          descripcion: 'Artículos de oficina: Papel, Toner, Carpetas',
+        },
+        {
+          referencia: '#098',
+          prioridad: 'ALTA',
+          departamento: 'Dpto. IT',
+          descripcion: 'Componentes: Cable UTP, Monitores',
+        },
+      ],
+    },
+    {
+      estado: 'DESPACHADO',
+      tarjetas: [
+        {
+          referencia: '#095',
+          prioridad: 'BAJA',
+          departamento: 'Dpto. Logística',
+          descripcion: 'Herramientas: Cajas plásticas, Etiquetas',
+        },
+      ],
+    },
+    {
+      estado: 'ENTREGADO',
+      tarjetas: [
+        {
+          referencia: '#090',
+          prioridad: 'MEDIA',
+          departamento: 'Dpto. Ventas',
+          descripcion: 'Material promocional: Folletos, Banners',
+        },
+      ],
+    },
+  ]);
+
+  readonly clasesPrioridad = CLASES_PRIO;
+}

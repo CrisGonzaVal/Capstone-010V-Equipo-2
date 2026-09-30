@@ -1,0 +1,87 @@
+<div class="space-y-6">
+  <div class="flex justify-between items-center">
+    <div>
+      <h2 class="text-2xl font-bold text-slate-800">Gestión de Inventario</h2>
+      <p class="text-sm text-slate-500">
+        Control de stock y movimientos en tiempo real (Conectado a FastAPI &amp; PostgreSQL)
+      </p>
+    </div>
+    <button
+      type="button"
+      class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg shadow transition flex items-center space-x-2"
+    >
+      <span>+ Nuevo Producto</span>
+    </button>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+    <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+      <input
+        type="text"
+        placeholder="Buscar insumos..."
+        aria-label="Buscar insumos"
+        class="w-full max-w-md px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      <span class="text-sm text-slate-500">Total registros: {{ listaStock().length }}</span>
+    </div>
+
+    @if (mensajeError(); as mensaje) {
+      <div
+        role="alert"
+        class="m-4 p-4 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-800"
+      >
+        {{ mensaje }}
+      </div>
+    }
+
+    <table class="w-full text-left border-collapse">
+      <caption class="sr-only">
+        Existencias de inventario por sede
+      </caption>
+      <thead>
+        <tr class="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-100">
+          <th scope="col" class="py-3 px-6">ID</th>
+          <th scope="col" class="py-3 px-6">Producto</th>
+          <th scope="col" class="py-3 px-6">Ubicación</th>
+          <th scope="col" class="py-3 px-6">Stock Actual</th>
+          <th scope="col" class="py-3 px-6">Stock Mínimo</th>
+          <th scope="col" class="py-3 px-6 text-right">Acciones</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
+        @for (item of listaStock(); track item.inventario_id) {
+          <tr class="hover:bg-slate-50">
+            <td class="py-4 px-6 font-medium text-slate-900">{{ item.inventario_id }}</td>
+            <td class="py-4 px-6">
+              {{ item.producto?.nombre ?? 'Producto #' + item.producto_id }}
+            </td>
+            <td class="py-4 px-6">{{ item.ubicacion ?? 'Bodega Central' }}</td>
+            <td
+              class="py-4 px-6 font-bold"
+              [class.text-rose-600]="esStockCritico(item)"
+              [class.text-emerald-600]="!esStockCritico(item)"
+            >
+              {{ item.stock_actual }}
+            </td>
+            <td class="py-4 px-6 text-slate-500">{{ item.producto?.stock_minimo ?? 0 }}</td>
+            <td class="py-4 px-6 text-right space-x-2">
+              <button type="button" class="text-blue-600 hover:text-blue-800 font-medium">
+                Registrar Movimiento
+              </button>
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="6" class="py-8 text-center text-slate-400">
+              @if (cargando()) {
+                Cargando inventario...
+              } @else if (!mensajeError()) {
+                No hay registros de inventario en la base de datos.
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

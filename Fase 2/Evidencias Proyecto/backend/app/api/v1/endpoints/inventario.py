@@ -1,52 +1,69 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from typing import List
-from app.core.database import get_db
-from app.models.models import Producto, Inventario, MovimientoInventario, Categoria
-from app.schemas.schemas import ProductoCreate, ProductoResponse, InventarioResponse, MovimientoCreate, CategoriaResponse
+
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
+
+from app.api import dependencies
+from app.schemas.inventario_schema import InventarioRespuesta, MovimientoCrear
+from app.schemas.producto_schema import (
+    CategoriaRespuesta,
+    ProductoCrear,
+    ProductoRespuesta,
+)
+from app.services import inventario_service
 
 router = APIRouter(prefix="/inventario", tags=["Inventario y Productos"])
 
-@router.get("/categorias", response_model=List[CategoriaResponse])
-def listar_categorias(db: Session = Depends(get_db)):
-    return db.query(Categoria).all()
 
-@router.get("/productos", response_model=List[ProductoResponse])
-def listar_productos(db: Session = Depends(get_db)):
-    return db.query(Producto).all()
+@router.get(
+    "/categorias",
+    response_model=List[CategoriaRespuesta],
+    summary="Listar categorias de productos",
+)
+def listar_categorias(db: Session = Depends(dependencies.get_db)):
+    return inventario_service.listar_categorias(db)
 
-@router.post("/productos", response_model=ProductoResponse, status_code=status.HTTP_201_CREATED)
-def crear_producto(producto: ProductoCreate, db: Session = Depends(get_db)):
-    db_producto = Producto(**producto.model_dump())
-    db.add(db_producto)
-    db.commit()
-    db.refresh(db_producto)
-    return db_producto
 
-@router.get("/stock", response_model=List[InventarioResponse])
-def listar_inventario(departamento_id: int = None, db: Session = Depends(get_db)):
-    query = db.query(Inventario)
-    if departamento_id:
-        query = query.filter(Inventario.departamento_id == departamento_id)
-    return query.all()
+@router.get(
+    "/productos",
+    response_model=List[ProductoRespuesta],
+    summary="Listar productos del catalogo",
+)
+def listar_productos(db: Session = Depends(dependencies.get_db)):
+    return inventario_service.listar_productos(db)
 
-@router.post("/movimientos", status_code=status.HTTP_201_CREATED)
-def registrar_movimiento(movimiento: MovimientoCreate, db: Session = Depends(get_db)):
-    inventario = db.query(Inventario).filter(Inventario.inventario_id == movimiento.inventario_id).first()
-    if not inventario:
-        raise HTTPException(status_code=404, detail="Inventario no encontrado")
-    
-    if movimiento.tipo_movimiento.upper() == 'ENTRADA':
-        inventario.stock_actual += movimiento.cantidad
-    elif movimiento.tipo_movimiento.upper() == 'SALIDA':
-        if inventario.stock_actual < movimiento.cantidad:
-            raise HTTPException(status_code=400, detail="Stock insuficiente para realizar la salida")
-        inventario.stock_actual -= movimiento.cantidad
-    else:
-        raise HTTPException(status_code=400, detail="Tipo de movimiento inválido (Use 'ENTRADA' o 'SALIDA')")
 
-    db_mov = MovimientoInventario(**movimiento.model_dump())
-    db.add(db_mov)
-    db.commit()
-    
-    return {"message": "Movimiento registrado exitosamente", "nuevo_stock": inventario.stock_actual}
+@router.post(
+    "/productos",
+    response_model=ProductoRespuesta,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear un producto en el catalogo",
+)
+def crear_producto(datos: ProductoCrear, db: Session = Depends(dependencies.get_db)):
+    return inventario_service.crear_producto(db, datos)
+
+
+@router.get(
+    "/stock",
+    response_model=List[InventarioRespuesta],
+    summary="Listar existencias, opcionalmente por departamento",
+)
+def listar_inventario(
+    departamento_id: int = None, db: Session = Depends(dependencies.get_db)
+):
+    return inventario_service.listar_inventario(db, departamento_id)
+
+
+@router.post(
+    "/movimientos",
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar una entrada o salida de stock",
+)
+def registrar_movimiento(
+    datos: MovimientoCrear, db: Session = Depends(dependencies.get_db)
+):
+    inventario = inventario_service.registrar_movimiento(db, datos)
+    return {
+        "message": "Movimiento registrado exitosamente",
+        "nuevo_stock": inventario.stock_actual,
+    }

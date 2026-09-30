@@ -15,6 +15,7 @@ venv/
 *.md
 tests/
 *.txt
+!requirements.txt
 .env.local
 .vscode/
 .idea/

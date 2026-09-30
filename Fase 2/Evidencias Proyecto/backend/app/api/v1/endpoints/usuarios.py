@@ -1,36 +1,40 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from typing import List
-from app.core.database import get_db
-from app.models.models import Usuario, Rol, Departamento, Institucion
-from app.schemas.schemas import UsuarioCreate, UsuarioResponse
 
-router = APIRouter(prefix="/usuarios", tags=["Administración y Roles"])
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
 
-@router.get("/", response_model=List[UsuarioResponse])
-def listar_usuarios(db: Session = Depends(get_db)):
-    return db.query(Usuario).all()
+from app.api import dependencies
+from app.schemas.usuario_schema import UsuarioCrear, UsuarioRespuesta
+from app.services import usuario_service
 
-@router.post("/", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
-def crear_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
-    db_usuario = db.query(Usuario).filter(Usuario.correo == usuario.correo).first()
-    if db_usuario:
-        raise HTTPException(status_code=400, detail="El correo ya está registrado")
-    
-    nuevo_usuario = Usuario(**usuario.model_dump())
-    db.add(nuevo_usuario)
-    db.commit()
-    db.refresh(nuevo_usuario)
-    return nuevo_usuario
+router = APIRouter(prefix="/usuarios", tags=["Administracion y Roles"])
 
-@router.get("/roles")
-def listar_roles(db: Session = Depends(get_db)):
-    return db.query(Rol).all()
 
-@router.get("/departamentos")
-def listar_departamentos(db: Session = Depends(get_db)):
-    return db.query(Departamento).all()
+@router.get("/", response_model=List[UsuarioRespuesta], summary="Listar usuarios")
+def listar_usuarios(db: Session = Depends(dependencies.get_db)):
+    return usuario_service.listar_usuarios(db)
 
-@router.get("/instituciones")
-def listar_instituciones(db: Session = Depends(get_db)):
-    return db.query(Institucion).all()
+
+@router.post(
+    "/",
+    response_model=UsuarioRespuesta,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear un usuario",
+)
+def crear_usuario(datos: UsuarioCrear, db: Session = Depends(dependencies.get_db)):
+    return usuario_service.crear_usuario(db, datos)
+
+
+@router.get("/roles", summary="Listar roles disponibles")
+def listar_roles(db: Session = Depends(dependencies.get_db)):
+    return usuario_service.listar_roles(db)
+
+
+@router.get("/departamentos", summary="Listar departamentos")
+def listar_departamentos(db: Session = Depends(dependencies.get_db)):
+    return usuario_service.listar_departamentos(db)
+
+
+@router.get("/instituciones", summary="Listar instituciones")
+def listar_instituciones(db: Session = Depends(dependencies.get_db)):
+    return usuario_service.listar_instituciones(db)

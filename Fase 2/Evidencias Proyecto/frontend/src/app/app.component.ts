@@ -1,20 +1,20 @@
-import { Component } from '@angular/core';
-import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
-import { CommonModule } from '@angular/common';
+import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive],
   templateUrl: './app.component.html',
-  styleUrl: './app.component.scss'
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-class AppComponent {
-  title = 'CompuStock ERP';
-  sidebarOpen = true;
+export class AppComponent {
+  readonly titulo = 'CompuStock ERP';
 
-  toggleSidebar() {
-    this.sidebarOpen = !this.sidebarOpen;
+  /** `sidebarAbierto` es un signal, no un booleano mutable: el toggle re-renderiza solo. */
+  readonly sidebarAbierto = signal(true);
+
+  alternarSidebar(): void {
+    this.sidebarAbierto.update((abierto) => !abierto);
   }
 }
-export { AppComponent };
