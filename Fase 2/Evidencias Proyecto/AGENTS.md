@@ -45,6 +45,13 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 - Levantar infraestructura local: `docker compose -f docker-compose.yml up -d`
 - Backend dev server: `cd backend && uvicorn app.main:app --reload --port 8000`
 - Frontend dev server: `cd frontend && npm start` (puerto 4200)
+- **Dos puertos del frontend, y no son lo mismo.** `4200` es el dev server de `npm start` y
+  siempre sirve el código actual. `8080` es el contenedor nginx: sirve un **build de
+  producción congelado en la imagen**, sin volumen montado, así que no ve los cambios del
+  código. Para que el 8080 refleje una feature hay que reconstruir la imagen:
+  `docker compose -f docker-compose.yml build frontend` y luego `up -d frontend`. Hazlo al
+  cerrar cada feature: verificar en 8080 sin reconstruir da falsos negativos ("la vista
+  sigue igual") y falsos positivos.
 - Backend tests (suite activa desde la Feature 001, Fase C):
   ```
   cd backend
@@ -103,8 +110,9 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 2. Cada funcionalidad debe poseer su carpeta `docs/spec/features/NNN-nombre-feature/`.
 3. Ciclo de ejecución: `spec.md` (Qué y Criterios) → `plan.md` (Cómo técnico) → `tasks.md` (Checklist de tareas) → Código verificado contra pruebas.
 4. Si la certeza de una decisión es inferior al 80%, solicitar clarificación en lugar de asumir.
-5. **Cierre de feature = verificación, no marcado.** Marcar `[x]` en `roadmap.md` solo después de: (a) `tasks.md` con todas sus casillas marcadas, incluidos los checks de "Cierre"; (b) `spec.md` §5 con cada AC marcado y **su evidencia de verificación**; (c) tests en verde.
-6. **Mover o borrar un archivo no actualiza los `.md` que lo citan.** Al cerrar una feature, hacer un `grep` de coherencia sobre `AGENTS.md`, `MEMORY.md` y `.agents/skills/` para confirmar que ninguna ruta citada ni afirmación sobre el estado del proyecto quedó obsoleta. Una skill desactualizada es peor que un `.md` desactualizado: se carga sola e instruye al agente sobre código que ya no existe.
+5. **Cierre de feature = verificación, no marcado.** Marcar `[x]` en `roadmap.md` solo después de: (a) `tasks.md` con todas sus casillas marcadas, incluidos los checks de "Cierre"; (b) `spec.md` §5 con cada AC marcado y **su evidencia de verificación**; (c) tests en verde; (d) recorrido en los **dos** puertos (§5).
+6. **Una feature no está cerrada hasta que 8080 la refleja.** 4200 es el recorrido funcional (incluye escritura real contra la BD) y es la evidencia principal. 8080 exige antes `docker compose -f docker-compose.yml build frontend` + `up -d frontend`, y el recorrido ahí es de humo: que la vista nueva esté y que el flujo básico responda. No es redundante con 4200, porque fallan cosas que el dev server nunca ejecuta: el build de producción con sus presupuestos, el `try_files` de nginx para rutas Angular, y el cacheo de bundles con hash. Ojo con la asimetría: **el backend sí se actualiza solo** (el contenedor monta `./backend/app` como volumen y corre `uvicorn --reload`), el frontend no. Por eso una feature que solo toca Python no necesita reconstruir la imagen para probar su API, aunque 8080 siga mostrando el frontend viejo.
+7. **Mover o borrar un archivo no actualiza los `.md` que lo citan.** Al cerrar una feature, hacer un `grep` de coherencia sobre `AGENTS.md`, `MEMORY.md` y `.agents/skills/` para confirmar que ninguna ruta citada ni afirmación sobre el estado del proyecto quedó obsoleta. Una skill desactualizada es peor que un `.md` desactualizado: se carga sola e instruye al agente sobre código que ya no existe.
 
 ## 9. Skills del Proyecto
 Las convenciones de §6 y el flujo de §8 están codificados como skills en `.agents/skills/`, con ejemplos de código antes/después. Cargar la que corresponda **antes** de escribir:

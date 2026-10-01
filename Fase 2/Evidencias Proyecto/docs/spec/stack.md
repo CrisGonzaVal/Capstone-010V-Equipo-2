@@ -109,6 +109,26 @@ El patrón que usa `listar_existencias()` en `inventario_service.py`:
 
 Es el patrón a seguir para cualquier consulta de lectura que no sea "una tabla, una fila".
 
+#### Variante: catálogo multi-lista (Feature 003)
+
+`obtener_catalogos()` en `ticket_service.py` devuelve cuatro listas en un solo DTO, y ahí
+el patrón anterior se abre en dos:
+
+- **Una consulta por lista, no un `UNION`.** Los cuatro conjuntos no comparten clave y un
+  `UNION` obligaría a castear filas de 3 columnas a 5. Cada lista usa la técnica que le
+  corresponde: las dos de entidad son `select(Modelo)` con `.scalars()`, y las dos que
+  cruzan tablas son `select()` de columnas con `.mappings()` para validar el DTO desde dict.
+- **Aquí sí hay `GROUP BY`, agrupando por clave primaria** (`Producto.producto_id`), porque
+  el agregado es una sola columna y no hace falta acumular en Python. Las columnas del
+  `group_by` tienen que listar **todas** las del `SELECT`: PostgreSQL 16 lo exige y SQLite es
+  más laxo, así que un `group_by` incompleto pasa la suite en memoria y revienta en el
+  contenedor.
+- **`outerjoin` + `func.coalesce(func.sum(...), 0)`** cuando el DTO declara `NOT NULL` y la
+  fila puede no existir: un producto sin filas en `inventario` sale en `0`, no en `None`.
+- **El orden de las listas es parte del contrato**, no un detalle: los desplegables del
+  frontend toman `estados[0]` como estado inicial (D-4 de la 003). Ordenar por
+  `estado_id` da el primero del flujo; ordenar por nombre daría otro.
+
 ### 3. Estructura del Frontend (Angular 18 Standalone)
 En Angular moderno (sin NgModules), la clave es el agrupamiento por Características (Features). Esto facilita el Lazy Loading (carga perezosa) y hace que la aplicación escale sin que el código se enrede.
 
@@ -133,6 +153,7 @@ frontend/
         │   └── services/      # Servicios globales puros (auth.service.ts → AutenticacionService)
         │
         ├── shared/            # 🧩 Tipos y piezas reutilizables por cualquier feature
+        │   ├── config/        # url-api.ts → URL_API (constante de la API, sin dependencia de dominio)
         │   └── interfaces/    # Tipos TypeScript que reflejan los schemas del backend
         │
         └── features/          # 🚀 Dominios de Negocio (Smart Components)
@@ -141,7 +162,7 @@ frontend/
             │   └── dashboard.routes.ts
             │
             ├── inventario/
-            │   ├── services/               # inventario.service.ts (+ URL_API)
+            │   ├── services/               # inventario.service.ts (importa URL_API de shared/config)
             │   ├── inventario.component.ts # Vista principal
             │   └── inventario.routes.ts
             │
@@ -161,6 +182,21 @@ frontend/
 **Nota 2 — `shared/components/` y `shared/pipes/` están planificados pero vacíos.** Los diagramas los preveen; la Feature 001 no los creó porque ningún componente actual tendría un consumidor real, y un componente sin uso es código muerto. **La Feature 002 vuelve a revisar la pregunta y vuelve a no crearlos**: la barra de filtros y el panel de categorías de la vista de inventario son específicos de ese dominio, y su lógica (los conteos por categoría antes del filtro) no le sirve a otra feature tal cual. Se crean en la feature que agregue **el segundo** consumidor; mientras haya uno, la regla es "código de la feature".
 
 **Nota 3 — sin subcarpeta `components/` en las features.** Los componentes viven en la raíz de su feature. `plan.md` de la Feature 001 los situaba en `features/*/components/`; prevalece este documento.
+
+**Nota 4 — `shared/config/url-api.ts` (Feature 003).** `URL_API` nació dentro de
+`features/inventario/services/inventario.service.ts`, lo que incumplía en los hechos el
+`AC-10` de la Feature 001 ("nada fuera de `shared/`") en cuanto una segunda feature lo
+necesitó. Vive ahora en `shared/config/` porque es una constante de infraestructura de la
+que dependen todas las features y no pertenece a ningún dominio. Si alguna vez necesita
+diferirse por entorno, se resuelve con un interceptor de entorno, no con un segundo
+`URL_API` en cada feature.
+
+**Nota 5 — errores de validación del backend en el formulario (Feature 003).** FastAPI
+responde 422 con `detail` como lista de objetos `{"loc": [...], "msg": ...}`. Para un
+`FormArray`, `loc` llega como `['body', 'detalles', <índice de fila>, '<campo>']`, así que
+el mapeo toma `loc.at(-2)` como índice de fila y `loc.at(-1)` como nombre de campo. El caso
+`['body', 'asunto']` no tiene fila y hay que tratarlo aparte: no se puede usar un alias de
+plantilla en el `@else if` de un `@if` para repetir la condición del error de la cabecera.
 
 **Regla de oro del Frontend**: Todo lo que va en `features/` es específico de ese módulo de negocio y debe ser Lazy Loaded desde `app.routes.ts` con `loadChildren`. Todo lo que va en `shared/` puede ser usado por cualquier feature. No uses clases de CSS quemadas en el HTML, usa clases de Tailwind. Todo se importa con la función `inject()` de Angular 14+.
 

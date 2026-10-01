@@ -2,9 +2,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { URL_API } from '../../shared/config/url-api';
 import { Categoria, ProductoExistencia, SedeExistencia } from '../../shared/interfaces';
 import { InventarioComponent } from './inventario.component';
-import { URL_API } from './services/inventario.service';
 
 const RUTA_EXISTENCIAS = `${URL_API}/inventario/existencias`;
 const RUTA_CATEGORIAS = `${URL_API}/inventario/categorias`;

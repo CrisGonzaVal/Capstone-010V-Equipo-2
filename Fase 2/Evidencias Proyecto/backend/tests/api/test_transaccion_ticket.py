@@ -35,11 +35,12 @@ def test_detalle_invalido_no_deja_ticket_huerfano(cliente_sin_excepcion, datos_b
     )
 
     respuesta = cliente_sin_excepcion.post("/api/v1/tickets/", json=cuerpo)
-    # DEFECTO CONOCIDO: la API responde 500 en vez de 4xx porque `crear_ticket`
-    # no traduce el `IntegrityError`. Es preexistente (no lo introdujo la
-    # extraccion a servicios) y esta fuera del alcance de la Feature 001, que
-    # solo reordena codigo. Ver "Hallazgos de la Fase C" en `tasks.md`.
-    assert respuesta.status_code == 500, respuesta.text
+    # DEFECTO CONOCIDO: la API respondia 500 en vez de 4xx porque `crear_ticket`
+    # no traducía el `IntegrityError`. Este test documentaba ese 500 como
+    # comportamiento esperado (Feature 001, Fase C). La Feature 003 corrige ese
+    # defecto preexistente: las referencias se comprueban antes de escribir, por
+    # lo que la respuesta pasa a ser **404** y el mensaje nombra la referencia.
+    assert respuesta.status_code == 404, respuesta.text
 
     # Lo que AC-8 protege de verdad: el ticket no debe existir. Esta asercion
     # falla si alguien reintroduce el `commit()` intermedio.
@@ -59,7 +60,7 @@ def test_detalle_invalido_no_deja_ticket_por_mas_que_haya_tres_detalles(
     respuesta = cliente_sin_excepcion.post(
         "/api/v1/tickets/", json=_cuerpo_ticket(datos_base, detalles)
     )
-    assert respuesta.status_code == 500
+    assert respuesta.status_code == 404
     assert cliente_sin_excepcion.get("/api/v1/tickets/").json() == []
 
 
@@ -98,7 +99,8 @@ def test_detalle_invalido_no_altera_el_stock(cliente_sin_excepcion, datos_base):
             {"producto_id": 999999, "cantidad_solicitada": 1},
         ],
     )
-    assert cliente_sin_excepcion.post("/api/v1/tickets/", json=cuerpo).status_code == 500
+    # 404 desde la Feature 003 (antes 500 por el defecto de FK).
+    assert cliente_sin_excepcion.post("/api/v1/tickets/", json=cuerpo).status_code == 404
 
     stock_despues = cliente_sin_excepcion.get("/api/v1/inventario/stock").json()[0]["stock_actual"]
     assert stock_despues == stock_antes

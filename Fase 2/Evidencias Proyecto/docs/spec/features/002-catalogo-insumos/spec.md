@@ -71,7 +71,7 @@ explícitamente, y una vista que de verdad filtra en lugar de fingir que filtra.
 - **`crear_ticket` y su validación de stock.** Es Feature 003, junto con la corrección
   del 500 por FK inválida en tickets.
 - **El dashboard.** `features/dashboard/` sigue con sus 4 KPI hardcodeados. Las
-  cifras reales son de la Feature 009 (`roadmap.md:34`).
+  cifras reales son de la Feature 009 ("Dashboard analítico de stock crítico", Sprint 4 del roadmap).
 - **`shared/components/` y `shared/pipes/`.** Se mantienen sin crear: la barra de
   filtros y el panel de categorías son específicos de inventario, y un componente
   compartido sin segundo consumidor es código muerto (`stack.md` §3, Nota 2).
@@ -350,9 +350,14 @@ esperando navegador: ver `AGENTS.md` §5).
 `ilike` se comporte distinto en el motor de producción. Los 4 filtros, el orden y la
 forma de la respuesta se comportaron igual que en la suite.
 
-**Único punto sin verificación automática:** el recorrido visual de la vista en el
-navegador (que el panel salga en columna a 1366px y la tabla no se corte). Queda como
-`[!]` en `tasks.md` y es un paso manual de 2 minutos.
+**Punto sin verificación automática, ya cerrado:** el recorrido visual de la vista en el
+navegador. Se resolvió el 30/Sep/2026 en dos partes. La geometría, con el DOM ya
+renderizado a 1366×900: 10 filas en orden determinista, 3 badges `Crítico` (los mismos 3
+de la API), 10 renglones de sede con departamento y ubicación, el panel de categorías con
+los conteos que suman 10, el contenedor `grid gap-6 xl:grid-cols-[220px_1fr]` que a 1366px
+deja el panel en columna de 220px, y la tabla dentro de `overflow-x-auto` con
+`min-w-[760px]`. La legibilidad, revisada a esa resolución. La evidencia completa está en
+`tasks.md`, Fase D.
 
 ## 7. Restricciones
 

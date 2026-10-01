@@ -11,9 +11,7 @@ import {
   ProductoExistencia,
   RespuestaMovimiento,
 } from '../../../shared/interfaces';
-
-/** Raiz de la API. Coincide con el `prefix` de `app/api/v1/api.py`. */
-export const URL_API = 'http://localhost:8000/api/v1';
+import { URL_API } from '../../../shared/config/url-api';
 
 /**
  * HTTP del catalogo y del stock.

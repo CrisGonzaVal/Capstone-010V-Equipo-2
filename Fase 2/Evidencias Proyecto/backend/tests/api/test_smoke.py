@@ -149,17 +149,18 @@ def test_actualizar_estado_de_ticket_inexistente_responde_404(cliente, datos_bas
     assert respuesta.status_code == 404, respuesta.text
 
 
-def test_ticket_con_producto_inexistente_responde_500_defecto_conocido(
-    cliente_sin_excepcion, datos_base
-):
-    """DEFECTO PREEXISTENTE, documentado en `tasks.md` (Fase C).
+def test_ticket_con_producto_inexistente_responde_404(cliente_sin_excepcion, datos_base):
+    """Regresion de un defecto PREEXISTENTE que la Feature 001 documento.
 
-    `crear_ticket` no captura el `IntegrityError` de un `producto_id` que no
-    existe, asi que FastAPI responde 500 en lugar de un 4xx. Un cliente que
-    manda un producto borrado no debería ver un error de servidor.
+    `crear_ticket` no capturaba el `IntegrityError` de un `producto_id` que no
+    existe y FastAPI respondia 500. Este test fijaba ese 500 como
+    comportamiento esperado, con un docstring que decia "cuando se corrija,
+    este test debe pasar a 400".
 
-    La Feature 001 no arregla esto porque su mandato es reordenar codigo sin
-    cambiar el contrato (AC-2). Cuando se corrija, este test debe pasar a 400.
+    La Feature 003 lo corrige: las referencias se comprueban antes de escribir,
+    asi que ahora es un 404 que nombra el producto. Se mantiene el test porque
+    la asercion es la que vigila el defecto, y `cliente_sin_excepcion` sigue
+    pniendo que si algo vuelve a reventar por debajo, se veria.
     """
     respuesta = cliente_sin_excepcion.post(
         "/api/v1/tickets/",
@@ -171,4 +172,5 @@ def test_ticket_con_producto_inexistente_responde_500_defecto_conocido(
             "detalles": [{"producto_id": 999999, "cantidad_solicitada": 1}],
         },
     )
-    assert respuesta.status_code == 500, respuesta.text
+    assert respuesta.status_code == 404, respuesta.text
+    assert "999999" in respuesta.json()["detail"]

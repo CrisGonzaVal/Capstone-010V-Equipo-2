@@ -69,3 +69,17 @@ Esta skill decide **si** se puede escribir codigo. Las otras deciden **como**:
 1. Marca `[ ]` → `[x]` en `tasks.md`.
 2. Corre las pruebas: `cd backend && pytest` y `cd frontend && npx ng test --watch=false --browsers=ChromeHeadless` (el `npm test` a secas se cuelga en modo watch; ver `AGENTS.md` §5 para el `CHROME_BIN`).
 3. Si la tarea resulto en una decision arquitectonica (un patron nuevo, un servicio nuevo, una excepcion a una regla), actualiza `stack.md` para que el proximo incremento no tenga que redescubrirlo.
+
+## Cuando cerrar una feature
+
+Los tests en verde **no** cierran una feature. Hace falta ademas el recorrido en los dos puertos del frontend, porque fallan cosas que ninguna suite detecta (`AGENTS.md` §8.5 y §8.6):
+
+1. **4200** (`cd frontend && npm start`): recorrido funcional, incluida la escritura real contra la BD. Es la evidencia principal.
+2. **8080**: exige reconstruir antes, o el recorrido comprueba una vista vieja y no dice nada:
+   ```
+   docker compose -f docker-compose.yml build frontend
+   docker compose -f docker-compose.yml up -d frontend
+   ```
+   Recorrido de humo: la vista nueva esta y el flujo basico responde. Ahi se ejecutan el build de produccion con sus presupuestos, el `try_files` de nginx para rutas Angular y el cacheo de bundles con hash.
+
+Ojo con la asimetria: **el backend se actualiza solo** (el contenedor monta `./backend/app` y corre `uvicorn --reload`), el frontend no. Una feature que solo toca Python no necesita reconstruir la imagen para probar su API, aunque 8080 siga mostrando el frontend viejo.

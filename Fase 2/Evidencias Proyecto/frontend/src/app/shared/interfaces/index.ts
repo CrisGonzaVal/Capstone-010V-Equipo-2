@@ -121,6 +121,47 @@ export interface TicketCrear {
   detalles: DetalleTicketCrear[];
 }
 
+/** Catálogos de `GET /tickets/catalogos`, que pueblan el modal de creación. */
+
+export interface Prioridad {
+  prioridad_id: number;
+  nombre: string;
+  descripcion: string | null;
+}
+
+/** `estado_final` no existe en la tabla `estado_ticket`: el catalogo solo
+ * proyecta sus tres columnas. Que un estado sea final es una regla del flujo
+ * (Feature 004), no del esquema. */
+export interface EstadoTicket {
+  estado_id: number;
+  nombre: string;
+  descripcion: string | null;
+}
+
+export interface ProductoCatalogo {
+  producto_id: number;
+  nombre: string;
+  unidad_medida: string | null;
+  categoria_nombre: string;
+  stock_total: number;
+  es_critico: boolean;
+}
+
+export interface Solicitante {
+  usuario_id: number;
+  nombre: string;
+  apellido: string;
+  correo: string;
+  departamento_nombre: string;
+}
+
+export interface CatalogosTicket {
+  prioridades: Prioridad[];
+  estados: EstadoTicket[];
+  productos: ProductoCatalogo[];
+  solicitantes: Solicitante[];
+}
+
 // --- Usuarios ---
 
 export interface Usuario {

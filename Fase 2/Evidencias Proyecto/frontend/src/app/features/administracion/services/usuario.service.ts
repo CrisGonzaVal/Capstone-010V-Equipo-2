@@ -2,8 +2,8 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
+import { URL_API } from '../../../shared/config/url-api';
 import { Departamento, Institucion, Rol, Usuario } from '../../../shared/interfaces';
-import { URL_API } from '../../inventario/services/inventario.service';
 
 /**
  * HTTP de la administracion multi-tenant: usuarios, roles, departamentos e

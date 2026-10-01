@@ -1,46 +1,33 @@
-# MEMORY.md — Diario del Proyecto
-Memoria entre sesiones. Máximo ~50 líneas: resume lo útil y elimina lo que ya no aporte.
+# MEMORY.md � Diario del Proyecto
+Memoria entre sesiones. M�ximo ~50 l�neas: resume lo �til y elimina lo que ya no aporte.
 
 ## Estado actual
-- Feature 002 (Catálogo + consulta de existencias) **implementada y verificada**: endpoint `GET /inventario/existencias` (read model armado en el service), 4 filtros, orden determinista, N+1 eliminado con `selectinload`, H-1 acotado a 404 en `crear_producto`, y la vista de inventario real (búsqueda, panel de categorías con conteos, filtro de críticos, tabla de 6 columnas con las sedes dentro de la celda).
-- Backend: **43 tests** en verde sobre SQLite en memoria (25 de la Feature 001 sin reescribir + 18 nuevos). Frontend: **12 tests** en verde (4 + 8), build OK.
-- Las tres rutas GET que ya existían conservan su JSON: lo único que cambió es el orden, ahora determinista. `/openapi.json` verificado contra la spec.
-- **Pendiente de la Feature 002:** solo el recorrido visual manual de la vista (anotado `[!]` en su `tasks.md`), por eso su casilla en `roadmap.md` sigue abierta. Para cerrarlo: `docker compose up -d db backend` + `cd frontend && npm start` a 1366px o más.
-- El 500 de `crear_ticket` por `producto_id` inexistente sigue vivo **a propósito**: es de la Feature 003, con su test de regresión esperando 500.
-- Estructura alineada con `docs/spec/stack.md` (patrón de read model documentado en §2, Nota 2 revisada).
+- Features 000, 001 y 002 cerradas. **Feature 003 (modal de ticket) CERRADA** (01/Oct/2026).
+- 003 entregada: `GET /tickets/catalogos` (4 cat�logos en un endpoint), 404 prevalidados antes de escribir, 422 de Pydantic, y el modal nativo `<dialog>` con signals + `FormArray`. Evidencia en su `tasks.md` �8.
+- **Backend 79 tests**, **frontend 40 tests**, build de producci�n OK. Recorrido en 4200 (funcional, con escritura real) y en 8080 (tras reconstruir la imagen).
+- Estructura alineada con `docs/spec/stack.md`.
 
-## Decisiones (y por qué)
-- **El filtro de la vista vive en el cliente, no en el servidor** (D-1 de la 002). Los parámetros `q`, `categoria_id`, `departamento_id` y `solo_criticos` existen y se prueban en el endpoint porque son contrato público, pero la vista hace **una** consulta y filtra con `computed()`: los conteos del panel lateral solo son coherentes con filtro local. **Disparador para revertir:** cuando el catálogo supere ~500 filas por institución o entre multi-tenant, el filtro pasa al servidor con paginación.
-- **Endpoint nuevo en vez de tocar `/stock`**: el contrato congelado por AC-2 de la Feature 001 queda intacto y los 25 casos previos siguen verdes sin reescribirlos.
-- **Read model armado en el service, sin `from_attributes`**: el DTO cruza 4 tablas y agrega, así que Pydantic no puede leerlo del objeto ORM. Patrón documentado en `stack.md` §2.
-- Capas backend: routers delgados → `app/services/` (transacciones ACID) → ORM.
-- Frontend 100% Standalone: `inject()` en lugar de constructor, `signal()/computed()` en lugar de RxJS para estado local, `@if/@for` con `track`.
-- No crear `shared/components/` ni `shared/pipes/` (revisado de nuevo en la 002): se crean cuando exista el **segundo** consumidor, no el primero.
-- Kanban con datos de muestra (H-3): no inventar agrupamiento por `estado_id`. Se resolverá con catálogo de estados (Feature 004).
-- `api.service.ts` eliminado (D-3 de la 001): repartido por feature para evitar god-service.
-- `database/02_datos_semilla.sql` con datos de QA (10 filas por tabla): standalone, no altera el esquema 3NF.
+## Decisiones de la 003 (D-1�D-7)
+- **D-1**: un �nico `GET /tickets/catalogos`, no 4 endpoints. `/usuarios/` no sirve: devuelve usuarios con rol, no solo solicitantes.
+- **D-2**: `URL_API` se movi� a `shared/config/url-api.ts`. `AC-10` de la 001 dec�a "nada fuera de `shared/`" y estaba incumplido en los hechos.
+- **D-3**: el solicitante es un `<select>`, no un campo de texto libre.
+- **D-4**: estado inicial = `catalogos.estados[0]`, nunca comparando strings. El orden del endpoint es por `estado_id`, y en la semilla el alfab�tico dar�a otro.
+- **D-5**: el 422 lo produce el schema Pydantic, no los CHECK del DDL (SQLite no los tiene).
+- **D-6**: usuario, prioridad, estado y **todos** los productos se validan antes del primer `add()`, con 404 nombrando la referencia.
+- **D-7**: `NonNullableFormBuilder` + `FormArray`; los duplicados de producto se suman en el cliente (es UX, no regla de negocio: `detalle_ticket` no declara `UNIQUE`).
+- Los `db.query()` que quedan en `listar_tickets()` y `actualizar_estado_ticket()` son preexistentes; todo c�digo nuevo usa `select()`.
 
 ## Aprendizajes y errores a evitar
-- **La suite corre en SQLite, pero producción es PostgreSQL.** `ilike` se traduce distinto en cada motor, así que una consulta que dependa de funciones del motor se verifica además contra el `docker-compose`. En la 002 dio igual en los dos.
-- `select()` estilo Core con columnas sueltas exige los **onclause explícitos**: sin entidad en el `FROM`, SQLAlchemy no puede deducir el join y lanza error.
-- `dict` conserva el orden de inserción: el `ORDER BY` de SQL se propaga solo a `list(acumuladores.values())`, sin reordenar en Python.
-- SQLAlchemy parte el SQL en varias líneas: para contar consultas con un listener hay que colapsar espacios (`" ".join(s.split())`) antes de comparar `" from producto"`, o el match nunca ocurre.
-- `forkJoin` cancela la otra Observable cuando una falla: en tests, `httpMock.verify({ ignoreCancelled: true })`.
-- SQLite requiere `PRAGMA foreign_keys=ON` para que las FKs provoquen la violación que dispara el `rollback`.
-- Transacciones con hijos: usar `flush()` (no `commit()`) tras crear la cabecera para obtener el PK sin romper la atomicidad.
-- Probar por el **seam HTTP** (`TestClient`), nunca consultando la BD directamente en los tests.
-- Un fixture nuevo que se apoya en `datos_base` en vez de reemplazarlo no rompe la suite previa.
-- `@if/@for` exige `track` obligatorio (no compila sin él).
-- Sin ids fijos en fixtures: usar los ids generados (evita depender de secuencias de identidad).
-- **Karma en Angular 18 arranca en modo watch y esta máquina no tiene Chrome.** El comando que funciona está en `AGENTS.md` §5; `npm test` a secas se cuelga.
-- `.gitignore` ignoraba `venv/` pero no `.venv/`, que es lo que manda crear `AGENTS.md` §5.
-- En PowerShell, `Get-Content -Raw | docker exec` mete el archivo por la codificación de la consola y destruye los acentos (`á` → `??`). Usar `cmd /c "... < archivo.sql"`, que copia bytes crudos.
-- **`database/` se ejecuta en orden alfabético** (prefijo `01_`/`02_` obligatorio, `ON_ERROR_STOP=1`). Con los nombres previos la semilla corría antes del esquema y abortaba el arranque. Es el fallo que mata una demo en otra máquina: se ve solo con `down -v` + `up`.
-- Recrear la base con `docker compose rm -f db` + `docker volume rm <volumen>` + `up -d db` deja todo listo solo. **Reinicia el backend después**: su pool de conexiones al volumen destruido lanza `server closed the connection unexpectedly` (500) en la primera petición.
+- **Una feature no est� cerrada hasta que 8080 la refleja.** 4200 es el recorrido funcional; 8080 sirve un build congelado en la imagen y hay que reconstruirlo. El backend s� se actualiza solo (`./backend/app` montado + `--reload`), el frontend no. Ver `AGENTS.md` �8.6.
+- **`db.close()` revierte.** El `rollback()` expl�cito de `crear_ticket` es redundante con el `get_db` actual, y no hay test que pueda probarlo desde el seam HTTP (borrarlo deja la suite en verde). Se conserva por constituci�n. Lo que impide el ticket hu�rfano es la prevalidaci�n, que no escribe.
+- `loc` de FastAPI: `at(-2)` es el �ndice de fila y `at(-1)` el campo. `['body','asunto']` es un caso aparte, sin fila.
+- Para parsear el DOM de `msedge --dump-dom`, leerlo con `[System.IO.File]::ReadAllText`: `Get-Content -Raw` mete doble mojibake y rompe los acentos.
+- En PowerShell, `Get-Content -Raw | docker exec` destruye los acentos. Usar `cmd /c "... < archivo.sql"`.
+- En PowerShell, `Set-Content -Encoding utf8` sobre un `.md` que ya era UTF-8 deja `—` en los em dash: editar con la herramienta de edici�n, no reescribir el archivo entero.
+- Los CHECK del DDL no existen en SQLite: un 422 verde demuestra que responde el schema, no que la base rechace.
+- **Karma en Angular 18 arranca en modo watch y esta m�quina no tiene Chrome**: el comando est� en `AGENTS.md` �5. `.gitignore` ignoraba `venv/` pero no `.venv/`.
 
-## Próximos pasos
-- Cerrar la Feature 002: hacer el recorrido visual de la vista y marcar la casilla en `roadmap.md`.
-- Feature 003: Crear ticket con detalles + validaciones. Buen momento para mapear FK inválida a 400/422 (corregir el 500 de `crear_ticket`, justificado y acotado).
-- Feature 004: Catálogo de estados + Kanban operativo por estados (resolver `estado_id` vs nombre). Aquí se corrige `ESTADO_CERRADO_ID`.
-- Feature 005: Despacho transaccional con rebaja automática de stock + auditoría, y `GET /inventario/movimientos`.
-- Feature 006: Aplicar guards/interceptor a rutas + login/JWT real (mantener autenticación decorativa hasta entonces).
+## Pr�ximos pasos
+- **Feature 004**: cat�logo de estados + Kanban operativo por columnas. Aqu� se resuelve `estado_id` vs nombre y se corrige `ESTADO_CERRADO_ID = 4`, que hoy es un id sin referente can�nico (el script semilla define el DDL de estados pero no le asigna ids).
+- **Feature 005**: despacho transaccional con rebaja de stock, auditor�a y `GET /inventario/movimientos`.
+- **Feature 006**: guards por rol e interceptor de auth. Autenticaci�n decorativa hasta entonces.

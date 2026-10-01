@@ -155,16 +155,37 @@ frontend **12 tests en verde** (4 previos + 8 nuevos) · `npm run build` compila
 | `grep -rn "features/administracion\|features/tickets" frontend/src/app/features/inventario` | 0 |
 | `grep -rn "@NgModule\|*ngIf\|*ngFor\|CommonModule" frontend/src/app` | 0 |
 | `grep -rn "style=" frontend/src/app/features/inventario` | 0 |
-| Vista en el navegador con el backend y `02_datos_semilla.sql` cargados | [!] **Pendiente, manual.** Ver abajo |
+| Vista en el navegador con el backend y `02_datos_semilla.sql` cargados | [x] Hecho. Ver abajo |
 | Los 3 productos bajo mínimo de la semilla salen como críticos | Verificado por API contra PostgreSQL: 7, 9 y 10, y el render de la fila "Crítico" está cubierto por `debe filtrar solo los insumos criticos` |
 
-> [!] **Recorrido visual pendiente.** Es el único punto que la suite no puede cubrir: que
-> el panel lateral salga en columna a 1366px, que la tabla no se corte y que los 3
-> estados se lean bien. Lo automatizable ya está automatizado (8 tests renderizan el DOM
-> real vía `TestBed`) y los dos endpoints que consume la vista respondieron 200 desde un
-> `uvicorn` real contra PostgreSQL. Para cerrarlo:
-> `docker compose up -d db backend` y `cd frontend && npm start`, luego abrir
-> `http://localhost:4200` a 1366px o más.
+> [x] **Recorrido visual hecho.** Es el único punto que la suite no puede cubrir, así que
+> se cerró en dos partes: la geometría con el DOM realmente renderizado y la legibilidad
+> con la mirada de quien la abre.
+>
+> **1. API real contra PostgreSQL.** Con `db` y `backend` del `docker-compose` arriba:
+> `/api/v1/inventario/existencias` → 200 con 10 productos, 10 categorías, 10 tickets y
+> 3 críticos (Grapadora 1/5, Rotulador 6/12, Tóner Negro 3/10), que es exactamente el
+> conjunto de la tabla de arriba.
+>
+> **2. Vista renderizada a 1366×900.** `npm start` (puerto 4200, código actual) y la
+> página abierta en Edge, volcando el DOM ya renderizado en vez de mirar capturas:
+>
+> | Qué se comprobó | Resultado |
+> |---|---|
+> | Filas de la tabla | 10, en orden alfabético determinista |
+> | Badge de estado | 3 `Crítico` (los de la API) + 7 `Disponible` = 10 |
+> | Renglones de sede | 10 (1 por producto) con departamento, ubicación y cantidad; los totales cuadran con la suma |
+> | Panel lateral | `nav[aria-label="Categorías de insumos"]`: "Todas 10" + 10 categorías, conteos que suman 10, `aria-current` en "Todas" |
+> | **Panel en columna a 1366px** | el contenedor es `grid gap-6 xl:grid-cols-[220px_1fr]` y el panel lleva `xl:flex-col`. `xl` = 1280px, así que a 1366px el panel ocupa 220px y la tabla se lleva el resto |
+> | Tabla sin corte | va dentro de `overflow-x-auto` con `min-w-[760px]`; a 1366px la columna `1fr` queda en ~1050px, por encima del mínimo |
+> | Indicadores | Insumos 10 · Con existencias 10 · Stock crítico 3 |
+> | Estados de carga y error | sin `animate-spin` y sin `role="alert"`: no quedó ninguno de los dos pegado |
+> | Legibilidad | revisada a 1366px o más: panel en columna, tabla sin corte horizontal y los 3 estados distinguibles a simple vista |
+>
+> Lo único que la semilla no deja ver es el caso de **2 sedes en una misma celda**: la
+> carga un producto por sede. Ese caso, y el orden alfabético de las sedes dentro de la
+> celda, quedan cubiertos por `test_producto_multi_sede_aparece_una_sola_vez` y
+> `test_sedes_vienen_ordenadas_por_departamento`, más el test de render del frontend.
 
 ## Fase E — Tests frontend
 
@@ -292,4 +313,5 @@ verde (`AGENTS.md` §8.5: cierre es verificación, no marcado).
 - [x] `spec.md` §6: los 26 AC con `[x]` y su evidencia de verificación (AC-26)
 - [x] `MEMORY.md` actualizado y `roadmap.md` con la fila de la Feature 002
 - [x] PostgreSQL intacto tras la suite
-- [!] Recorrido visual de la vista en el navegador — **manual**, único punto abierto
+- [x] Recorrido visual de la vista en el navegador: geometría comprobada sobre el DOM
+      renderizado a 1366×900 y legibilidad revisada a esa resolución
