@@ -31,6 +31,7 @@ Memoria entre sesiones. M�ximo ~50 l�neas: resume lo �til y elimina lo que
 - Los CHECK del DDL no existen en SQLite: un 422 verde demuestra que responde el schema, no que la base rechace.
 - **Karma en Angular 18 arranca en modo watch y esta m�quina no tiene Chrome**: el comando est� en `AGENTS.md` �5. `.gitignore` ignoraba `venv/` pero no `.venv/`.
 - **Un comando no hereda `build` por defecto**: cada `.opencode/commands/*.md` declara su `agent:`, y con `subagent` omitido solo abre sesion hija si ese agente es `mode: subagent`. Para forzarlo: `subagent: true` (siempre hijo) o `false` (siempre la sesion actual). Un comando con `agent:` cambia el agente de la sesion.
+- **El MCP `postgres` se queda en el `opencode.json` del repo, no en la config global**: los companeros ya lo usan asi, y aunque estuviera en lo personal el del proyecto ganaria por prioridad. Ojo: su URL usa 5433 porque es el puerto publicado al host (`docker-compose.yml` mapea `5433:5432`); dentro de la red docker son 5432 y lo inyecta el compose. Por lo mismo, `backend/.env.example` fija `DB_PORT=5433` — `config.py` usa `localhost`, o sea arranque desde el host.
 
 ## Pr�ximos pasos
 - **Feature 005 es el siguiente trabajo**: despacho transaccional con rebaja de stock, auditor�a y `GET /inventario/movimientos`.
