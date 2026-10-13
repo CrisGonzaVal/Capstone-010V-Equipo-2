@@ -8,6 +8,7 @@ from app.schemas.ticket_schema import (
     CatalogosTicketRespuesta,
     TicketActualizarEstado,
     TicketCrear,
+    TicketDespacho,
     TicketRespuesta,
 )
 from app.services import ticket_service
@@ -70,6 +71,33 @@ def crear_ticket(datos: TicketCrear, db: Session = Depends(dependencies.get_db))
     return ticket_service.crear_ticket(db, datos)
 
 
+@router.post(
+    "/{ticket_id}/despacho",
+    response_model=TicketRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Despachar un ticket y rebajar su inventario",
+    description=(
+        "Despacha un ticket que esta en el estado `EnCurso` y lo lleva a "
+        "`Cerrado`, **rebajando el stock, fijando las cantidades entregadas y "
+        "registrando una salida de auditoria por detalle en una sola "
+        "transaccion**. La entrega es completa: cada detalle entrega su "
+        "`cantidad_solicitada`.\n\n"
+        "El ticket inexistente o un `usuario_id` inexistente devuelven **404**. "
+        "El estado no elegible (ya despachado), el catalogo sin los nombres "
+        "requeridos, un ticket sin detalles, un detalle sin producto resoluble, "
+        "el inventario ausente o ambiguo y el stock insuficiente devuelven "
+        "**409** sin escribir nada. Un payload invalido o un `usuario_id` "
+        "ausente/no entero devuelven **422**."
+    ),
+)
+def despachar_ticket(
+    ticket_id: int,
+    datos: TicketDespacho,
+    db: Session = Depends(dependencies.get_db),
+):
+    return ticket_service.despachar_ticket(db, ticket_id, datos)
+
+
 @router.patch(
     "/{ticket_id}/estado",
     response_model=TicketRespuesta,
@@ -83,10 +111,16 @@ def crear_ticket(datos: TicketCrear, db: Session = Depends(dependencies.get_db))
         "terminal (el último del catálogo) se rechazan con **409** y no "
         "modifican el ticket.\n\n"
         "Un ticket inexistente devuelve **404**; en ese orden, también **404** "
-        "si el estado pedido no existe en el catálogo. Al entrar en el estado "
-        "llamado `Cerrado` —sin distinguir mayúsculas, nunca por un id fijo— "
-        "se sella `fecha_cierre` en la misma operación; si ya estaba sellada, "
-        "se conserva sin sobrescribirse."
+        "si el estado pedido no existe en el catálogo.\n\n"
+        "El paso de `EnCurso` a `Cerrado` está **reservado al despacho** "
+        "(Feature 005): si el ticket está en el `EnCurso` canónico y se pide "
+        "el `Cerrado` canónico —ambos por nombre, con menor `estado_id` ante "
+        "duplicados—, responde **409** sin modificar estado ni fecha, con el "
+        "detalle exacto `El cierre requiere despacho; use POST "
+        "/api/v1/tickets/{ticket_id}/despacho`.\n\n"
+        "Al entrar en el estado llamado `Cerrado` —sin distinguir mayúsculas, "
+        "nunca por un id fijo— se sella `fecha_cierre` en la misma operación; "
+        "si ya estaba sellada, se conserva sin sobrescribirse."
     ),
 )
 def actualizar_estado_ticket(

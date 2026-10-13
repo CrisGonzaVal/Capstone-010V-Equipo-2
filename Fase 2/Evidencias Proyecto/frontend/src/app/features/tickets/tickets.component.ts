@@ -155,6 +155,32 @@ export class TicketsComponent {
   });
 
   /**
+   * Id del estado canonico `EnCurso`, resuelto por **nombre** (sin distinguir
+   * mayusculas ni acentos, via `normalizar`) y, ante duplicados, por el **menor
+   * `estado_id`** — la misma regla del backend (Feature 004, D-3). `null` si el
+   * catalogo no lo trae. No se usa un id fijo ni la posicion ordinal: el catalogo
+   * es mutable.
+   *
+   * La transicion `EnCurso → Cerrado` esta reservada al despacho (Feature 005):
+   * el PATCH responde 409 y el Kanban no debe ofrecer ese avance manual (AC-16).
+   *
+   * Se buscó el menor id sobre **todos** los candidatos y no sobre el primero:
+   * asi el canonico sigue siendo el menor aunque el catalogo llegue desordenado.
+   */
+  private readonly idEstadoEnCurso = computed<number | null>(() => {
+    const candidatos = this.estados().filter(
+      (estado) => this.normalizar(estado.nombre) === 'encurso'
+    );
+    if (candidatos.length === 0) {
+      return null;
+    }
+    return candidatos.reduce(
+      (menor, estado) => Math.min(menor, estado.estado_id),
+      candidatos[0].estado_id
+    );
+  });
+
+  /**
    * Resuelve ids contra los catalogos y la **posicion del estado** para que el
    * template no conozca ninguno ni calcule indices.
    *
@@ -165,6 +191,10 @@ export class TicketsComponent {
    * - cualquier otro: anterior = indice - 1, siguiente = indice + 1 (contiguos,
    *   nunca un salto, AC-12).
    *
+   * Sobre esa base, la columna del `EnCurso` canonico no ofrece avance aunque
+   * haya un siguiente (AC-16); el retroceso se calcula igual y las demas
+   * columnas quedan intactas.
+   *
    * Como solo se llama para tickets que ya cayeron en una columna, el estado
    * siempre existe en el catalogo; no hay busqueda lineal extra por tarjeta.
    */
@@ -172,7 +202,8 @@ export class TicketsComponent {
     const estados = this.estados();
     const esTerminal = indice === estados.length - 1;
     const puedeRetroceder = indice > 0 && !esTerminal;
-    const puedeAvanzar = !esTerminal;
+    const esEnCursoCanonico = estados[indice].estado_id === this.idEstadoEnCurso();
+    const puedeAvanzar = !esTerminal && !esEnCursoCanonico;
 
     const prioridad = this.prioridades().find((p) => p.prioridad_id === ticket.prioridad_id);
     const solicitante = this.solicitantes().find((s) => s.usuario_id === ticket.usuario_id);

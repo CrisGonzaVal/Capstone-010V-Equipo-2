@@ -39,6 +39,30 @@ def _instalar_catalogo(motor, nombres):
         db.close()
 
 
+def _instalar_catalogo_lista(motor, nombres):
+    """Como `_instalar_catalogo` pero conserva ids repetidos en una lista.
+
+    Un `dict` colapsaría un nombre duplicado a su última aparición; los casos de
+    catálogo degenerado (p. ej. dos `Cerrado`) necesitan distinguir el id
+    canónico (menor) del duplicado, así que la lista mantiene el orden de
+    inserción, que es el del `estado_id`.
+    """
+    db = sessionmaker(bind=motor)()
+    try:
+        db.query(EstadoTicket).delete()
+        db.flush()
+        ids = []
+        for nombre in nombres:
+            estado = EstadoTicket(nombre=nombre, descripcion=f"Estado {nombre}")
+            db.add(estado)
+            db.flush()
+            ids.append(estado.estado_id)
+        db.commit()
+        return ids
+    finally:
+        db.close()
+
+
 def _datos_prueba(datos_base):
     """Copia de `datos_base` sin los ids de los estados que ya no existen."""
     datos = {**datos_base}
@@ -72,14 +96,44 @@ def datos_flujo_canonico(motor, datos_base):
 
 
 @pytest.fixture
-def datos_flujo_tres_estados(motor, datos_base):
-    """3 estados: `Cerrado` recibe id 3, no el 4 que asumia el codigo viejo."""
-    ids = _instalar_catalogo(motor, ("Pendiente", "EnRevision", "Cerrado"))
+def datos_flujo_cerrado_id_avanzado(motor, datos_base):
+    """Catálogo canónico corrido: `EnCurso` es id 4 y `Cerrado` id 5, no el 4
+    que asumía el código viejo. Sirve para probar que la guardia de cierre
+    resuelve `EnCurso`/`Cerrado` por nombre, sin depender de un id fijo."""
+    ids = _instalar_catalogo(
+        motor, ("Archivado", "Pendiente", "EnRevision", "EnCurso", "Cerrado")
+    )
     datos = _datos_prueba(datos_base)
     datos.update(
         {
+            "estado_archivado_id": ids["Archivado"],
             "estado_en_revision_id": ids["EnRevision"],
+            "estado_en_curso_id": ids["EnCurso"],
             "estado_cerrado_id": ids["Cerrado"],
+        }
+    )
+    return datos
+
+
+@pytest.fixture
+def datos_flujo_cerrado_duplicado(motor, datos_base):
+    """Dos `Cerrado`: el canónico (menor `estado_id`) no es el último ordinal.
+
+    La lista conserva ambos ids; el `dict` habría colapsado el nombre. La
+    guardia AC-15 debe reconocer el `Cerrado` canónico por menor id y no por ser
+    el último del catálogo.
+    """
+    ids = _instalar_catalogo_lista(
+        motor, ("Pendiente", "EnRevision", "EnCurso", "Cerrado", "Cerrado")
+    )
+    datos = _datos_prueba(datos_base)
+    datos.update(
+        {
+            "estado_pendiente_id": ids[0],
+            "estado_en_revision_id": ids[1],
+            "estado_en_curso_id": ids[2],
+            "estado_cerrado_id": ids[3],  # el de menor id: el canónico
+            "estado_cerrado_duplicado_id": ids[4],
         }
     )
     return datos
@@ -280,11 +334,16 @@ def test_el_ticket_se_valida_antes_que_el_estado(cliente, datos_flujo_canonico):
     assert "estado" not in detalle
 
 
-# --- Sellado de la fecha de cierre (AC-16, AC-18) ---
+# --- Cierre manual reservado al despacho (AC-15) ---
 
 
-def test_avanzar_a_cerrado_sella_la_fecha(cliente, datos_flujo_canonico):
-    """EnCurso -> Cerrado sella `fecha_cierre` en la misma operacion (AC-16)."""
+def test_avanzar_a_cerrado_esta_reservado_al_despacho(cliente, datos_flujo_canonico):
+    """Migrado de AC-16 (004): `EnCurso -> Cerrado` por PATCH ya no cierra.
+
+    La spec 005 reserva ese cierre al despacho transaccional, de modo que el
+    PATCH responde 409 con el detalle literal, sin mover el ticket ni sellar
+    `fecha_cierre`. El sellado por cierre se cubre en el despacho.
+    """
     ticket_id = crear_ticket_con_estado(
         cliente, datos_flujo_canonico, datos_flujo_canonico["estado_en_curso_id"]
     )
@@ -293,25 +352,101 @@ def test_avanzar_a_cerrado_sella_la_fecha(cliente, datos_flujo_canonico):
         cliente, ticket_id, datos_flujo_canonico["estado_cerrado_id"]
     )
 
-    assert respuesta.status_code == 200, respuesta.text
-    assert respuesta.json()["fecha_cierre"] is not None, "entrar en Cerrado debe sellar"
+    assert respuesta.status_code == 409, respuesta.text
+    assert respuesta.json()["detail"] == (
+        "El cierre requiere despacho; use "
+        f"POST /api/v1/tickets/{ticket_id}/despacho"
+    )
+
+    ticket = ticket_en_api(cliente, ticket_id)
+    assert ticket["estado_id"] == datos_flujo_canonico["estado_en_curso_id"], (
+        "un 409 por cierre reservado no puede mover el ticket"
+    )
+    assert ticket["fecha_cierre"] is None, (
+        "el PATCH no sella cierre: el sellado corresponde al despacho"
+    )
 
 
-def test_el_sellado_no_depende_del_id_del_estado(cliente, datos_flujo_tres_estados):
-    """Aquí `Cerrado` es id 3, no 4: el sellado es por nombre (AC-18)."""
+def test_el_cierre_manual_con_cerrado_duplicado_usa_el_de_menor_id(
+    cliente, datos_flujo_cerrado_duplicado
+):
+    """AC-15/D-12: la guardia reconoce el `Cerrado` canónico (menor `estado_id`).
+
+    En este catálogo hay dos `Cerrado` y el canónico (menor id) **no** es el
+    último ordinal. Si la guardia comparara contra el último estado del catálogo
+    en vez de resolver por nombre, este PATCH cerraría el ticket con un 200; el
+    409 exacto prueba que usa el `Cerrado` de menor id.
+    """
     ticket_id = crear_ticket_con_estado(
-        cliente, datos_flujo_tres_estados, datos_flujo_tres_estados["estado_en_revision_id"]
+        cliente,
+        datos_flujo_cerrado_duplicado,
+        datos_flujo_cerrado_duplicado["estado_en_curso_id"],
     )
 
     respuesta = cambiar_estado(
-        cliente, ticket_id, datos_flujo_tres_estados["estado_cerrado_id"]
+        cliente, ticket_id, datos_flujo_cerrado_duplicado["estado_cerrado_id"]
+    )
+
+    assert respuesta.status_code == 409, respuesta.text
+    assert respuesta.json()["detail"] == (
+        "El cierre requiere despacho; use "
+        f"POST /api/v1/tickets/{ticket_id}/despacho"
+    )
+
+    ticket = ticket_en_api(cliente, ticket_id)
+    assert ticket["estado_id"] == datos_flujo_cerrado_duplicado["estado_en_curso_id"]
+    assert ticket["fecha_cierre"] is None
+
+
+def test_el_cierre_reservado_no_depende_del_id_del_estado(
+    cliente, datos_flujo_cerrado_id_avanzado
+):
+    """Migrado de AC-18 (004): con `EnCurso` id 4 y `Cerrado` id 5, la guardia
+    sigue disparando porque resuelve por nombre, no por el id 4 fijo."""
+    ticket_id = crear_ticket_con_estado(
+        cliente,
+        datos_flujo_cerrado_id_avanzado,
+        datos_flujo_cerrado_id_avanzado["estado_en_curso_id"],
+    )
+
+    respuesta = cambiar_estado(
+        cliente, ticket_id, datos_flujo_cerrado_id_avanzado["estado_cerrado_id"]
+    )
+
+    assert respuesta.status_code == 409, respuesta.text
+    assert respuesta.json()["detail"] == (
+        "El cierre requiere despacho; use "
+        f"POST /api/v1/tickets/{ticket_id}/despacho"
+    )
+    assert ticket_en_api(cliente, ticket_id)["estado_id"] == (
+        datos_flujo_cerrado_id_avanzado["estado_en_curso_id"]
+    )
+
+
+def test_una_transicion_no_reservada_desde_en_curso_sigue_siendo_200(
+    cliente, datos_flujo_canonico
+):
+    """AC-15: solo `EnCurso -> Cerrado` está reservado; retroceder sigue valiendo.
+
+    Las demás transiciones válidas de la 004 conservan su comportamiento: desde
+    `EnCurso` el retroceso a `EnRevision` responde 200.
+    """
+    ticket_id = crear_ticket_con_estado(
+        cliente, datos_flujo_canonico, datos_flujo_canonico["estado_en_curso_id"]
+    )
+
+    respuesta = cambiar_estado(
+        cliente, ticket_id, datos_flujo_canonico["estado_en_revision_id"]
     )
 
     assert respuesta.status_code == 200, respuesta.text
-    assert respuesta.json()["fecha_cierre"] is not None, (
-        "reordenar el catalogo no puede romper el sellado: "
-        f"estado destino {datos_flujo_tres_estados['estado_cerrado_id']}"
+    assert (
+        respuesta.json()["estado_id"]
+        == datos_flujo_canonico["estado_en_revision_id"]
     )
+
+
+# --- Sellado de la fecha de cierre (AC-18) ---
 
 
 def test_el_sellado_no_distingue_mayusculas(cliente, datos_flujo_cerrado_minuscula):
@@ -478,3 +613,23 @@ def test_el_contrato_del_patch_documenta_404_409_y_sellado(cliente):
     assert "404" in descripcion, "falta documentar los 404 de ticket/estado"
     assert "409" in descripcion, "falta documentar el 409 de flujo"
     assert "fecha_cierre" in descripcion, "falta documentar el sellado de cierre"
+
+
+def test_el_contrato_del_patch_documenta_el_cierre_reservado(cliente):
+    """AC-15/AC-21: el PATCH documenta el 409 reservado al despacho, literal.
+
+    El 409 de negocio se documenta en la `description` (convención del
+    proyecto, que no usa `responses=`), y el detalle exacto del rechazo debe
+    aparecer verificable en `/openapi.json`, no solo en la respuesta HTTP.
+    """
+    contrato = cliente.get("/openapi.json").json()
+    operacion = contrato["paths"]["/api/v1/tickets/{ticket_id}/estado"]["patch"]
+    descripcion = operacion["description"]
+
+    literal = (
+        "El cierre requiere despacho; use POST "
+        "/api/v1/tickets/{ticket_id}/despacho"
+    )
+    assert literal in descripcion, (
+        "falta el detalle literal del cierre reservado al despacho (AC-15)"
+    )

@@ -213,6 +213,8 @@ estado inexistente) se rechaza sin modificar el ticket (D-2, D-8).
 
 - [x] **AC-9** DADO QUE el usuario pulsa "avanzar" en una tarjeta, ENTONCES el ticket DEBE
       pasar al estado siguiente del flujo y la tarjeta DEBE aparecer en esa columna.
+      **Derogada parcialmente por la Feature 005:** la transición `EnCurso→Cerrado` queda
+      reservada al despacho transaccional; ver `005-despacho-transaccional/spec.md`.
 - [x] **AC-10** DADO QUE el usuario pulsa "retroceder" en una tarjeta, ENTONCES el ticket
       DEBE pasar al estado anterior del flujo y la tarjeta DEBE aparecer en esa columna.
 - [x] **AC-11** SI un ticket está en el estado terminal —el último del orden del catálogo;
@@ -287,9 +289,9 @@ estado inexistente) se rechaza sin modificar el ticket (D-2, D-8).
 - AC-13: `test_salto_de_estado_se_rechaza_con_409`, `...estado repetido...`, `...retroceso desde el terminal...` (`test_tablero_kanban.py:188,204,220`); API real: PATCH #6 Cerrado → 1 respondió 409.
 - AC-14: `test_estado_inexistente_responde_404_sin_modificar` (`test_tablero_kanban.py:239`), con `estado` en el detalle.
 - AC-15: `test_ticket_inexistente_responde_404` y `test_el_ticket_se_valida_antes_que_el_estado` (`test_tablero_kanban.py:263,273`, orden D-8).
-- AC-16: `test_avanzar_a_cerrado_sella_la_fecha` y `test_reentrar_en_cerrado_conserva_la_fecha_original` (`test_tablero_kanban.py:286,335`); API real: #6 `fecha_cierre = 2026-10-13T16:42:49.617408`.
+- AC-16: `test_avanzar_a_cerrado_esta_reservado_al_despacho` verifica la política de cierre reservado introducida por la 005 (el cierre manual `EnCurso→Cerrado` responde 409); `test_reentrar_en_cerrado_conserva_la_fecha_original` conserva la fecha de cierre (`test_tablero_kanban.py`). La transición manual de la 004 fue derogada parcialmente por la Feature 005; el cierre operativo se verifica mediante despacho.
 - AC-17: `test_crear_ticket_en_cerrado_sella_fecha_cierre` (`test_tablero_kanban.py:369`); en la semilla los tickets 7/8/9 están en Cerrado con `fecha_cierre` no nula.
-- AC-18: `test_el_sellado_no_depende_del_id_del_estado` (Cerrado con id 3) y `test_el_sellado_no_distingue_mayusculas` (`CERRADO`) (`test_tablero_kanban.py:300,317`).
+- AC-18: `test_el_cierre_reservado_no_depende_del_id_del_estado` verifica que la reserva del cierre se resuelve por nombre, no por id fijo; `test_el_sellado_no_distingue_mayusculas` (`CERRADO`) conserva la comprobación de mayúsculas/minúsculas (`test_tablero_kanban.py`).
 - AC-19: tests `AC-9/AC-19: moverSiguiente emite un PATCH y mueve la tarjeta sin recargar` (con `expectNone(RUTA_TICKETS)`) y `...control deshabilitado y no hay doble envio` (`tickets.component.spec.ts:860,899`).
 - AC-20: tests de 409, 404 y sin respuesta (`tickets.component.spec.ts:944,978,996`); en navegador, dos pestañas sobre #10: primera avanzó (`2→3`), segunda sin recargar pidió retroceder y recibió 409; `role="alert"` mostró `Transicion invalida: el ticket esta en el estado 3 y se pidio 1...`, la base quedó en 3, la tarjeta no se movió y el tablero se reconsultó.
 - AC-21: `pytest` → 95 passed, 1 warning preexistente de `starlette.testclient`; `ng test` → TOTAL: 63 SUCCESS.

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
@@ -14,6 +15,28 @@ class InventarioRespuesta(BaseModel):
     departamento_id: int
     producto_id: int
     producto: Optional[ProductoRespuesta] = None
+
+
+class MovimientoInventarioRespuesta(BaseModel):
+    """Read model de `GET /inventario/movimientos`.
+
+    NO lleva `model_config = ConfigDict(from_attributes=True)`: la consulta
+    cruza `movimiento_inventario`, `inventario`, `producto` y `departamento`
+    con joins, asi que lo arma el service a partir de un mapping de columnas
+    (plan §3.4). Sus campos son exactamente los del contrato de `spec.md` §5.
+    """
+
+    movimiento_id: int
+    tipo_movimiento: str
+    cantidad: int
+    fecha_movimiento: datetime
+    observacion: Optional[str] = None
+    inventario_id: int
+    producto_id: int
+    producto_nombre: str
+    departamento_id: int
+    departamento_nombre: str
+    ubicacion: Optional[str] = None
 
 
 class MovimientoCrear(BaseModel):

@@ -46,6 +46,17 @@ class TicketActualizarEstado(BaseModel):
     estado_id: int
 
 
+class TicketDespacho(BaseModel):
+    """Payload minimo de `POST /tickets/{ticket_id}/despacho`.
+
+    La autenticacion sigue siendo decorativa (D-4), asi que el actor viaja
+    explicito y solo se valida su existencia: no se persiste en
+    `movimiento_inventario` ni se le atribuye el historial.
+    """
+
+    usuario_id: int = Field(description="Actor que despacha. Debe existir en `usuario`.")
+
+
 class TicketRespuesta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

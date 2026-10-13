@@ -11,6 +11,7 @@ from app.models import (
     DetalleTicket,
     EstadoTicket,
     Inventario,
+    MovimientoInventario,
     Prioridad,
     Producto,
     Ticket,
@@ -23,8 +24,23 @@ from app.schemas.ticket_schema import (
     ProductoCatalogoRespuesta,
     SolicitanteRespuesta,
     TicketCrear,
+    TicketDespacho,
 )
-from app.services.inventario_service import es_stock_critico
+from app.services.inventario_service import TIPO_SALIDA, es_stock_critico
+
+#: Nombres canonicos de los estados que gobiernan el despacho. Se buscan por
+#: nombre (case-insensitive) y nunca por id fijo (D-1, plan §3.2).
+NOMBRE_ESTADO_EN_CURSO = "encurso"
+NOMBRE_ESTADO_CERRADO = "cerrado"
+
+#: Observacion literal de auditoria de cada salida de despacho (D-6). El formato
+#: solo lleva ids enteros y etiquetas fijas, por lo que cabe en el `VARCHAR(250)`
+#: de `movimiento_inventario.observacion`.
+PLANTILLA_OBSERVACION_DESPACHO = (
+    "Despacho ticket_id={ticket_id}; "
+    "detalle_id={detalle_ticket_id}; "
+    "producto_id={producto_id}"
+)
 
 
 def obtener_catalogos(db: Session) -> CatalogosTicketRespuesta:
@@ -257,6 +273,15 @@ def actualizar_estado_ticket(db: Session, ticket_id: int, estado_id: int) -> Tic
     gana el de menor `estado_id`. La fecha solo se escribe si aun es `None`:
     reentrar en `Cerrado` jamas la sobrescribe. El unico `commit` del final
     hace estado y fecha una sola operacion (`constitucion.md` §3).
+
+    Feature 005 (AC-15, D-1/D-12): la transicion `EnCurso -> Cerrado` esta
+    **reservada al despacho transaccional**. Cuando el ticket esta en el
+    `EnCurso` canonico y el destino es el `Cerrado` canonico, se responde 409
+    con el detalle literal que dirige al endpoint de despacho, sin mutar el
+    ticket. Ambos estados se resuelven por **nombre** (menor `estado_id` ante
+    duplicados), nunca por el ultimo ordinal: en un catalogo degenerado el
+    ultimo estado podria no ser `Cerrado`. La guardia va despues de validar el
+    flujo (orden D-8) y antes de cualquier escritura.
     """
     ticket = db.get(Ticket, ticket_id)
     if not ticket:
@@ -295,9 +320,28 @@ def actualizar_estado_ticket(db: Session, ticket_id: int, estado_id: int) -> Tic
         )
 
     estado_destino = estados[indice_destino]
-    estado_cierre = next(
-        (e for e in estados if e.nombre.casefold() == "cerrado"), None
-    )
+
+    # Guardia AC-15 de la 005 (D-1, D-12): el cierre `EnCurso -> Cerrado` esta
+    # reservado al despacho transaccional para que ningun cierre evite la rebaja
+    # y la auditoria atomicas (`constitucion.md` §3). Se resuelve por **nombre
+    # canonico** (menor `estado_id` ante duplicados) y no por el ultimo ordinal,
+    # que en un catalogo degenerado podria no ser `Cerrado`. Va despues del flujo
+    # (orden D-8) y antes de tocar el ticket.
+    estado_en_curso = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_EN_CURSO)
+    estado_cierre = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_CERRADO)
+    if (
+        estado_en_curso is not None
+        and estado_cierre is not None
+        and ticket.estado_id == estado_en_curso.estado_id
+        and estado_destino.estado_id == estado_cierre.estado_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El cierre requiere despacho; use "
+                f"POST /api/v1/tickets/{ticket_id}/despacho"
+            ),
+        )
 
     ticket.estado_id = estado_id
     if (
@@ -309,4 +353,165 @@ def actualizar_estado_ticket(db: Session, ticket_id: int, estado_id: int) -> Tic
 
     db.commit()
     db.refresh(ticket)
+    return ticket
+
+
+def _resolver_estado_por_nombre(estados, nombre: str):
+    """Primera coincidencia por nombre, sin distinguir mayusculas (plan §3.2).
+
+    `estados` ya llega ordenado por `estado_id`, de modo que `next` devuelve el
+    de **menor id** ante nombres duplicados, que es la regla de la 004 (D-1).
+    """
+    objetivo = nombre.casefold()
+    return next((e for e in estados if e.nombre.casefold() == objetivo), None)
+
+
+def despachar_ticket(
+    db: Session, ticket_id: int, datos: TicketDespacho
+) -> Ticket:
+    """Despacha un ticket aprobado: rebaja stock, cierra y audita en una ACID.
+
+    El orden de validacion es contractual (`spec.md` §5, plan §3.1-§3.3) y
+    **ninguna** comprobacion de negocio escribe: primero se adquiere el bloqueo
+    de la fila del ticket y se comprueba su existencia; despues el actor; luego
+    el catalogo de estados y la elegibilidad; a continuacion los detalles, las
+    referencias de producto, la unicidad de inventario y la suficiencia del
+    stock total; solo entonces se muta y se hace un **unico** `commit()`.
+
+    El bloqueo (`with_for_update()`) serializa dos despachos del mismo ticket
+    (D-9): la segunda peticion espera y, tras el commit de la primera, relee el
+    estado `Cerrado` y responde 409 sin crear salidas. SQLite ignora
+    `FOR UPDATE`; la garantia concurrente se verifica en PostgreSQL real.
+
+    Cada detalle genera su propio `MovimientoInventario` `SALIDA` con la
+    cantidad solicitada y la observacion literal D-6 (D-7), aunque varias lineas
+    compartan producto: el stock se valida **agregado** por producto antes de
+    escribir. La rebaja, las cantidades entregadas, el cierre y las salidas son
+    una sola transaccion; cualquier fallo de escritura o commit revierte todo y
+    se propaga (`constitucion.md` §3).
+    """
+    ticket = db.execute(
+        select(Ticket).where(Ticket.ticket_id == ticket_id).with_for_update()
+    ).scalar_one_or_none()
+    if ticket is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado"
+        )
+
+    if db.get(Usuario, datos.usuario_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No existe usuario indicado: {datos.usuario_id}",
+        )
+
+    estados = db.execute(
+        select(EstadoTicket).order_by(EstadoTicket.estado_id)
+    ).scalars().all()
+    estado_en_curso = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_EN_CURSO)
+    estado_cerrado = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_CERRADO)
+    if estado_en_curso is None or estado_cerrado is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El catalogo de estados no contiene los nombres requeridos para "
+                f"despachar ({NOMBRE_ESTADO_EN_CURSO}/{NOMBRE_ESTADO_CERRADO})"
+            ),
+        )
+
+    if ticket.estado_id != estado_en_curso.estado_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"El ticket no esta en '{estado_en_curso.nombre}': el despacho "
+                "solo se realiza desde ese estado"
+            ),
+        )
+
+    detalles = db.execute(
+        select(DetalleTicket)
+        .where(DetalleTicket.ticket_id == ticket_id)
+        .order_by(DetalleTicket.detalle_ticket_id)
+    ).scalars().all()
+    if not detalles:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El ticket no tiene detalles que despachar",
+        )
+
+    ids_producto = sorted({detalle.producto_id for detalle in detalles})
+
+    filas_inventario = db.execute(
+        select(Inventario).where(Inventario.producto_id.in_(ids_producto))
+    ).scalars().all()
+    inventario_por_producto: dict[int, list[Inventario]] = {}
+    for fila in filas_inventario:
+        inventario_por_producto.setdefault(fila.producto_id, []).append(fila)
+
+    cantidad_requerida: dict[int, int] = {}
+    for detalle in detalles:
+        cantidad_requerida[detalle.producto_id] = (
+            cantidad_requerida.get(detalle.producto_id, 0)
+            + detalle.cantidad_solicitada
+        )
+
+    inventario_unico: dict[int, Inventario] = {}
+    for producto_id in ids_producto:
+        if db.get(Producto, producto_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"No se puede resolver el producto {producto_id} de un "
+                    "detalle del ticket"
+                ),
+            )
+        filas = inventario_por_producto.get(producto_id, [])
+        if len(filas) != 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"El producto {producto_id} requiere exactamente una fila de "
+                    f"inventario para despachar y tiene {len(filas)}"
+                ),
+            )
+        inventario_unico[producto_id] = filas[0]
+
+    for producto_id, requerido in cantidad_requerida.items():
+        disponible = inventario_unico[producto_id].stock_actual
+        if disponible < requerido:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Stock insuficiente para el producto {producto_id}: "
+                    f"requerido {requerido}, disponible {disponible}"
+                ),
+            )
+
+    try:
+        for detalle in detalles:
+            inventario = inventario_unico[detalle.producto_id]
+            inventario.stock_actual -= detalle.cantidad_solicitada
+            detalle.cantidad_entregada = detalle.cantidad_solicitada
+            db.add(
+                MovimientoInventario(
+                    tipo_movimiento=TIPO_SALIDA,
+                    cantidad=detalle.cantidad_solicitada,
+                    observacion=PLANTILLA_OBSERVACION_DESPACHO.format(
+                        ticket_id=ticket.ticket_id,
+                        detalle_ticket_id=detalle.detalle_ticket_id,
+                        producto_id=detalle.producto_id,
+                    ),
+                    inventario_id=inventario.inventario_id,
+                )
+            )
+
+        ticket.estado_id = estado_cerrado.estado_id
+        if ticket.fecha_cierre is None:
+            ticket.fecha_cierre = datetime.utcnow()
+
+        db.commit()
+        db.refresh(ticket)
+    except Exception:
+        db.rollback()
+        raise
+
     return ticket

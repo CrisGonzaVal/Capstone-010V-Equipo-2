@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import Categoria, Departamento, Inventario, MovimientoInventario, Producto
 from app.schemas.inventario_schema import (
     MovimientoCrear,
+    MovimientoInventarioRespuesta,
     ProductoExistenciaRespuesta,
     SedeExistenciaRespuesta,
 )
@@ -164,6 +165,51 @@ def listar_existencias(
         existencias = [existencia for existencia in existencias if existencia.es_critico]
 
     return existencias
+
+
+def listar_movimientos(db: Session) -> List[MovimientoInventarioRespuesta]:
+    """Historial de movimientos con sus datos asociados (plan §3.4, AC-17..AC-20).
+
+    Como `listar_existencias`, cruza varias tablas, asi que usa `select()` de
+    columnas con los onclause explicitos y ejecuta con `.mappings()`: al no haber
+    entidad en el `FROM`, SQLAlchemy no puede deducir los joins por si sola. Las
+    etiquetas de las columnas que no coinciden con el nombre del campo del DTO
+    (`Producto.nombre` -> `producto_nombre`, `Departamento.nombre_dep` ->
+    `departamento_nombre`) se asignan con `.label()`, de modo que cada mapping se
+    convierte en `MovimientoInventarioRespuesta` con `**fila`.
+
+    Los joins son internos porque cada movimiento persistido resuelve su
+    inventario, producto y departamento por FK. El orden `fecha_movimiento DESC,
+    movimiento_id DESC` es determinista incluso ante empates de fecha (AC-19); no
+    hay paginacion ni filtros en esta entrega.
+    """
+    consulta = (
+        select(
+            MovimientoInventario.movimiento_id,
+            MovimientoInventario.tipo_movimiento,
+            MovimientoInventario.cantidad,
+            MovimientoInventario.fecha_movimiento,
+            MovimientoInventario.observacion,
+            MovimientoInventario.inventario_id,
+            Inventario.producto_id,
+            Producto.nombre.label("producto_nombre"),
+            Inventario.departamento_id,
+            Departamento.nombre_dep.label("departamento_nombre"),
+            Inventario.ubicacion,
+        )
+        .join(Inventario, MovimientoInventario.inventario_id == Inventario.inventario_id)
+        .join(Producto, Inventario.producto_id == Producto.producto_id)
+        .join(Departamento, Inventario.departamento_id == Departamento.departamento_id)
+        .order_by(
+            MovimientoInventario.fecha_movimiento.desc(),
+            MovimientoInventario.movimiento_id.desc(),
+        )
+    )
+
+    return [
+        MovimientoInventarioRespuesta(**fila)
+        for fila in db.execute(consulta).mappings()
+    ]
 
 
 def registrar_movimiento(db: Session, movimiento: MovimientoCrear) -> Inventario:

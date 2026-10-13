@@ -7,6 +7,7 @@ from app.api import dependencies
 from app.schemas.inventario_schema import (
     InventarioRespuesta,
     MovimientoCrear,
+    MovimientoInventarioRespuesta,
     ProductoExistenciaRespuesta,
 )
 from app.schemas.producto_schema import (
@@ -95,6 +96,26 @@ def listar_inventario(
     departamento_id: int = None, db: Session = Depends(dependencies.get_db)
 ):
     return inventario_service.listar_inventario(db, departamento_id)
+
+
+@router.get(
+    "/movimientos",
+    response_model=List[MovimientoInventarioRespuesta],
+    status_code=status.HTTP_200_OK,
+    summary="Historial de movimientos con sus datos asociados",
+    description=(
+        "Devuelve **todas las filas de auditoria de `movimiento_inventario`**, "
+        "enriquecidas con el producto, el departamento y la ubicacion de su "
+        "inventario de destino. La respuesta es una lista, incluso vacia, sin "
+        "paginacion ni filtros en esta entrega.\n\n"
+        "El orden es determinista: `fecha_movimiento` descendente y, ante "
+        "empates, `movimiento_id` descendente. El recurso es de solo lectura: no "
+        "ofrece modificacion ni borrado, porque el historial es la evidencia "
+        "inmutable de la trazabilidad de stock."
+    ),
+)
+def listar_movimientos(db: Session = Depends(dependencies.get_db)):
+    return inventario_service.listar_movimientos(db)
 
 
 @router.post(

@@ -9,7 +9,7 @@ El proyecto se ejecuta en dos grandes Versiones (Releases), priorizando el motor
 > El estado de cada feature vive en **una sola columna**, en el índice de especificaciones. Las listas de sprint son la vista cronológica y no llevan estado en prosa, para que no se desincronicen.
 > Ojo: en los `tasks.md` de cada feature, `[!]` significa "bloqueado". Acá significa "falta la verificación manual de cierre".
 
-**Siguiente feature:** la primera fila `[ ]` del índice, hoy la **005**. Se mueve al cerrar cada una.
+**Siguiente feature:** la primera fila `[ ]` del índice, hoy la **006**. Se mueve al cerrar cada una.
 
 ---
 
@@ -24,7 +24,7 @@ El proyecto se ejecuta en dos grandes Versiones (Releases), priorizando el motor
 
 #### Sprint 2 (13/Oct/2026 - 02/Nov/2026): Gestión Kanban y Despacho Físico
 - [x] Feature 004: Tablero Kanban operativo con columnas por estados.
-- [ ] Feature 005: Endpoint transaccional de despacho con rebaja automática de stock y auditoría.
+- [x] Feature 005: Endpoint transaccional de despacho con rebaja automática de stock y auditoría.
 
 > **Hito 1 (02/Nov/2026)**: Demostración técnica del flujo de abastecimiento completo ante el docente guía.
 
@@ -58,7 +58,7 @@ Cada feature tiene su carpeta en `docs/spec/features/NNN-nombre-feature/` con `s
 | 002 | 1.0 | 1 | `002-catalogo-insumos/` | `[x]` Cerrada: 26 AC en verde, 43 casos de backend, 12 tests de frontend y recorrido visual de la vista a 1366px | [spec.md](features/002-catalogo-insumos/spec.md) · [plan.md](features/002-catalogo-insumos/plan.md) · [tasks.md](features/002-catalogo-insumos/tasks.md) |
 | 003 | 1.0 | 1 | `003-modal-ticket/` | `[x]` Cerrada: 32 AC en verde, 79 tests de backend (43 previos + 36 nuevos, 4 migrados de 500 a 404), 40 tests de frontend (12 previos + 28 nuevos), recorrido funcional en 4200 con escritura real contra PostgreSQL y recorrido de humo en 8080 tras reconstruir la imagen | [spec.md](features/003-modal-ticket/spec.md) · [plan.md](features/003-modal-ticket/plan.md) · [tasks.md](features/003-modal-ticket/tasks.md) |
 | 004 | 1.0 | 2 | `004-tablero-kanban/` | `[x]` Cerrada: 27 AC en verde, 95 tests de backend, 63 tests de frontend, recorrido funcional en 4200 con escritura real contra PostgreSQL y recorrido de humo en 8080 tras reconstruir la imagen | [spec.md](features/004-tablero-kanban/spec.md) · [plan.md](features/004-tablero-kanban/plan.md) · [tasks.md](features/004-tablero-kanban/tasks.md) |
-| 005 | 1.0 | 2 | *(sin carpeta)* | `[ ]` No iniciada | — |
+| 005 | 1.0 | 2 | `005-despacho-transaccional/` | `[x]` Cerrada: 28 AC en verde, 140 tests de backend, 69 tests de frontend, recorrido funcional en 4200 con despacho real persistido en PostgreSQL y recorrido de humo en 8080 tras reconstruir la imagen; `FOR UPDATE` y concurrencia (200/409) verificados contra PostgreSQL 16 real | [spec.md](features/005-despacho-transaccional/spec.md) · [plan.md](features/005-despacho-transaccional/plan.md) · [tasks.md](features/005-despacho-transaccional/tasks.md) |
 | 006 | 2.0 | 3 | *(sin carpeta)* | `[ ]` No iniciada | — |
 | 007 | 2.0 | 3 | *(sin carpeta)* | `[ ]` No iniciada | — |
 | 008 | 2.0 | 4 | *(sin carpeta)* | `[ ]` No iniciada | — |

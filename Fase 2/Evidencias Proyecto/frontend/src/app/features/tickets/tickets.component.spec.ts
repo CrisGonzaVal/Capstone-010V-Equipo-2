@@ -217,6 +217,80 @@ const TICKETS_TRANSICION: Ticket[] = [
 ];
 
 /**
+ * Fixture de T10 (Feature 005): catalogo con `EnCurso` (3) y `Cerrado` (4), el
+ * flujo canonico completo. La 004 no tenia `EnCurso`, asi que este es el unico
+ * catalogo con el que se puede probar la regla de no avanzar desde esa columna.
+ */
+const CATALOGOS_005: CatalogosTicket = {
+  ...CATALOGOS,
+  estados: [
+    { estado_id: 1, nombre: 'Pendiente', descripcion: 'Sin revisar' },
+    { estado_id: 2, nombre: 'EnRevision', descripcion: 'En revision' },
+    { estado_id: 3, nombre: 'EnCurso', descripcion: 'En preparacion' },
+    { estado_id: 4, nombre: 'Cerrado', descripcion: 'Cerrado' },
+  ],
+};
+
+/** Tickets de T10: reusa los de T8 (transiciones) y agrega uno en `EnCurso` (3). */
+const TICKETS_005: Ticket[] = [
+  ...TICKETS_TRANSICION,
+  {
+    ticket_id: 6,
+    usuario_id: 5,
+    prioridad_id: 1,
+    estado_id: 3,
+    asunto: 'Preparando pedido',
+    descripcion: null,
+    fecha_creacion: '2026-10-06T10:00:00',
+    fecha_cierre: null,
+    detalles: [],
+  },
+];
+
+/**
+ * Catalogo degenerado de T10: `EnCurso` duplicado con el **menor id en posicion
+ * media** (el 3 va despues del 4). El canonico es el de menor `estado_id` (3),
+ * no el primero del arreglo; el duplicado (4) conserva sus controles segun su
+ * posicion, igual que cualquier otra columna.
+ */
+const CATALOGOS_EN_CURSO_DUPLICADO: CatalogosTicket = {
+  ...CATALOGOS_005,
+  estados: [
+    { estado_id: 1, nombre: 'Pendiente', descripcion: 'Sin revisar' },
+    { estado_id: 2, nombre: 'EnRevision', descripcion: 'En revision' },
+    { estado_id: 4, nombre: 'EnCurso', descripcion: 'Duplicado no canonico' },
+    { estado_id: 3, nombre: 'EnCurso', descripcion: 'En preparacion' },
+    { estado_id: 5, nombre: 'Cerrado', descripcion: 'Cerrado' },
+  ],
+};
+
+/** Un ticket en cada `EnCurso` del catalogo duplicado: el canonico y el no canonico. */
+const TICKETS_EN_CURSO_DUPLICADO: Ticket[] = [
+  {
+    ticket_id: 7,
+    usuario_id: 5,
+    prioridad_id: 1,
+    estado_id: 3,
+    asunto: 'En el EnCurso canonico',
+    descripcion: null,
+    fecha_creacion: '2026-10-06T10:00:00',
+    fecha_cierre: null,
+    detalles: [],
+  },
+  {
+    ticket_id: 8,
+    usuario_id: 1,
+    prioridad_id: 2,
+    estado_id: 4,
+    asunto: 'En el EnCurso duplicado',
+    descripcion: null,
+    fecha_creacion: '2026-10-06T11:00:00',
+    fecha_cierre: null,
+    detalles: [],
+  },
+];
+
+/**
  * Respuesta completa de `POST /tickets/` (T9): el componente consume el
  * `Ticket` entero, no un `{ ticket_id }` parcial, asi que los tests del modal
  * tienen que responder con esta forma.
@@ -924,6 +998,102 @@ describe('TicketsComponent', () => {
       const terminal = tarjetaDe(5)!; // indice 2 (ultimo)
       expect(terminal.estadoAnteriorId).toBeNull();
       expect(terminal.estadoSiguienteId).toBeNull();
+    });
+  });
+
+  describe('regla de despacho: sin avance desde EnCurso (AC-16)', () => {
+    /** Busca una tarjeta por el id de su ticket, aplanando las columnas. */
+    function tarjetaDe(ticketId: number) {
+      return componente
+        .columnas()
+        .flatMap((columna) => columna.tarjetas)
+        .find((tarjeta) => tarjeta.ticket.ticket_id === ticketId);
+    }
+
+    it('AC-16: la tarjeta del EnCurso canónico no ofrece avanzar y sí retroceder', () => {
+      responderArranque(CATALOGOS_005, TICKETS_005);
+
+      const enCurso = tarjetaDe(6)!; // estado 3, canónico
+      expect(enCurso.puedeAvanzar).toBe(false);
+      expect(enCurso.estadoSiguienteId).toBeNull();
+      // El retroceso no se toca: sigue apuntando al estado anterior del flujo.
+      expect(enCurso.puedeRetroceder).toBe(true);
+      expect(enCurso.estadoAnteriorId).toBe(2);
+    });
+
+    it('AC-16: el DOM no pinta el botón de avanzar en EnCurso pero sí el de retroceder', () => {
+      responderArranque(CATALOGOS_005, TICKETS_005);
+
+      expect(
+        fixture.nativeElement.querySelector('button[aria-label="Avanzar ticket #6"]')
+      ).toBeNull();
+      expect(
+        fixture.nativeElement.querySelector('button[aria-label="Retroceder ticket #6"]')
+      ).not.toBeNull();
+    });
+
+    it('AC-16: intentar avanzar desde EnCurso no emite ningún PATCH', () => {
+      responderArranque(CATALOGOS_005, TICKETS_005);
+
+      // `estadoSiguienteId` es `null`, así que `moverSiguiente` sale sin tocar
+      // la red aunque el usuario invoque la acción.
+      componente.moverSiguiente(tarjetaDe(6)!);
+
+      httpMock.expectNone(RUTA_ESTADO(6));
+      expect(componente.errorMovimiento()).toBeNull();
+    });
+
+    it('AC-16: las demás columnas conservan sus controles', () => {
+      responderArranque(CATALOGOS_005, TICKETS_005);
+
+      const pendiente = tarjetaDe(1)!; // estado 1, primer estado
+      expect(pendiente.puedeRetroceder).toBe(false);
+      expect(pendiente.puedeAvanzar).toBe(true);
+      expect(pendiente.estadoSiguienteId).toBe(2);
+
+      const enRevision = tarjetaDe(3)!; // estado 2, intermedio
+      expect(enRevision.puedeRetroceder).toBe(true);
+      expect(enRevision.estadoAnteriorId).toBe(1);
+      expect(enRevision.puedeAvanzar).toBe(true);
+      expect(enRevision.estadoSiguienteId).toBe(3);
+
+      const cerrado = tarjetaDe(5)!; // estado 4, terminal
+      expect(cerrado.puedeAvanzar).toBe(false);
+      expect(cerrado.puedeRetroceder).toBe(false);
+      expect(cerrado.estadoSiguienteId).toBeNull();
+      expect(cerrado.estadoAnteriorId).toBeNull();
+    });
+
+    it('AC-16: resuelve EnCurso sin distinguir mayúsculas', () => {
+      const catalogosMinuscula: CatalogosTicket = {
+        ...CATALOGOS_005,
+        estados: CATALOGOS_005.estados.map((estado) => ({
+          ...estado,
+          nombre: estado.nombre.toLowerCase(),
+        })),
+      };
+      responderArranque(catalogosMinuscula, TICKETS_005);
+
+      const enCurso = tarjetaDe(6)!;
+      expect(enCurso.puedeAvanzar).toBe(false);
+      expect(enCurso.estadoSiguienteId).toBeNull();
+      // El retroceso se conserva también con el nombre en minúsculas.
+      expect(enCurso.puedeRetroceder).toBe(true);
+    });
+
+    it('AC-16: con EnCurso duplicado solo el de menor id oculta el avance', () => {
+      responderArranque(CATALOGOS_EN_CURSO_DUPLICADO, TICKETS_EN_CURSO_DUPLICADO);
+
+      // El canónico es el de menor `estado_id` (3), aunque no sea el primero del
+      // arreglo.
+      const canonico = tarjetaDe(7)!; // estado 3
+      expect(canonico.puedeAvanzar).toBe(false);
+      expect(canonico.estadoSiguienteId).toBeNull();
+
+      // La columna duplicada (4) no es el canónico: conserva su avance.
+      const duplicado = tarjetaDe(8)!; // estado 4
+      expect(duplicado.puedeAvanzar).toBe(true);
+      expect(duplicado.estadoSiguienteId).toBe(3);
     });
   });
 
