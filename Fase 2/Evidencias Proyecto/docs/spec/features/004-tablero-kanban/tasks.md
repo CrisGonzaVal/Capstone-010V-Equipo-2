@@ -222,11 +222,11 @@ componente consume la respuesta íntegra). AC-8 y AC-20 cubiertos.
 
 - [x] **AC-21** `pytest` → verde (número final anotado) y `ng test` → `TOTAL: N SUCCESS`.
 - [x] **AC-22** `npx ng build` de producción compila.
-- [ ] **AC-23** Recorrido en 4200 contra backend real: columnas con tickets semilla, avanzar
+- [x] **AC-23** Recorrido en 4200 contra backend real: columnas con tickets semilla, avanzar
       y retroceder con escritura real, y el 409 de dos pestañas (spec AC-23, receta exacta).
-- [ ] **AC-24** `docker compose -f docker-compose.yml build frontend && up -d frontend` y
+- [x] **AC-24** `docker compose -f docker-compose.yml build frontend && up -d frontend` y
       recorrido de humo en 8080 (`AGENTS.md` §8.6).
-- [ ] **AC-25** Fila 004 cerrada en `roadmap.md`; `MEMORY.md` actualizado;
+- [x] **AC-25** Fila 004 cerrada en `roadmap.md`; `MEMORY.md` actualizado;
       `grep -rn "ESTADO_CERRADO_ID" backend frontend database MEMORY.md` → 0
       (`docs/spec/` fuera, es registro histórico).
 - [x] **AC-26** `git diff` sin cambios estructurales en modelo ni datos de scripts; sin
@@ -234,17 +234,15 @@ componente consume la respuesta íntegra). AC-8 y AC-20 cubiertos.
 - [x] Coherencia final (`AGENTS.md` §8.7): grep de rutas citadas en `AGENTS.md`,
       `MEMORY.md` y `.agents/skills/` por la 004.
 
-**Evidencia parcial (2026-10-07) — AC-21, AC-22, AC-26 y §8.7 (automático):** `pytest` →
-**95 passed, 1 warning**; `ng test` → **TOTAL: 63 SUCCESS**; `npx ng build` → compila sin
-errores ni avisos de presupuesto (inicial 312.80 kB, `tickets-component` en chunk lazy de
-65.38 kB, salida `frontend/dist/frontend-app`). AC-26: `git diff -- database/01_esquema.sql`
-vacío, `02_datos_semilla.sql` solo con líneas de comentario (ni un INSERT tocado),
-`git diff -- backend/requirements.txt frontend/package.json frontend/package-lock.json`
-vacío. §8.7: existen `test_tablero_kanban.py`, `ticket_service.py`,
-`tickets.component.ts` y `tickets.component.spec.ts`; ninguna mención obsoleta a "datos de
-muestra" en `AGENTS.md`, `MEMORY.md` ni `.agents/skills/`. **Pendiente:** AC-23 (recorrido en
-4200), AC-24 (8080 tras reconstruir la imagen) y AC-25 (fila en `roadmap.md` + el grep de
-`ESTADO_CERRADO_ID`, ya en 0 en `backend`, `frontend`, `database` y `MEMORY.md`).
+**Evidencia de cierre (2026-10-13):** AC-23: recorrido funcional en 4200 contra el backend
+real, con avance y retroceso verificados por `SELECT` y 409 de dos pestañas. AC-24: 8080
+tras `docker compose -f docker-compose.yml build frontend` +
+`up -d --force-recreate frontend`; `up -d` solo no recreaba el contenedor porque `latest`
+apuntaba a otro image ID que el contenedor vivo. AC-25: grep → 0, `MEMORY.md` actualizado y
+fila 004 cerrada en `roadmap.md`. Suites finales: `pytest` → **95 passed, 1 warning
+preexistente**; `ng test` → **63 SUCCESS**. Build de producción exitoso (inicial 312.80 kB,
+chunk lazy 65.38 kB). AC-26: sin cambios en esquema ni dependencias; semilla solo con
+cambios de comentarios. §8.7: coherencia de las rutas citadas verificada.
 
 **Hecho cuando:** los 6 AC tienen su evidencia pegada en esta tarea, todas las casillas
 anteriores están en `[x]` y ninguna ruta citada quedó obsoleta. Ese es el único momento de

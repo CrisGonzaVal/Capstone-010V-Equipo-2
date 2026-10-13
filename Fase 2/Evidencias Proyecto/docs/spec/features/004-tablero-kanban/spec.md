@@ -184,91 +184,125 @@ estado inexistente) se rechaza sin modificar el ticket (D-2, D-8).
 
 ### Columnas, tarjetas y filtros
 
-- [ ] **AC-1** El sistema DEBE mostrar una columna por cada estado del catálogo, en el orden
+- [x] **AC-1** El sistema DEBE mostrar una columna por cada estado del catálogo, en el orden
       del flujo, incluidas las que no tienen tickets.
-- [ ] **AC-2** DADO QUE existen tickets, EL SISTEMA DEBE agrupar cada uno en la columna de su
+- [x] **AC-2** DADO QUE existen tickets, EL SISTEMA DEBE agrupar cada uno en la columna de su
       estado actual, ordenados dentro de la columna por fecha de creación (más reciente
       primero; en empate, el de mayor `ticket_id`).
-- [ ] **AC-3** Cada columna DEBE mostrar el conteo de tarjetas que contiene después de
+- [x] **AC-3** Cada columna DEBE mostrar el conteo de tarjetas que contiene después de
       aplicar los filtros.
-- [ ] **AC-4** Cada tarjeta DEBE mostrar asunto, prioridad, solicitante y fecha de creación;
+- [x] **AC-4** Cada tarjeta DEBE mostrar asunto, prioridad, solicitante y fecha de creación;
       SI el ticket tiene fecha de cierre, ENTONCES DEBE mostrarla también.
-- [ ] **AC-5** SI una columna queda sin tickets — esté vacía o tras filtrar —, ENTONCES DEBE
+- [x] **AC-5** SI una columna queda sin tickets — esté vacía o tras filtrar —, ENTONCES DEBE
       mostrar un mensaje de vacío diferenciable del estado de error.
-- [ ] **AC-6** MIENTRAS el filtro de prioridad esté activo, EL SISTEMA DEBE mostrar en todas
+- [x] **AC-6** MIENTRAS el filtro de prioridad esté activo, EL SISTEMA DEBE mostrar en todas
       las columnas solo los tickets de esa prioridad; el valor por defecto DEBE ser "todas".
-- [ ] **AC-7** MIENTRAS haya texto en la búsqueda —sin contar vacío o solo espacios—, EL
+- [x] **AC-7** MIENTRAS haya texto en la búsqueda —sin contar vacío o solo espacios—, EL
       SISTEMA DEBE filtrar por asunto sin distinguir mayúsculas ni acentos ni tratar `%` y
       `_` como comodines, DEBE surtir efecto en columnas y contadores, y SI también hay
       filtro de prioridad, ENTONCES solo se muestran los que cumplen ambos (intersección,
       D-6).
-- [ ] **AC-8** DADO QUE el usuario crea un ticket desde el modal, ENTONCES el tablero DEBE
+- [x] **AC-8** DADO QUE el usuario crea un ticket desde el modal, ENTONCES el tablero DEBE
       reflejarlo sin recargar la página; SI hay filtros activos que no lo admiten, ENTONCES
       no se muestra (los filtros rigen siempre, D-6).
-- [ ] **AC-27** `GET /tickets/` DEBE responder con orden explícito por `fecha_creacion`
+- [x] **AC-27** `GET /tickets/` DEBE responder con orden explícito por `fecha_creacion`
       descendente y sin una consulta por fila al cargar `detalles` (carga de colección en
       una sola consulta); pruebas de backend fijan ambas cosas.
 
 ### Transiciones
 
-- [ ] **AC-9** DADO QUE el usuario pulsa "avanzar" en una tarjeta, ENTONCES el ticket DEBE
+- [x] **AC-9** DADO QUE el usuario pulsa "avanzar" en una tarjeta, ENTONCES el ticket DEBE
       pasar al estado siguiente del flujo y la tarjeta DEBE aparecer en esa columna.
-- [ ] **AC-10** DADO QUE el usuario pulsa "retroceder" en una tarjeta, ENTONCES el ticket
+- [x] **AC-10** DADO QUE el usuario pulsa "retroceder" en una tarjeta, ENTONCES el ticket
       DEBE pasar al estado anterior del flujo y la tarjeta DEBE aparecer en esa columna.
-- [ ] **AC-11** SI un ticket está en el estado terminal —el último del orden del catálogo;
+- [x] **AC-11** SI un ticket está en el estado terminal —el último del orden del catálogo;
       en el canónico, `Cerrado`—, ENTONCES su tarjeta NO DEBE ofrecer ningún control de
       transición (D-2).
-- [ ] **AC-12** El tablero NO DEBE ofrecer transiciones inválidas: sin "avanzar" en el
+- [x] **AC-12** El tablero NO DEBE ofrecer transiciones inválidas: sin "avanzar" en el
       último estado, sin "retroceder" en el primero y sin saltos de más de un paso.
-- [ ] **AC-13** SI la transición solicitada sale del flujo lineal, retrocede desde el
+- [x] **AC-13** SI la transición solicitada sale del flujo lineal, retrocede desde el
       estado terminal o pide el estado que el ticket ya tiene, ENTONCES el sistema DEBE
       rechazarla con conflicto (409), NO DEBE modificar el ticket ni su fecha.
-- [ ] **AC-14** SI el `estado` pedido no existe en el catálogo, ENTONCES el sistema DEBE
+- [x] **AC-14** SI el `estado` pedido no existe en el catálogo, ENTONCES el sistema DEBE
       responder recurso inexistente (404) nombrando la referencia, sin modificar el ticket.
-- [ ] **AC-15** SI el ticket no existe, ENTONCES el sistema DEBE responder 404. La
+- [x] **AC-15** SI el ticket no existe, ENTONCES el sistema DEBE responder 404. La
       validación del ticket precede a la del estado y a la del flujo (D-8).
-- [ ] **AC-16** DADO QUE una transición válida lleva el ticket a `Cerrado`, ENTONCES el
+- [x] **AC-16** DADO QUE una transición válida lleva el ticket a `Cerrado`, ENTONCES el
       sistema DEBE sellar su fecha de cierre en esa misma operación, conservando la fecha
       si ya existía: nunca se sobrescribe (D-3).
-- [ ] **AC-17** DADO QUE un ticket queda en `Cerrado` por cualquier camino (alta directa o
+- [x] **AC-17** DADO QUE un ticket queda en `Cerrado` por cualquier camino (alta directa o
       transición), ENTONCES DEBE tener fecha de cierre (D-4).
-- [ ] **AC-18** El sistema DEBE determinar el estado final por su nombre canónico `"Cerrado"`
+- [x] **AC-18** El sistema DEBE determinar el estado final por su nombre canónico `"Cerrado"`
       —sin distinguir mayúsculas—, de modo que cambiar el orden o los ids del catálogo NO
       DEBA romper el sellado de fechas (D-3).
 
 ### Feedback de la interfaz
 
-- [ ] **AC-19** DADO QUE el backend acepta la transición, ENTONCES la tarjeta DEBE moverse y
+- [x] **AC-19** DADO QUE el backend acepta la transición, ENTONCES la tarjeta DEBE moverse y
       los contadores actualizarse sin recargar la página, con el control deshabilitado
       mientras la operación está en curso (sin doble envío).
-- [ ] **AC-20** SI el backend no acepta la operación — 404, 409 u otro fallo, incluida la
+- [x] **AC-20** SI el backend no acepta la operación — 404, 409 u otro fallo, incluida la
       ausencia de respuesta —, ENTONCES la tarjeta NO DEBE moverse, DEBE mostrarse un
       mensaje accesible (`role="alert"`) y el tablero DEBE reconsultarse para reflejar el
       estado real del servidor.
 
 ### Verificación
 
-- [ ] **AC-21** La suite de pruebas del backend y la del frontend quedan en verde, incluidos
+- [x] **AC-21** La suite de pruebas del backend y la del frontend quedan en verde, incluidos
       los casos nuevos de transiciones válidas, rechazadas y sellado de fecha.
-- [ ] **AC-22** El proyecto compila para producción.
-- [ ] **AC-23** El tablero se recorre en el navegador contra el backend real: agrupa tickets
+- [x] **AC-22** El proyecto compila para producción.
+- [x] **AC-23** El tablero se recorre en el navegador contra el backend real: agrupa tickets
       existentes, se avanza y retrocede un ticket con escritura real, y un rechazo (409) se
       provoca con dos pestañas sobre un ticket en `EnRevision`: la primera pulsa "avanzar"
       (estado real: `EnCurso`) y la segunda, sin recargar, pulsa "retroceder" (envía
       `Pendiente` contra el estado real `EnCurso` → salto → 409), mostrando la alerta sin
       mover la tarjeta. Sin esto la feature no está cerrada (`AGENTS.md` §8.5).
-- [ ] **AC-24** La recorrida se hace en los dos puertos del frontend, tras reconstruir la
+- [x] **AC-24** La recorrida se hace en los dos puertos del frontend, tras reconstruir la
       imagen, para que 8080 refleje la feature (`AGENTS.md` §8.6).
-- [ ] **AC-25** Coherencia documental: fila de la 004 cerrada en `roadmap.md`, `MEMORY.md`
+- [x] **AC-25** Coherencia documental: fila de la 004 cerrada en `roadmap.md`, `MEMORY.md`
       actualizado, y `grep -rn "ESTADO_CERRADO_ID" backend frontend database MEMORY.md` → 0
       coincidencias: la constante, sus comentarios en backend/semilla/frontend y su mención
       en `MEMORY.md` desaparecen (`AGENTS.md` §8.7). `docs/spec/` queda fuera del grep: las
       specs 001 y 003 son registro histórico.
-- [ ] **AC-26** `git diff` sin cambios estructurales en el modelo de datos ni en los datos
+- [x] **AC-26** `git diff` sin cambios estructurales en el modelo de datos ni en los datos
       de los scripts de base (`01_esquema.sql` y los INSERT de `02_datos_semilla.sql`
       intactos): la feature no cambia el esquema (`AGENTS.md` §7) ni agrega dependencias
       nuevas. Reescribir comentarios de la semilla sí está permitido (AC-25): no es
       estructura.
+
+### Evidencia de verificación (2026-10-13)
+
+- AC-1: test `debe mostrar una columna por estado del catalogo, en orden, incluidas las vacias` (`tickets.component.spec.ts:616`); en navegador 4200 y 8080 aparecen las 4 columnas: Pendiente, EnRevision, EnCurso, Cerrado.
+- AC-2: tests `...agrupar cada ticket...` y `...ordenar por fecha de creacion DESC y, en empate, por ticket_id DESC` (`tickets.component.spec.ts:632,645`); la API real devuelve el orden `[10,2,1,3,4,5,6,7,8,9]`.
+- AC-3: test `...contar las tarjetas despues de filtrar...` (`tickets.component.spec.ts:718`); en 8080, filtrando `folders`, los conteos quedan 0/1/0/0.
+- AC-4: test `...asunto, prioridad, solicitante y fechas...` (`tickets.component.spec.ts:659`); snapshot con prioridad, `#id`, asunto, `solicitante · departamento`, `Creado:` y `Cerrado:`.
+- AC-5: test `debe diferenciar el vacio por filtros del vacio normal (AC-5)` (`tickets.component.spec.ts:804`): `Sin tickets en esta columna` vs `Ningún ticket coincide con los filtros`.
+- AC-6: test `debe arrancar en "todas" y filtrar por prioridad (AC-6)` (`tickets.component.spec.ts:699`).
+- AC-7: tests de búsqueda sin distinguir mayúsculas ni acentos, `%` y `_` literales, texto vacío o de solo espacios, e intersección (`tickets.component.spec.ts:736,761,775,787`).
+- AC-8: tests `AC-8: el ticket creado aparece en el tablero sin recargar` y `...no aparece si los filtros no lo admiten` (`tickets.component.spec.ts:1013,1030`).
+- AC-9: `test_avanzar_un_paso_pasa_al_siguiente_estado` (`test_tablero_kanban.py:156`); en el navegador, #10 pasó de `estado_id 2` a `3`, verificado con `SELECT` sobre la base.
+- AC-10: `test_retroceder_un_paso_vuelve_al_estado_anterior` (`test_tablero_kanban.py:171`); #10 volvió de `3` a `2`, verificado con `SELECT` sobre la base.
+- AC-11: test `AC-11: en el estado terminal no se ofrece ningun control` (`tickets.component.spec.ts:846`); tarjetas #7/#8/#9 en Cerrado sin controles.
+- AC-12: tests `AC-12: en el primer estado no hay retroceso` y `...ids contiguos, sin saltos` (`tickets.component.spec.ts:837,915`).
+- AC-13: `test_salto_de_estado_se_rechaza_con_409`, `...estado repetido...`, `...retroceso desde el terminal...` (`test_tablero_kanban.py:188,204,220`); API real: PATCH #6 Cerrado → 1 respondió 409.
+- AC-14: `test_estado_inexistente_responde_404_sin_modificar` (`test_tablero_kanban.py:239`), con `estado` en el detalle.
+- AC-15: `test_ticket_inexistente_responde_404` y `test_el_ticket_se_valida_antes_que_el_estado` (`test_tablero_kanban.py:263,273`, orden D-8).
+- AC-16: `test_avanzar_a_cerrado_sella_la_fecha` y `test_reentrar_en_cerrado_conserva_la_fecha_original` (`test_tablero_kanban.py:286,335`); API real: #6 `fecha_cierre = 2026-10-13T16:42:49.617408`.
+- AC-17: `test_crear_ticket_en_cerrado_sella_fecha_cierre` (`test_tablero_kanban.py:369`); en la semilla los tickets 7/8/9 están en Cerrado con `fecha_cierre` no nula.
+- AC-18: `test_el_sellado_no_depende_del_id_del_estado` (Cerrado con id 3) y `test_el_sellado_no_distingue_mayusculas` (`CERRADO`) (`test_tablero_kanban.py:300,317`).
+- AC-19: tests `AC-9/AC-19: moverSiguiente emite un PATCH y mueve la tarjeta sin recargar` (con `expectNone(RUTA_TICKETS)`) y `...control deshabilitado y no hay doble envio` (`tickets.component.spec.ts:860,899`).
+- AC-20: tests de 409, 404 y sin respuesta (`tickets.component.spec.ts:944,978,996`); en navegador, dos pestañas sobre #10: primera avanzó (`2→3`), segunda sin recargar pidió retroceder y recibió 409; `role="alert"` mostró `Transicion invalida: el ticket esta en el estado 3 y se pidio 1...`, la base quedó en 3, la tarjeta no se movió y el tablero se reconsultó.
+- AC-21: `pytest` → 95 passed, 1 warning preexistente de `starlette.testclient`; `ng test` → TOTAL: 63 SUCCESS.
+- AC-22: `ng build` de producción compiló (inicial 312.80 kB, chunk lazy 65.38 kB) y 8080 sirvió `main-DJROJJG5.js` y chunks con hash de la imagen reconstruida.
+- AC-23: recorrido completo en 4200 contra backend real: columnas/conteos, #10 avanzó (`2→3`) y retrocedió (`3→2`) comprobado con `SELECT`; 409 entre dos pestañas con alerta accesible, tarjeta inmóvil y reconsulta. Consola sin errores salvo el 409 intencional.
+- AC-24: 8080 tras reconstruir y recrear imagen: las cuatro columnas renderizan (conteos 2/2/3/3), `try_files` de nginx responde en `/tickets` y el filtro de humo responde; consola limpia.
+- AC-25: `grep -rn "ESTADO_CERRADO_ID"` en backend, frontend, database y MEMORY.md → 0; `MEMORY.md` actualizado y fila 004 cerrada en roadmap.
+- AC-26: `git diff 6421d97..HEAD` vacío sobre `database/01_esquema.sql`, `backend/requirements.txt`, `frontend/package.json` y `package-lock.json`; `02_datos_semilla.sql` solo cambió líneas de comentario, ni un INSERT ni TRUNCATE tocado.
+- AC-27: tests de `GET /tickets/` con orden `fecha_creacion DESC`, desempate `ticket_id DESC` y carga de detalles sin consultas por fila (T4); `pytest` completo: 95 passed.
+
+**Observación de entorno:** el recorrido real modificó la semilla de la base de desarrollo: ticket #10 quedó en `estado_id 3` y ticket #6 en Cerrado con `fecha_cierre` sellada. No afecta la suite, que usa SQLite en memoria.
+
+**Estado de cierre:** cerrada tras validación aprobada y evidencias AC-1…AC-27.
 
 ## 7. Restricciones
 
