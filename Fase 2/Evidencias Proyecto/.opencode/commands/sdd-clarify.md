@@ -1,6 +1,7 @@
 ---
 description: SDD · Revisa la spec como un QA (solo detecta, no resuelve)
-agent: plan
+agent: reviewer
+subagent: true
 ---
 
 Revisa `docs/spec/features/$1/spec.md` como si fueras un QA muy profesional. Usa la skill `sdd-workflow`.

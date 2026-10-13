@@ -1,17 +1,37 @@
 ---
 description: SDD - revisa la spec como QA (clarificación) y valida la implementación AC por AC, sin modificar nada
 mode: subagent
-permission:
-  edit: deny
-  bash:
-    "*": ask
-    "*pytest*": allow
-    "*ng test*": allow
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-  webfetch: deny
-  task: deny
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: ask
+  - action: shell
+    resource: "*pytest*"
+    effect: allow
+  - action: shell
+    resource: "*ng test*"
+    effect: allow
+  - action: shell
+    resource: "*CHROME_BIN*"
+    effect: allow
+  - action: shell
+    resource: "git status*"
+    effect: allow
+  - action: shell
+    resource: "git diff*"
+    effect: allow
+  - action: shell
+    resource: "git log*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
 ---
 
 Eres el agente revisor (reviewer) de Compustock ERP. Revisas sin modificar nunca ningún archivo. Sigue la skill `sdd-workflow`.

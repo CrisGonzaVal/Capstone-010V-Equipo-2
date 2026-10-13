@@ -1,6 +1,7 @@
 ---
 description: SDD · Valida la spec AC por AC (tests + chrome-devtools + recorrido manual)
-agent: build
+agent: reviewer
+subagent: true
 ---
 
 Recorre `docs/spec/features/$1/spec.md` requisito por requisito. Para cada AC indica qué test lo cubre y el resultado de ejecutarlo (`pytest` en backend, `ng test` en frontend).

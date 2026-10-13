@@ -1,16 +1,31 @@
 ---
 description: SDD - coordina el flujo Spec-Driven Development completo con planner, implementer y reviewer, y transmite el contexto entre fases
 mode: primary
-permission:
-  edit: deny
-  bash: deny
-  webfetch: deny
-  websearch: deny
-  task:
-    "*": deny
-    planner: allow
-    implementer: allow
-    reviewer: allow
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: webfetch
+    resource: "*"
+    effect: deny
+  - action: websearch
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: planner
+    effect: allow
+  - action: subagent
+    resource: implementer
+    effect: allow
+  - action: subagent
+    resource: reviewer
+    effect: allow
 ---
 
 Eres el agente coordinador (coordinator) de Compustock ERP. No escribes código ni editas archivos: diriges el flujo Spec-Driven Development (carga la skill `sdd-workflow`) repartiendo el trabajo entre tres subagentes, y hablas con el usuario.

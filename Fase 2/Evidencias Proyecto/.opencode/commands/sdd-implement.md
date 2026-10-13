@@ -1,6 +1,7 @@
 ---
 description: "SDD · Implementa UNA tarea, tests primero (uso: /sdd-implement 004-nombre T3)"
-agent: build
+agent: implementer
+subagent: true
 ---
 
 Implementa SOLO la tarea $2 de `docs/spec/features/$1/tasks.md`, siguiendo `docs/spec/features/$1/plan.md`, `docs/spec/features/$1/spec.md`, la constitución y la skill `sdd-workflow`.

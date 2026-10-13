@@ -143,15 +143,15 @@ Las convenciones de §6 y el flujo de §8 están codificados como skills en `.ag
 |---|---|---|
 | `/sdd-constitution` | Revisar/crear la constitución | planner |
 | `/sdd-spec NNN-nombre idea` | Especificación (entrevista + `spec.md`) | planner |
-| `/sdd-clarify NNN-nombre` | Clarificación (QA, solo detecta) | plan |
+| `/sdd-clarify NNN-nombre` | Clarificación (QA, solo detecta) | reviewer |
 | `/sdd-plan NNN-nombre` | Planificación (`plan.md`) | planner |
 | `/sdd-tasks NNN-nombre` | Tareas (`tasks.md`) | planner |
-| `/sdd-implement NNN-nombre Tn` | Implementar UNA tarea | build |
-| `/sdd-validate NNN-nombre` | Validación AC por AC | build |
+| `/sdd-implement NNN-nombre Tn` | Implementar UNA tarea | implementer |
+| `/sdd-validate NNN-nombre` | Validación AC por AC | reviewer |
 | `/sdd-change NNN-nombre requisito` | Cambio de requisito (primero la spec) | planner |
 | `/sdd-status NNN-nombre` | Estado y siguiente paso | plan |
 
-Los comandos que escriben corren en `@planner` (subagente con edición limitada a `docs/spec/**`); los de solo lectura, en el agente `plan`; y los que tocan código o tests, en `build`.
+Los comandos que escriben (`spec`, `plan`, `tasks`, `constitution`, `change`) corren en el subagente `@planner` (con edición limitada a `docs/spec/**`); los de QA y validación (`clarify`, `validate`), en el subagente `@reviewer`; y el que toca código y tests (`implement`), en el subagente `@implementer`. `/sdd-status` es el único que corre en el agente built-in `plan`. Los cinco que escriben y los tres subagentes heredan el modelo de la sesión: no hay `model:` fijado en ningún agente ni comando.
 
 El MCP `chrome-devtools` (habilitado en `opencode.json`) permite verificar UI, consola y vista móvil desde la validación sin salir de la terminal.
 

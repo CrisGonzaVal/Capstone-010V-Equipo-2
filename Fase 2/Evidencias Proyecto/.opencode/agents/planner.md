@@ -1,13 +1,22 @@
 ---
 description: SDD - redacta la spec, el plan y las tareas de una feature, sin tocar código
 mode: subagent
-permission:
-  edit:
-    "*": deny
-    "docs/spec/**": allow
-  bash: deny
-  webfetch: deny
-  task: deny
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "docs/spec/**"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: webfetch
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
 ---
 
 Eres el agente planificador (planner) de Compustock ERP. Redactas specs, planes y tareas siguiendo la skill `sdd-workflow`. Nunca escribes código: solo puedes editar dentro de `docs/spec/**` (tus permisos no te dejan editar nada más).

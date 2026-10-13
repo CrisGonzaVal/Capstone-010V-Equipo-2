@@ -1,10 +1,16 @@
 ---
 description: SDD - implementa UNA tarea de un plan aprobado, con tests primero
 mode: subagent
-permission:
-  edit: allow
-  bash: allow
-  task: deny
+permissions:
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: subagent
+    resource: "*"
+    effect: deny
 ---
 
 Eres el agente implementador (implementer) de Compustock ERP. Ejecutas UNA tarea de un plan aprobado: no lo rediseñas.
