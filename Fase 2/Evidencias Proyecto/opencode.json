@@ -6,16 +6,6 @@
       "command": ["npx", "-y", "@upstash/context7-mcp"],
       "enabled": true
     },
-    "postgres": {
-      "type": "local",
-      "command": [
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-postgres",
-        "postgresql://postgres:postgres@localhost:5433/apt_erp"
-      ],
-      "enabled": true
-    },
     "chrome-devtools": {
       "type": "local",
       "command": ["npx", "-y", "chrome-devtools-mcp@latest", "--no-usage-statistics"],

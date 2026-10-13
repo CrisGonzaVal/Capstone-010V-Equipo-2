@@ -155,6 +155,21 @@ Los comandos que escriben (`spec`, `plan`, `tasks`, `constitution`, `change`) co
 
 El MCP `chrome-devtools` (habilitado en `opencode.json`) permite verificar UI, consola y vista móvil desde la validación sin salir de la terminal.
 
+El MCP `postgres` **no** va en `opencode.json`: su URL es específica de cada máquina (puerto local y credencial de desarrollo). Cada persona lo declara en su configuración global (`~/.config/opencode/opencode.jsonc`), en forma V2:
+
+```jsonc
+"mcp": {
+  "servers": {
+    "postgres": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-postgres", "postgresql://USER:PASS@localhost:5433/apt_erp"]
+    }
+  }
+}
+```
+
+Lo mismo aplica a los `model:` de los agentes: son elección personal y viven en esa misma configuración global, nunca en el repo. Un `model:` en `.opencode/agents/*.md` o en `.opencode/commands/*.md` se lo impondría al equipo entero, y el de un comando le gana incluso al modelo de la sesión.
+
 ## 10. Memoria
 - Al empezar, lee `MEMORY.md` para conocer el estado del proyecto y las decisiones tomadas.
 - Al terminar una tarea, actualízalo: estado actual, decisiones importantes (con su porqué) y errores a evitar.
