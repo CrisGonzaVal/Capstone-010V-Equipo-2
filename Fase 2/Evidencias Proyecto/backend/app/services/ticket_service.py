@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     Categoria,
@@ -25,12 +25,6 @@ from app.schemas.ticket_schema import (
     TicketCrear,
 )
 from app.services.inventario_service import es_stock_critico
-
-# Estado que sella la fecha de cierre del ticket.
-# Ver nota en tasks.md: el script de inicializacion no define los ids de
-# estado_ticket (solo DDL, sin INSERT), asi que este 4 no tiene referente
-# canonico. Sustituir por una busqueda por nombre en Feature 004/005.
-ESTADO_CERRADO_ID = 4
 
 
 def obtener_catalogos(db: Session) -> CatalogosTicketRespuesta:
@@ -114,10 +108,31 @@ def obtener_catalogos(db: Session) -> CatalogosTicketRespuesta:
 
 
 def listar_tickets(db: Session, estado_id: Optional[int] = None) -> List[Ticket]:
-    consulta = db.query(Ticket)
-    if estado_id:
-        consulta = consulta.filter(Ticket.estado_id == estado_id)
-    return consulta.all()
+    """Lista los tickets con su coleccion cargada eager y un orden estable.
+
+    El orden es explicito y no el que devuelva la base: `fecha_creacion`
+    descendente con desempate por `ticket_id` descendente. En SQLite
+    `CURRENT_TIMESTAMP` no tiene subsegundo, asi que sin el desempate el orden
+    de las altas de un mismo segundo seria el que quisiera el motor (AC-27).
+
+    `selectinload` en cadena resuelve `detalles` y el `producto` anidado que
+    `DetalleTicketRespuesta` serializa en un numero FIJO de consultas, en vez de
+    una por ticket y otra por detalle. Se descarta `joinedload` en la coleccion
+    porque multiplicaria las filas del ticket por cada detalle.
+
+    El filtro por `estado_id` se comprueba con `is not None`: un `0` o un id
+    valido nunca deben confundirse con "sin filtro".
+    """
+    consulta = (
+        select(Ticket)
+        .options(
+            selectinload(Ticket.detalles).selectinload(DetalleTicket.producto)
+        )
+        .order_by(Ticket.fecha_creacion.desc(), Ticket.ticket_id.desc())
+    )
+    if estado_id is not None:
+        consulta = consulta.where(Ticket.estado_id == estado_id)
+    return db.execute(consulta).scalars().all()
 
 
 def _verificar_referencia(db: Session, modelo, valor: int, etiqueta: str) -> None:
@@ -180,16 +195,34 @@ def crear_ticket(db: Session, datos: TicketCrear) -> Ticket:
     porque este metodo debe ser correcto por si mismo y no gracias al cleanup
     de quien lo llama, que es lo que dejaria de ser cierto en cuanto dos
     tickets compartieran transaccion.
+
+    AC-17: si el estado destino es `Cerrado` (case-insensitive), se sella
+    `fecha_cierre` en la propia creacion.
     """
     _verificar_referencia(db, Usuario, datos.usuario_id, "usuario")
     _verificar_referencia(db, Prioridad, datos.prioridad_id, "prioridad")
     _verificar_referencia(db, EstadoTicket, datos.estado_id, "estado")
     _verificar_productos(db, datos.detalles)
 
+    # Determinar si el estado destino es "Cerrado" (case-insensitive)
+    estados = db.execute(
+        select(EstadoTicket).order_by(EstadoTicket.estado_id)
+    ).scalars().all()
+    estado_cierre = next(
+        (e for e in estados if e.nombre.casefold() == "cerrado"), None
+    )
+    es_estado_cierre = (
+        estado_cierre is not None and datos.estado_id == estado_cierre.estado_id
+    )
+
     try:
         nuevo_ticket = Ticket(**datos.model_dump(exclude={"detalles"}))
         db.add(nuevo_ticket)
         db.flush()  # asigna ticket_id sin cerrar la transaccion
+
+        # AC-17: sellar fecha_cierre si se crea directamente en Cerrado
+        if es_estado_cierre:
+            nuevo_ticket.fecha_cierre = datetime.utcnow()
 
         for detalle in datos.detalles:
             db.add(
@@ -211,12 +244,67 @@ def crear_ticket(db: Session, datos: TicketCrear) -> Ticket:
 
 
 def actualizar_estado_ticket(db: Session, ticket_id: int, estado_id: int) -> Ticket:
-    ticket = db.query(Ticket).filter(Ticket.ticket_id == ticket_id).first()
+    """Aplica una transicion del flujo lineal y sella el cierre, atomicamente.
+
+    Orden de validacion (D-8): ticket (404) -> estado pedido (404) -> flujo
+    (409). El flujo se evalua sobre los indices del catalogo ordenado por
+    `estado_id` (D-1): un paso en cualquier direccion entre contiguos; el
+    indice actual igual al destino, la distancia != 1 y cualquier salida
+    desde el ultimo estado (terminal) rechazan sin tocar el ticket (D-2).
+
+    El cierre se reconoce por nombre `casefold() == "cerrado"` sobre ese
+    mismo catalogo, nunca por un id fijo (D-3); si el nombre esta repetido,
+    gana el de menor `estado_id`. La fecha solo se escribe si aun es `None`:
+    reentrar en `Cerrado` jamas la sobrescribe. El unico `commit` del final
+    hace estado y fecha una sola operacion (`constitucion.md` §3).
+    """
+    ticket = db.get(Ticket, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
 
+    estados = db.execute(
+        select(EstadoTicket).order_by(EstadoTicket.estado_id)
+    ).scalars().all()
+
+    indice_destino = next(
+        (i for i, e in enumerate(estados) if e.estado_id == estado_id), None
+    )
+    if indice_destino is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No existe estado indicado: {estado_id}",
+        )
+
+    indice_actual = next(
+        (i for i, e in enumerate(estados) if e.estado_id == ticket.estado_id), None
+    )
+    fuera_de_flujo = (
+        indice_actual is None  # el ticket esta en un estado ya borrado
+        or indice_destino == indice_actual
+        or abs(indice_destino - indice_actual) != 1
+        or indice_actual == len(estados) - 1  # el terminal no se sale nunca
+    )
+    if fuera_de_flujo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Transicion invalida: el ticket esta en el estado "
+                f"{ticket.estado_id} y se pidio {estado_id}; el flujo solo "
+                f"admite avanzar o retroceder un paso entre estados contiguos"
+            ),
+        )
+
+    estado_destino = estados[indice_destino]
+    estado_cierre = next(
+        (e for e in estados if e.nombre.casefold() == "cerrado"), None
+    )
+
     ticket.estado_id = estado_id
-    if estado_id == ESTADO_CERRADO_ID:
+    if (
+        estado_cierre is not None
+        and estado_destino.estado_id == estado_cierre.estado_id
+        and ticket.fecha_cierre is None
+    ):
         ticket.fecha_cierre = datetime.utcnow()
 
     db.commit()

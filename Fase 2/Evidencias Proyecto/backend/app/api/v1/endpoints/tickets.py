@@ -41,7 +41,11 @@ def obtener_catalogos(db: Session = Depends(dependencies.get_db)):
     response_model=List[TicketRespuesta],
     status_code=status.HTTP_200_OK,
     summary="Listar tickets",
-    description="Devuelve los tickets con sus detalles. `estado_id` acota el resultado a un estado.",
+    description=(
+        "Devuelve los tickets con sus detalles. `estado_id` acota el resultado a "
+        "un estado. El orden es determinista: `fecha_creacion` descendente y, en "
+        "empate, `ticket_id` descendente."
+    ),
 )
 def listar_tickets(estado_id: int = None, db: Session = Depends(dependencies.get_db)):
     return ticket_service.listar_tickets(db, estado_id)
@@ -71,7 +75,19 @@ def crear_ticket(datos: TicketCrear, db: Session = Depends(dependencies.get_db))
     response_model=TicketRespuesta,
     status_code=status.HTTP_200_OK,
     summary="Actualizar el estado de un ticket",
-    description="Cambia el estado del ticket. Al pasar a un estado de cierre sella `fecha_cierre`.",
+    description=(
+        "Cambia el estado del ticket dentro del flujo lineal del catálogo: "
+        "solo se acepta **avanzar o retroceder un paso** entre estados "
+        "contiguos (el orden del catálogo es el orden del flujo). Saltar "
+        "estados, pedir el estado que el ticket ya tiene o salir del estado "
+        "terminal (el último del catálogo) se rechazan con **409** y no "
+        "modifican el ticket.\n\n"
+        "Un ticket inexistente devuelve **404**; en ese orden, también **404** "
+        "si el estado pedido no existe en el catálogo. Al entrar en el estado "
+        "llamado `Cerrado` —sin distinguir mayúsculas, nunca por un id fijo— "
+        "se sella `fecha_cierre` en la misma operación; si ya estaba sellada, "
+        "se conserva sin sobrescribirse."
+    ),
 )
 def actualizar_estado_ticket(
     ticket_id: int,

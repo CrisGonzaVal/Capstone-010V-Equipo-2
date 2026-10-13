@@ -86,8 +86,9 @@ referencia inexistente, nunca 500.
   solicitante se elige a mano (D-3).
 - **Filtro de solicitantes por rol.** `GET /usuarios/` devuelve los 10 usuarios de la
   semilla, incluidos los administrativos. Filtrar por rol es de la Feature 007.
-- **CRUD de catálogo** y **`GET /inventario/movimientos`**, que son de las Features 004
-  y 005.
+- **CRUD de catálogo** y **`GET /inventario/movimientos`**: el de movimientos es de la
+  Feature 005 (auditoría del despacho); el CRUD de catálogo no tiene feature asignada en
+  `roadmap.md` — la 004 es el tablero Kanban.
 
 ## 4. Decisiones
 

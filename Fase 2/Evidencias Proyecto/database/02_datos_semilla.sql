@@ -42,12 +42,12 @@
 --   sincronizar las secuencias al final (seccion 13): si no, el primer POST
 --   autogenerado choca con el id 1 y devuelve HTTP 500.
 --
--- RESTRICCION CRITICA - estado_ticket
---   `backend/app/services/ticket_service.py` usa la constante
---   ESTADO_CERRADO_ID = 4 para decidir si setea `ticket.fecha_cierre`.
---   Por eso "Cerrado" DEBE quedar en estado_id = 4 (ultimo del catalogo).
---   Si reordenas estos INSERTs, cerrar un ticket deja la fecha nula sin avisar.
---   Esto es la deuda H-2, a resolver por nombre en la Feature 004.
+-- RESTRICCION - estado_ticket
+--   El servicio de tickets reconoce el estado de cierre por NOMBRE
+--   (`nombre.casefold() == "cerrado"`), nunca por un id fijo (Feature 004):
+--   mover "Cerrado" de estado_id no rompe el sellado de `ticket.fecha_cierre`.
+--   El id explicito de estos INSERTs se conserva solo para que el QA manual
+--   pueda referenciar filas concretas.
 --
 -- RESTRICCION - inventario
 --   `inventario` tiene UNIQUE (departamento_id, producto_id). Por eso hay
@@ -217,8 +217,9 @@ INSERT INTO prioridad (prioridad_id, nombre, descripcion) OVERRIDING SYSTEM VALU
 -- =====================================================
 -- 10. ESTADO_TICKET  (4 filas)
 -- =====================================================
--- ORDEN CRITICO: "Cerrado" debe quedar en estado_id = 4 para que
--- ticket_service.ESTADO_CERRADO_ID = 4 siga siendo correcto.
+-- El orden de estas filas es el orden del flujo: el servicio lo lee por
+-- estado_id ascendente. El id de "Cerrado" ya no es critico: el cierre se
+-- reconoce por nombre (Feature 004).
 
 INSERT INTO estado_ticket (estado_id, nombre, descripcion) OVERRIDING SYSTEM VALUE VALUES
 (1, 'Pendiente',   'Ticket creado, aun sin revision'),

@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,6 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { forkJoin } from 'rxjs';
 
 import {
   CatalogosTicket,
@@ -21,17 +23,31 @@ import {
 } from '../../shared/interfaces';
 import { TicketService } from './services/ticket.service';
 
-/** Encabezado de una columna del tablero. */
+/** Encabezado de una columna del tablero, una por estado del catalogo. */
 interface ColumnaKanban {
+  estado_id: number;
   estado: string;
   tarjetas: TarjetaKanban[];
 }
 
+/**
+ * Tarjeta con los ids ya resueltos a texto. El template no resuelve ids: todo
+ * lo que necesita para pintar (nombre de prioridad, solicitante, clases) sale
+ * del `computed` de columnas, que es el unico lugar que conoce los catalogos.
+ */
 interface TarjetaKanban {
-  referencia: string;
-  prioridad: 'ALTA' | 'MEDIA' | 'BAJA';
-  departamento: string;
-  descripcion: string;
+  ticket: Ticket;
+  asunto: string;
+  prioridad: string;
+  clasePrioridad: string;
+  solicitante: string;
+  fechaCreacion: string;
+  fechaCierre: string | null;
+  puedeRetroceder: boolean;
+  puedeAvanzar: boolean;
+  estadoAnteriorId: number | null;
+  estadoSiguienteId: number | null;
+  enProceso: boolean;
 }
 
 /** Un error de validacion de FastAPI, con su `loc` y su mensaje original. */
@@ -41,98 +57,179 @@ interface DetalleError422 {
   type: string;
 }
 
-const CLASES_PRIO: Record<TarjetaKanban['prioridad'], string> = {
+const CLASES_PRIO: Record<string, string> = {
   ALTA: 'text-rose-600 bg-rose-50',
   MEDIA: 'text-blue-600 bg-blue-50',
   BAJA: 'text-amber-600 bg-amber-50',
 };
 
+const CLASE_PRIORIDAD_NEUTRA = 'text-slate-600 bg-slate-100';
+
 /**
  * Tablero Kanban de tickets, mas el modal de alta.
  *
- * **El tablero sigue con datos de muestra, no vienen de la API.** Se conserva el
- * comportamiento actual en vez de inventar el agrupamiento: para distribuir
- * tickets en columnas haria falta un endpoint que exponga el *nombre* del
- * estado, porque hoy `Ticket` solo trae `estado_id` y esos ids dependen del
- * orden en que se llenaron las secuencias de identidad.
+ * **El tablero es real**: se arma con `GET /tickets/catalogos` (estados ya
+ * ordenados por `estado_id`) y `GET /tickets/`, disparados al construir el
+ * componente. Una columna por estado del catalogo, en su orden, incluidas las
+ * vacias (AC-1); dentro, los tickets de ese `estado_id` ordenados por
+ * `fecha_creacion` descendente y, en empate, por `ticket_id` descendente
+ * (AC-2). Ningun id de estado se codifica a mano: el nombre sale del catalogo.
  *
- * Ya se documento ese problema en el backend como `ESTADO_CERRADO_ID` en
- * `ticket_service.py`: un id fijo resulto ser falso. Codificar el mismo supuesto
- * aca repetiria el error en otra capa. El agrupamiento real llega con el
- * catalogo de estados (Feature 004/005).
- *
- * Lo que si es real es el modal: sus cuatro desplegables se llenan con
- * `GET /tickets/catalogos` y su alta se persiste con `POST /tickets/`. Que el
- * tablero no se actualice al crear un ticket es deliberado (spec, H-3).
+ * El modal comparte el catalogo que el tablero ya cargo: `abrirModal` no vuelve
+ * a pedirlo si esta disponible. Que el tablero no se actualice al crear un
+ * ticket es deliberado (spec, H-3).
  */
 @Component({
   selector: 'app-tickets',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, DatePipe],
   templateUrl: './tickets.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TicketsComponent {
-  readonly columnas = signal<ColumnaKanban[]>([
-    {
-      estado: 'INGRESADO',
-      tarjetas: [
-        {
-          referencia: '#101',
-          prioridad: 'ALTA',
-          departamento: 'Dpto. Salud',
-          descripcion: 'Insumos varios: Guantes, Mascarillas, Jeringas',
-        },
-        {
-          referencia: '#102',
-          prioridad: 'BAJA',
-          departamento: 'Construcción',
-          descripcion: 'Materiales: Cemento, Ladrillos',
-        },
-      ],
-    },
-    {
-      estado: 'EN PREPARACIÓN',
-      tarjetas: [
-        {
-          referencia: '#099',
-          prioridad: 'MEDIA',
-          departamento: 'Dpto. Administración',
-          descripcion: 'Artículos de oficina: Papel, Toner, Carpetas',
-        },
-        {
-          referencia: '#098',
-          prioridad: 'ALTA',
-          departamento: 'Dpto. IT',
-          descripcion: 'Componentes: Cable UTP, Monitores',
-        },
-      ],
-    },
-    {
-      estado: 'DESPACHADO',
-      tarjetas: [
-        {
-          referencia: '#095',
-          prioridad: 'BAJA',
-          departamento: 'Dpto. Logística',
-          descripcion: 'Herramientas: Cajas plásticas, Etiquetas',
-        },
-      ],
-    },
-    {
-      estado: 'ENTREGADO',
-      tarjetas: [
-        {
-          referencia: '#090',
-          prioridad: 'MEDIA',
-          departamento: 'Dpto. Ventas',
-          descripcion: 'Material promocional: Folletos, Banners',
-        },
-      ],
-    },
-  ]);
+  // --- Estado del tablero ---
 
-  readonly clasesPrioridad = CLASES_PRIO;
+  /** Tickets reales, tal como los devuelve `GET /tickets/` (orden ya explicito). */
+  readonly tickets = signal<Ticket[]>([]);
+
+  /** Ids de tickets con un `PATCH /estado` en vuelo (anti doble envio, AC-19). */
+  readonly enProceso = signal<Set<number>>(new Set());
+
+  readonly cargandoTablero = signal(false);
+  readonly errorTablero = signal<string | null>(null);
+
+  /**
+   * Mensaje del rechazo de una transicion (404, 409, 500 o red caida). Distinto
+   * de `errorTablero`, que reemplaza el tablero entero cuando falla la carga:
+   * este avisa de un `PATCH` no aceptado sin esconder las columnas (AC-20).
+   */
+  readonly errorMovimiento = signal<string | null>(null);
+
+  /** Filtro de prioridad del tablero. `null` = "todas" (valor por defecto, AC-6). */
+  readonly filtroPrioridad = signal<number | null>(null);
+
+  /** Texto de busqueda por asunto. Vacio o solo espacios = sin filtro (AC-7). */
+  readonly busqueda = signal('');
+
+  /** Hay algun filtro activo: distingue el vacio "por filtros" del vacio real (AC-5). */
+  readonly hayFiltros = computed(
+    () => this.filtroPrioridad() !== null || this.busqueda().trim() !== ''
+  );
+
+  /**
+   * Columnas del tablero: una por estado del catalogo, en su orden, incluidas
+   * las que no tienen tickets (AC-1). Dentro de cada una, los tickets de ese
+   * `estado_id` (AC-2) ordenados por `fecha_creacion` descendente y, en empate,
+   * por `ticket_id` descendente. Es `computed` y no `signal`: todo sale de
+   * `estados()`, `tickets()` y las señales de filtro, no hay estado propio que
+   * mantener.
+   *
+   * Los filtros se aplican **antes de agrupar** (plan §3.5): es un filtrado de
+   * cliente sobre el conjunto ya cargado, no una consulta nueva. Con eso los
+   * contadores de cada columna (`tarjetas.length`) quedan ya "despues de
+   * filtrar" (AC-3) sin una señal de contador aparte. Los dos predicados se
+   * combinan en interseccion (AC-7, D-6).
+   */
+  readonly columnas = computed<ColumnaKanban[]>(() => {
+    const prioridad = this.filtroPrioridad();
+    const busqueda = this.normalizar(this.busqueda());
+
+    const filtrados = this.tickets().filter(
+      (ticket) =>
+        (prioridad === null || ticket.prioridad_id === prioridad) &&
+        (busqueda === '' || this.normalizar(ticket.asunto).includes(busqueda))
+    );
+
+    return this.estados().map((estado, indice) => ({
+      estado_id: estado.estado_id,
+      estado: estado.nombre,
+      tarjetas: filtrados
+        .filter((ticket) => ticket.estado_id === estado.estado_id)
+        .sort(
+          (a, b) =>
+            Date.parse(b.fecha_creacion) - Date.parse(a.fecha_creacion) ||
+            b.ticket_id - a.ticket_id
+        )
+        .map((ticket) => this.resolverTarjeta(ticket, indice)),
+    }));
+  });
+
+  /**
+   * Resuelve ids contra los catalogos y la **posicion del estado** para que el
+   * template no conozca ninguno ni calcule indices.
+   *
+   * `indice` es la posicion del estado de la columna dentro de `estados()` (el
+   * orden del flujo). De ahi salen los botones, sin comparar nombres:
+   * - primer estado (indice 0): sin retroceso;
+   * - estado terminal (ultimo indice): sin avanzar y **sin retroceso** (AC-11);
+   * - cualquier otro: anterior = indice - 1, siguiente = indice + 1 (contiguos,
+   *   nunca un salto, AC-12).
+   *
+   * Como solo se llama para tickets que ya cayeron en una columna, el estado
+   * siempre existe en el catalogo; no hay busqueda lineal extra por tarjeta.
+   */
+  private resolverTarjeta(ticket: Ticket, indice: number): TarjetaKanban {
+    const estados = this.estados();
+    const esTerminal = indice === estados.length - 1;
+    const puedeRetroceder = indice > 0 && !esTerminal;
+    const puedeAvanzar = !esTerminal;
+
+    const prioridad = this.prioridades().find((p) => p.prioridad_id === ticket.prioridad_id);
+    const solicitante = this.solicitantes().find((s) => s.usuario_id === ticket.usuario_id);
+    const nombrePrioridad = prioridad?.nombre ?? `Prioridad #${ticket.prioridad_id}`;
+    return {
+      ticket,
+      asunto: ticket.asunto,
+      prioridad: nombrePrioridad,
+      clasePrioridad: this.clasePrioridad(nombrePrioridad),
+      solicitante: solicitante
+        ? `${solicitante.apellido}, ${solicitante.nombre} · ${solicitante.departamento_nombre}`
+        : `Usuario #${ticket.usuario_id}`,
+      fechaCreacion: ticket.fecha_creacion,
+      fechaCierre: ticket.fecha_cierre,
+      puedeRetroceder,
+      puedeAvanzar,
+      estadoAnteriorId: puedeRetroceder ? estados[indice - 1].estado_id : null,
+      estadoSiguienteId: puedeAvanzar ? estados[indice + 1].estado_id : null,
+      enProceso: this.enProceso().has(ticket.ticket_id),
+    };
+  }
+
+  /**
+   * Clase Tailwind de la prioridad por su nombre real, tolerante a mayusculas;
+   * si el catalogo trae un nombre inesperado cae en una clase neutra en vez de
+   * pintar `undefined`.
+   */
+  private clasePrioridad(nombre: string): string {
+    return CLASES_PRIO[nombre.toUpperCase()] ?? CLASE_PRIORIDAD_NEUTRA;
+  }
+
+  // --- Filtros ---
+
+  /** Fija el filtro de prioridad desde el `<select>`: `''` es "todas". */
+  cambiarPrioridad(valor: string) {
+    this.filtroPrioridad.set(valor === '' ? null : Number(valor));
+  }
+
+  /** Actualiza el texto de busqueda desde el `<input>`. */
+  actualizarBusqueda(valor: string) {
+    this.busqueda.set(valor);
+  }
+
+  /**
+   * Normaliza para comparar: sin acentos, minusculas y sin espacios sobrantes.
+   *
+   * Se usa tanto para el asunto como para la consulta. Al no haber `LIKE` en
+   * SQL, `%` y `_` son caracteres literales por construccion (D-6, AC-7). Sobre
+   * la consulta, el `.trim()` es lo que implementa "vacio = sin filtro".
+   */
+  private normalizar(texto: string): string {
+    return texto
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
 
   private readonly servicioTickets = inject(TicketService);
   private readonly fb = inject(NonNullableFormBuilder);
@@ -174,6 +271,9 @@ export class TicketsComponent {
         nativo.close();
       }
     });
+
+    // El tablero se carga al construir: catalogos de estados + tickets.
+    this.cargarTablero();
   }
 
   // --- Formulario ---
@@ -234,6 +334,53 @@ export class TicketsComponent {
     return this.estados()[0]?.estado_id ?? null;
   }
 
+  // --- Carga del tablero ---
+
+  /**
+   * Carga inicial del tablero: catalogo de estados y tickets en paralelo. Con
+   * los dos OK llena `catalogos()` y `tickets()`; si cualquiera falla —o si el
+   * catalogo de estados viene vacio, que dejaria columnas en blanco silenciosas
+   * (spec §7)— publica un error visible con mensaje propio. `reintentarTablero()`
+   * la repite.
+   */
+  private cargarTablero(): void {
+    this.cargandoTablero.set(true);
+    this.errorTablero.set(null);
+
+    forkJoin({
+      catalogos: this.servicioTickets.obtenerCatalogos(),
+      tickets: this.servicioTickets.obtenerTickets(),
+    }).subscribe({
+      next: ({ catalogos, tickets }) => {
+        if (catalogos.estados.length === 0) {
+          this.cargandoTablero.set(false);
+          this.errorTablero.set(
+            'El catálogo de estados está vacío. El tablero no se puede mostrar.'
+          );
+          return;
+        }
+        this.catalogos.set(catalogos);
+        this.tickets.set(tickets);
+        const inicial = this.estadoInicial();
+        if (inicial !== null) {
+          this.formulario.controls.estado_id.setValue(inicial);
+        }
+        this.cargandoTablero.set(false);
+      },
+      error: () => {
+        this.cargandoTablero.set(false);
+        this.errorTablero.set(
+          'No se pudo cargar el tablero. Revisa la conexión e inténtalo de nuevo.'
+        );
+      },
+    });
+  }
+
+  /** Reintenta la carga del tablero tras un error visible. */
+  reintentarTablero() {
+    this.cargarTablero();
+  }
+
   // --- Acciones del modal ---
 
   abrirModal() {
@@ -243,10 +390,13 @@ export class TicketsComponent {
     this.ticketCreado.set(null);
     this.modalAbierto.set(true);
 
-    // Los catalogos se piden al abrir, no en `ngOnInit`: si el usuario nunca
-    // abre el modal, no se descargo nada. Con una sola peticion no hace falta
-    // `forkJoin`, que solo tiene sentido cuando hay varias y se quiere un unico
-    // estado de carga.
+    // El tablero ya cargo el catalogo al construir el componente: si esta
+    // disponible, abrir el modal no vuelve a pedirlo. Solo se pide cuando el
+    // arranque fallo o aun no se completo, para no dejar el formulario vacio.
+    if (this.catalogos() !== null) {
+      return;
+    }
+
     this.cargandoCatalogos.set(true);
     this.servicioTickets.obtenerCatalogos().subscribe({
       next: (catalogos) => {
@@ -399,6 +549,10 @@ export class TicketsComponent {
       next: (ticket: Ticket) => {
         this.guardando.set(false);
         this.ticketCreado.set(ticket.ticket_id);
+        // AC-8: el ticket creado se refleja en el tablero sin recargar. Nada de
+        // filtrar a mano: el `computed` de columnas aplica los filtros activos,
+        // asi que un ticket que no los cumpla queda fuera por construccion.
+        this.tickets.update((lista) => [ticket, ...lista]);
         this.cerrarModal();
         this.formulario.reset({ asunto: '', descripcion: '' });
         this.detalles.clear();
@@ -421,6 +575,98 @@ export class TicketsComponent {
         }
       },
     });
+  }
+
+  // --- Transiciones del tablero ---
+
+  /**
+   * Mueve un ticket al estado destino y refleja la respuesta sin recargar
+   * (AC-9, AC-10, AC-19).
+   *
+   * Mientras el `PATCH` esta en vuelo el id vive en `enProceso`, asi que la
+   * tarjeta muestra el control deshabilitado y un segundo intento se descarta
+   * (anti doble envio). Con la respuesta del servidor se **reemplaza** el ticket
+   * en `tickets()` con un `.map` inmutable: el `computed` de columnas agrupa de
+   * nuevo y mueve la tarjeta (y su contador) sin volver a pedir el tablero.
+   *
+   * Ante un rechazo (404, 409, 500 o red caida, AC-20) la tarjeta no se toca: se
+   * publica el mensaje en `errorMovimiento` (el `detail` del backend si es
+   * string, si no uno propio), se libera la tarjeta y se reconsultan los
+   * tickets para reflejar la verdad del servidor.
+   */
+  mover(ticketId: number, destino: number): void {
+    if (this.enProceso().has(ticketId)) {
+      return;
+    }
+    // Un intento nuevo borra el aviso de un rechazo anterior; si este falla,
+    // la rama de error vuelve a publicarlo.
+    this.errorMovimiento.set(null);
+    this.enProceso.update((ids) => new Set(ids).add(ticketId));
+
+    this.servicioTickets.actualizarEstado(ticketId, destino).subscribe({
+      next: (ticket: Ticket) => {
+        this.tickets.update((lista) =>
+          lista.map((actual) => (actual.ticket_id === ticketId ? ticket : actual))
+        );
+        this.liberar(ticketId);
+      },
+      error: (fallo: { error?: { detail?: unknown } }) => {
+        // La tarjeta nunca se mueve con un rechazo (D-7, AC-20): lo unico que
+        // cambia en el cliente es el mensaje (con el `detail` del backend si lo
+        // trae; si no —500 sin cuerpo o red caida—, uno propio) y la
+        // reconsulta, que refleja la verdad del servidor.
+        const detalle = fallo?.error?.detail;
+        this.errorMovimiento.set(
+          typeof detalle === 'string'
+            ? detalle
+            : 'No se pudo cambiar el estado del ticket. El tablero se actualizó con la información del servidor.'
+        );
+        this.liberar(ticketId);
+        this.reconsultarTickets();
+      },
+    });
+  }
+
+  /**
+   * Reconsulta solo los tickets (AC-20): la verdad del servidor tras un
+   * rechazo, incluido el caso de que otro usuario ya haya movido el ticket.
+   *
+   * No es `cargarTablero()`: esa vuelve a pedir tambien los catalogos y pone
+   * `cargandoTablero`; aqui solo se reemplaza `tickets()`. Si la reconsulta
+   * misma falla, el tablero pasa al estado de error visible (spec §7).
+   */
+  private reconsultarTickets(): void {
+    this.servicioTickets.obtenerTickets().subscribe({
+      next: (tickets) => this.tickets.set(tickets),
+      error: () => {
+        this.errorTablero.set(
+          'No se pudo cargar el tablero. Revisa la conexión e inténtalo de nuevo.'
+        );
+      },
+    });
+  }
+
+  /** Quita el id de `enProceso` con una copia inmutable del Set. */
+  private liberar(ticketId: number): void {
+    this.enProceso.update((ids) => {
+      const copia = new Set(ids);
+      copia.delete(ticketId);
+      return copia;
+    });
+  }
+
+  /** Retrocede la tarjeta un paso en el flujo; no hace nada si no hay anterior. */
+  moverAnterior(tarjeta: TarjetaKanban) {
+    if (tarjeta.estadoAnteriorId !== null) {
+      this.mover(tarjeta.ticket.ticket_id, tarjeta.estadoAnteriorId);
+    }
+  }
+
+  /** Avanza la tarjeta un paso en el flujo; no hace nada si no hay siguiente. */
+  moverSiguiente(tarjeta: TarjetaKanban) {
+    if (tarjeta.estadoSiguienteId !== null) {
+      this.mover(tarjeta.ticket.ticket_id, tarjeta.estadoSiguienteId);
+    }
   }
 
   }

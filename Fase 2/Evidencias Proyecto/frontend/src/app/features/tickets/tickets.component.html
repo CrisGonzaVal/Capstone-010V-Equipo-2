@@ -227,35 +227,132 @@
     </div>
   </dialog>
 
-  <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-    @for (columna of columnas(); track columna.estado) {
-      <div class="bg-slate-200/60 p-4 rounded-xl flex flex-col space-y-4">
-        <div class="flex justify-between items-center">
-          <h3 class="font-bold text-slate-700">{{ columna.estado }}</h3>
-          <span
-            class="bg-white text-slate-700 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm"
-          >
-            {{ columna.tarjetas.length }}
-          </span>
-        </div>
-
-        @for (tarjeta of columna.tarjetas; track tarjeta.referencia) {
-          <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-2">
-            <div class="flex justify-between items-start">
-              <span class="text-xs font-semibold px-2 py-0.5 rounded" [class]="clasesPrioridad[tarjeta.prioridad]">
-                {{ tarjeta.prioridad }}
-              </span>
-              <span class="text-xs text-slate-400">{{ tarjeta.referencia }}</span>
-            </div>
-            <h4 class="font-bold text-slate-800 text-sm">{{ tarjeta.departamento }}</h4>
-            <p class="text-xs text-slate-500">{{ tarjeta.descripcion }}</p>
-          </div>
-        } @empty {
-          <p class="text-xs text-slate-500 text-center py-4">Sin tickets en esta columna</p>
-        }
-      </div>
-    } @empty {
-      <p class="text-sm text-slate-500">No hay columnas configuradas.</p>
+  @if (cargandoTablero()) {
+    <div class="py-16 text-center text-sm text-slate-500">Cargando tablero…</div>
+  } @else if (errorTablero()) {
+    <div class="bg-rose-50 border border-rose-200 rounded-xl px-6 py-8 text-center space-y-4">
+      <p role="alert" class="text-sm text-rose-800">{{ errorTablero() }}</p>
+      <button
+        type="button"
+        (click)="reintentarTablero()"
+        class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg"
+      >
+        Reintentar
+      </button>
+    </div>
+  } @else {
+    @if (errorMovimiento(); as mensajeMovimiento) {
+      <p
+        role="alert"
+        class="bg-rose-50 border border-rose-200 text-rose-800 text-sm px-4 py-3 rounded-lg"
+      >
+        {{ mensajeMovimiento }}
+      </p>
     }
-  </div>
+
+    <div
+      class="flex flex-col sm:flex-row sm:items-end gap-4 bg-white border border-slate-200 rounded-xl px-4 py-3"
+    >
+      <label class="flex flex-col space-y-1 text-xs font-semibold text-slate-700">
+        <span>Prioridad</span>
+        <select
+          value="{{ filtroPrioridad() ?? '' }}"
+          (change)="cambiarPrioridad($any($event.target).value)"
+          class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 sm:min-w-[12rem]"
+        >
+          <option value="">Todas las prioridades</option>
+          @for (prioridad of prioridades(); track prioridad.prioridad_id) {
+            <option value="{{ prioridad.prioridad_id }}">{{ prioridad.nombre }}</option>
+          }
+        </select>
+      </label>
+
+      <label class="flex flex-col space-y-1 text-xs font-semibold text-slate-700 flex-1">
+        <span>Buscar por asunto</span>
+        <input
+          type="search"
+          aria-label="Buscar tickets por asunto"
+          placeholder="Filtrar por asunto…"
+          [value]="busqueda()"
+          (input)="actualizarBusqueda($any($event.target).value)"
+          class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+        />
+      </label>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+      @for (columna of columnas(); track columna.estado_id) {
+        <div class="bg-slate-200/60 p-4 rounded-xl flex flex-col space-y-4">
+          <div class="flex justify-between items-center">
+            <h3 class="font-bold text-slate-700">{{ columna.estado }}</h3>
+            <span
+              class="bg-white text-slate-700 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm"
+            >
+              {{ columna.tarjetas.length }}
+            </span>
+          </div>
+
+          @for (tarjeta of columna.tarjetas; track tarjeta.ticket.ticket_id) {
+            <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-2">
+              <div class="flex justify-between items-start gap-2">
+                <span
+                  class="text-xs font-semibold px-2 py-0.5 rounded"
+                  [class]="tarjeta.clasePrioridad"
+                >
+                  {{ tarjeta.prioridad }}
+                </span>
+                <span class="text-xs text-slate-400">#{{ tarjeta.ticket.ticket_id }}</span>
+              </div>
+              <h4 class="font-bold text-slate-800 text-sm">{{ tarjeta.asunto }}</h4>
+              <p class="text-xs text-slate-500">{{ tarjeta.solicitante }}</p>
+              <p class="text-[11px] text-slate-400">
+                Creado: {{ tarjeta.fechaCreacion | date: 'short' }}
+              </p>
+              @if (tarjeta.fechaCierre) {
+                <p class="text-[11px] text-emerald-600">
+                  Cerrado: {{ tarjeta.fechaCierre | date: 'short' }}
+                </p>
+              }
+              @if (tarjeta.puedeRetroceder || tarjeta.puedeAvanzar) {
+                <div class="flex items-center gap-2 pt-1">
+                  @if (tarjeta.puedeRetroceder) {
+                    <button
+                      type="button"
+                      (click)="moverAnterior(tarjeta)"
+                      [disabled]="tarjeta.enProceso"
+                      [attr.aria-label]="'Retroceder ticket #' + tarjeta.ticket.ticket_id"
+                      class="text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:hover:bg-slate-100 px-2.5 py-1.5 rounded-lg transition"
+                    >
+                      ← Retroceder
+                    </button>
+                  }
+                  @if (tarjeta.puedeAvanzar) {
+                    <button
+                      type="button"
+                      (click)="moverSiguiente(tarjeta)"
+                      [disabled]="tarjeta.enProceso"
+                      [attr.aria-label]="'Avanzar ticket #' + tarjeta.ticket.ticket_id"
+                      class="ml-auto text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-2.5 py-1.5 rounded-lg transition"
+                    >
+                      Avanzar →
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          } @empty {
+            <p class="text-xs text-slate-500 text-center py-4">
+              {{
+                hayFiltros()
+                  ? 'Ningún ticket coincide con los filtros'
+                  : 'Sin tickets en esta columna'
+              }}
+            </p>
+          }
+        </div>
+      } @empty {
+        <p class="text-sm text-slate-500">No hay columnas configuradas.</p>
+      }
+    </div>
+  }
 </div>

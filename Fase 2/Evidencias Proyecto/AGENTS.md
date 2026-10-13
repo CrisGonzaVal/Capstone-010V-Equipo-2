@@ -114,7 +114,7 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 6. **Una feature no está cerrada hasta que 8080 la refleja.** 4200 es el recorrido funcional (incluye escritura real contra la BD) y es la evidencia principal. 8080 exige antes `docker compose -f docker-compose.yml build frontend` + `up -d frontend`, y el recorrido ahí es de humo: que la vista nueva esté y que el flujo básico responda. No es redundante con 4200, porque fallan cosas que el dev server nunca ejecuta: el build de producción con sus presupuestos, el `try_files` de nginx para rutas Angular, y el cacheo de bundles con hash. Ojo con la asimetría: **el backend sí se actualiza solo** (el contenedor monta `./backend/app` como volumen y corre `uvicorn --reload`), el frontend no. Por eso una feature que solo toca Python no necesita reconstruir la imagen para probar su API, aunque 8080 siga mostrando el frontend viejo.
 7. **Mover o borrar un archivo no actualiza los `.md` que lo citan.** Al cerrar una feature, hacer un `grep` de coherencia sobre `AGENTS.md`, `MEMORY.md` y `.agents/skills/` para confirmar que ninguna ruta citada ni afirmación sobre el estado del proyecto quedó obsoleta. Una skill desactualizada es peor que un `.md` desactualizado: se carga sola e instruye al agente sobre código que ya no existe.
 
-## 9. Skills del Proyecto
+## 9. Skills, Agentes y Comandos del Proyecto
 Las convenciones de §6 y el flujo de §8 están codificados como skills en `.agents/skills/`, con ejemplos de código antes/después. Cargar la que corresponda **antes** de escribir:
 
 | Skill | Se activa cuando... |
@@ -125,6 +125,35 @@ Las convenciones de §6 y el flujo de §8 están codificados como skills en `.ag
 | `tdd` | al escribir cualquier test nuevo |
 | `frontend-design` | al crear un componente o vista **nueva** (dirección visual) |
 | `web-design-guidelines` | al auditar UI existente (accesibilidad, responsive) |
+| `grill-me` | antes de aprobar un plan o spec que quieres estresar con preguntas duras |
+| `systematic-debugging` | al depurar un bug o test rojo difícil (reproducir → aislar → hipótesis → verificar) |
+
+### Agentes SDD (`.opencode/agents/`)
+
+| Agente | Modo | Rol |
+|---|---|---|
+| `coordinator` | primary | Dirige el flujo SDD completo: reparte fases entre los subagentes, exige aprobación del usuario entre fases y transmite el contexto. No edita código |
+| `planner` | subagent | Redacta `spec.md`, `plan.md` y `tasks.md` en `docs/spec/features/`. Solo puede editar dentro de `docs/spec/**` |
+| `implementer` | subagent | Ejecuta **UNA** tarea de `tasks.md` con tests primero y la marca `[x]`. Para si el plan falla |
+| `reviewer` | subagent | Clarificación QA de la spec y validación AC por AC. Nunca modifica archivos; emite `VEREDICTO: APROBADO` o `VEREDICTO: CAMBIOS NECESARIOS` |
+
+### Comandos SDD (`/sdd-*`)
+
+| Comando | Fase | Agente |
+|---|---|---|
+| `/sdd-constitution` | Revisar/crear la constitución | planner |
+| `/sdd-spec NNN-nombre idea` | Especificación (entrevista + `spec.md`) | planner |
+| `/sdd-clarify NNN-nombre` | Clarificación (QA, solo detecta) | plan |
+| `/sdd-plan NNN-nombre` | Planificación (`plan.md`) | planner |
+| `/sdd-tasks NNN-nombre` | Tareas (`tasks.md`) | planner |
+| `/sdd-implement NNN-nombre Tn` | Implementar UNA tarea | build |
+| `/sdd-validate NNN-nombre` | Validación AC por AC | build |
+| `/sdd-change NNN-nombre requisito` | Cambio de requisito (primero la spec) | planner |
+| `/sdd-status NNN-nombre` | Estado y siguiente paso | plan |
+
+Los comandos que escriben corren en `@planner` (subagente con edición limitada a `docs/spec/**`); los de solo lectura, en el agente `plan`; y los que tocan código o tests, en `build`.
+
+El MCP `chrome-devtools` (habilitado en `opencode.json`) permite verificar UI, consola y vista móvil desde la validación sin salir de la terminal.
 
 ## 10. Memoria
 - Al empezar, lee `MEMORY.md` para conocer el estado del proyecto y las decisiones tomadas.

@@ -13,6 +13,9 @@ dist/
 .angular/
 .npm
 
+# Logs
+*.log
+
 # IDEs
 .vscode/
 .idea/

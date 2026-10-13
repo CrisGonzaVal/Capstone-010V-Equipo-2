@@ -7,6 +7,8 @@ description: "Spec-Driven Development gate for this repo. Read docs/spec/constit
 
 Este proyecto sigue Spec-Driven Development. **`docs/spec/` es la unica fuente de verdad.** El codigo es consecuencia de la spec, nunca al reves.
 
+El ciclo completo puede dirigirse con el agente `@coordinator` (delega en `@planner`, `@implementer` y `@reviewer`) o ejecutarse fase a fase con los comandos `/sdd-*`; ver `AGENTS.md` §9.
+
 ## Rutas (verificadas en el repo)
 
 | Que leer | Donde esta |

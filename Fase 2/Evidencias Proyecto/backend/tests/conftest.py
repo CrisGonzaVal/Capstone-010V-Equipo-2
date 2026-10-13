@@ -103,8 +103,7 @@ def datos_base(motor):
 
     Devuelve un dict con los ids generados por SQLite, porque en PostgreSQL las
     secuencias de identidad arrancan donde deje la ultima prueba y no es
-    assumible un id fijo (ver nota sobre `ESTADO_CERRADO_ID` en
-    `docs/spec/features/001-reestructuracion-modular/tasks.md`).
+    assumible un id fijo: los tests no codifican ids de catalogo.
     """
     db = sessionmaker(bind=motor)()
     try:

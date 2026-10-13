@@ -3,8 +3,9 @@ Memoria entre sesiones. M�ximo ~50 l�neas: resume lo �til y elimina lo que
 
 ## Estado actual
 - Features 000, 001 y 002 cerradas. **Feature 003 (modal de ticket) CERRADA** (01/Oct/2026).
+- **004 en spec**: 16 ediciones QA previas + clarify QA aplicado (14 hallazgos...). Estado: **aprobada**; `plan.md` y `tasks.md` (10 tareas, TDD). **T1...T9 hechas y verificadas; T10 (cierre) en curso**: backend del flujo lineal (404/409 en orden D-8, sellado por nombre, un solo commit) y tablero real con filtros (T6/T7) y botones de transición con éxito (T8: `mover()` + `enProceso`, AC-9 a AC-12 y AC-19), `pytest` 95 passed + `ng test` 63. Siguiente: **T10** (cierre: suites, build, recorridos en 4200 y 8080, roadmap y coherencia documental, AC-21…AC-26). Subagente SDD cae con error de free tier: ejecutar los comandos como agente principal.
 - 003 entregada: `GET /tickets/catalogos` (4 cat�logos en un endpoint), 404 prevalidados antes de escribir, 422 de Pydantic, y el modal nativo `<dialog>` con signals + `FormArray`. Evidencia en su `tasks.md` �8.
-- **Backend 79 tests**, **frontend 40 tests**, build de producci�n OK. Recorrido en 4200 (funcional, con escritura real) y en 8080 (tras reconstruir la imagen).
+- **Backend 95 tests** (todos en verde, 16 de la 004), **frontend 63 tests**, build de producci�n OK. Recorrido en 4200 (funcional, con escritura real) y en 8080 (tras reconstruir la imagen).
 - Estructura alineada con `docs/spec/stack.md`.
 
 ## Decisiones de la 003 (D-1�D-7)
@@ -28,6 +29,6 @@ Memoria entre sesiones. M�ximo ~50 l�neas: resume lo �til y elimina lo que
 - **Karma en Angular 18 arranca en modo watch y esta m�quina no tiene Chrome**: el comando est� en `AGENTS.md` �5. `.gitignore` ignoraba `venv/` pero no `.venv/`.
 
 ## Pr�ximos pasos
-- **Feature 004**: cat�logo de estados + Kanban operativo por columnas. Aqu� se resuelve `estado_id` vs nombre y se corrige `ESTADO_CERRADO_ID = 4`, que hoy es un id sin referente can�nico (el script semilla define el DDL de estados pero no le asigna ids).
+- **Feature 004**: catalogo de estados + Kanban operativo por columnas. T1-T9 hechas y verificadas; pendiente T10 (recorridos en 4200/8080, roadmap y coherencia documental). El flujo y el sellado se deciden por nombre, sin ids fijos.
 - **Feature 005**: despacho transaccional con rebaja de stock, auditor�a y `GET /inventario/movimientos`.
 - **Feature 006**: guards por rol e interceptor de auth. Autenticaci�n decorativa hasta entonces.
