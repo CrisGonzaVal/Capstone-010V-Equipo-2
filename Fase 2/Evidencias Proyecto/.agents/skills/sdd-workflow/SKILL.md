@@ -30,7 +30,7 @@ El ciclo completo puede dirigirse con el agente `@coordinator` (delega en `@plan
 4. **Si una tarea de `tasks.md` esta incompleta, no asumas la solucion - pregunta.** Si la certeza de una decision es menor al 80%, preguntar es el comportamiento correcto, no una falla (`AGENTS.md` §8.4).
 5. **Cuando generes el codigo, actualiza las casillas `[ ]` a `[x]`** en el `tasks.md` correspondiente, en el momento. No al final de la sesion, no "despues".
 6. **No alteres el modelo de datos de 12 entidades (3NF)** sin justificacion aprobada en `docs/spec/stack.md`.
-7. **No implementes Clerk** ni cambies el esquema de autenticacion. Sigue siendo JWT local HS256 decorativo.
+7. **Clerk es la unica autoridad de autenticacion** (Feature 006). No reintroduzcas JWT local HS256 ni un login simulado; no cambies el esquema de autenticacion sin spec. La autorizacion por rol (guards de rol) es la Feature 007.
 8. **No agregues paquetes** a `requirements.txt` ni `package.json` sin analisis previo.
 9. **No subas secretos ni `.env`.**
 

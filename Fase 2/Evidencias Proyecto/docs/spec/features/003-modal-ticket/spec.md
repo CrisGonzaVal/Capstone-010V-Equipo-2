@@ -1,6 +1,6 @@
-?# Feature 003: Modal de Crear Ticket y Persistencia Transaccional de Ítems
+# Feature 003: Modal de Crear Ticket y Persistencia Transaccional de Ítems
 
-**Estado:** En curso
+**Estado:** Cerrada y verificada
 **Release:** 1.0 — Sprint 1
 **Tipo:** Valor de negocio (primera escritura end-to-end del ciclo de abastecimiento)
 

@@ -4,20 +4,22 @@ import { CanActivateFn, Router } from '@angular/router';
 import { AutenticacionService } from '../services/auth.service';
 
 /**
- * Bloquea la ruta si no hay token.
+ * Exige una sesión de Clerk para entrar a la ruta.
  *
- * **Inerte por ahora, y a proposito.** No se aplica a ninguna ruta de
- * `app.routes.ts`: la autenticacion sigue siendo decorativa (AGENTS.md §3) y no
- * existe pantalla de login, asi que aplicarlo dejaria la app entera
- * inaccesible en vez de protegida. Feature 006 agrega el login, aplica este
- * guard a las rutas privadas y cambia el destino del redirect.
+ * Espera a que Clerk termine de cargar (`inicializar`) antes de decidir: si no,
+ * una recarga de la página redirigiría a login a una persona ya autenticada.
+ * Sin sesión devuelve a `/login` conservando `retorno`, la ruta local solicitada
+ * para volver tras iniciar sesión.
  *
- * While iste en pie, el destino del redirect es `dashboard` —la ruta por
- * defecto de la app— en vez de un `/login` inexistente que daria 404.
+ * No evalúa roles: eso es la Feature 007.
  */
-export const AutenticacionGuard: CanActivateFn = () => {
+export const AutenticacionGuard: CanActivateFn = async (_ruta, estado) => {
   const autenticacion = inject(AutenticacionService);
   const router = inject(Router);
 
-  return autenticacion.estaAutenticado() ? true : router.createUrlTree(['/dashboard']);
+  await autenticacion.inicializar();
+
+  return autenticacion.estaAutenticado()
+    ? true
+    : router.createUrlTree(['/login'], { queryParams: { retorno: estado.url } });
 };

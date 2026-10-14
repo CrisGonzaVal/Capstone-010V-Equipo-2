@@ -1,5 +1,7 @@
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+
+import { AutenticacionService } from './core/services/auth.service';
 
 @Component({
   selector: 'app-root',
@@ -9,12 +11,57 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppComponent {
+  readonly autenticacion = inject(AutenticacionService);
+  private readonly router = inject(Router);
+
   readonly titulo = 'CompuStock ERP';
 
   /** `sidebarAbierto` es un signal, no un booleano mutable: el toggle re-renderiza solo. */
   readonly sidebarAbierto = signal(true);
 
+  /**
+   * Estado derivado de la identidad local (`/auth/me`) para la presentación.
+   *
+   * Son `computed()` sobre las señales del servicio: la vista nunca lee datos
+   * quemados ni el perfil de Clerk. Mostrar el rol es solo informativo; aquí no
+   * se evalúan permisos, no se filtran elementos ni se redirige por rol.
+   */
+  readonly nombreCompleto = computed(() => {
+    const identidad = this.autenticacion.identidad();
+    return identidad ? `${identidad.nombre} ${identidad.apellido}` : null;
+  });
+
+  readonly correoLocal = computed(() => this.autenticacion.identidad()?.correo ?? null);
+
+  readonly rolLegible = computed(() => this.autenticacion.identidad()?.rol ?? null);
+
+  /** Inicial del nombre normalizada a mayúscula; `null` sin identidad resuelta. */
+  readonly inicialNombre = computed(() => {
+    const nombre = this.autenticacion.identidad()?.nombre?.trim();
+    return nombre ? nombre.charAt(0).toUpperCase() : null;
+  });
+
+  /**
+   * Marcador neutro mientras la identidad carga o no está disponible. No tiene
+   * forma de identidad real (ni nombre plausible ni rol supuesto).
+   */
+  readonly etiquetaIdentidad = computed(() => {
+    switch (this.autenticacion.estadoIdentidad()) {
+      case 'cargando':
+        return 'Cargando identidad';
+      case 'no_disponible':
+        return 'Identidad no disponible';
+      default:
+        return null;
+    }
+  });
+
   alternarSidebar(): void {
     this.sidebarAbierto.update((abierto) => !abierto);
+  }
+
+  /** Cierra la sesión de Clerk y vuelve al login. */
+  cerrarSesion(): void {
+    void this.autenticacion.cerrarSesion().then(() => this.router.navigate(['/login']));
   }
 }

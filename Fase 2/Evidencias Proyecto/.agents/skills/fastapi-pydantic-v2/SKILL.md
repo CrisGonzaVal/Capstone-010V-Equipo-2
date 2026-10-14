@@ -192,14 +192,15 @@ def listar_tickets(estado_id: int = None, db: Session = Depends(dependencies.get
 ```
 
 `app/services/` **ya existe** y tiene `ticket_service.py`, `inventario_service.py`,
-`usuario_service.py` y `auth_service.py` (stub). La logica de negocio va ahí; el
-router solo cablea. Reusa esos servicios antes de escribir HTTP en un endpoint.
+`usuario_service.py` y `auth_service.py` (resuelve la identidad de Clerk y la vincula al
+usuario local). La logica de negocio va ahí; el router solo cablea. Reusa esos servicios
+antes de escribir HTTP en un endpoint.
 
 ## Cuando ademas aplicar otras skills
 
 - **Escribiendo tests de endpoint o servicio**: carga `tdd`. Test primero por la interfaz publica - para un router eso es un cliente HTTP (`TestClient`), no una llamada directa a la funcion del endpoint. Mockea solo fronteras de sistema, no `Session` si podés usar una base de prueba real.
 - **Cambiando el modelo de datos**: las 12 entidades en 3NF son intocables sin justificacion aprobada en `docs/spec/stack.md` (`AGENTS.md` §7). No propongas migraciones por tu cuenta.
-- **Tocando autenticacion**: sigue siendo JWT local HS256 decorativo. No implementes Clerk.
+- **Tocando autenticacion**: Clerk es la unica autoridad (Feature 006). No reintroduzcas JWT local HS256 ni un login simulado; la autorizacion por rol es la Feature 007.
 
 ## Nada de esto aplica a
 

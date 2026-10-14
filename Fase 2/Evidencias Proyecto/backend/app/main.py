@@ -9,12 +9,17 @@ app = FastAPI(
     version="1.0.0",
 )
 
+#: Origenes del frontend (dev 4200 y contenedor nginx 8080). El header
+#: `Authorization` se admite explicitamente para el flujo de sesion Clerk.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:4200",
+        "http://localhost:8080",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 app.include_router(api_router, prefix="/api/v1")

@@ -1,0 +1,132 @@
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+
+import { crearClerkFalso, InstanciaClerkFalsa } from '../../../testing/clerk-falso';
+import { CARGADOR_CLERK } from '../../core/services/auth.service';
+import { LoginComponent, resolverDestinoRetorno } from './login.component';
+
+describe('LoginComponent', () => {
+  let clerk: InstanciaClerkFalsa;
+  let router: jasmine.SpyObj<Router>;
+  let httpMock: HttpTestingController;
+
+  async function montar(retorno: string | null = null): Promise<ComponentFixture<LoginComponent>> {
+    clerk = crearClerkFalso();
+    router = jasmine.createSpyObj<Router>('Router', ['navigateByUrl']);
+    router.navigateByUrl.and.resolveTo(true);
+
+    await TestBed.configureTestingModule({
+      imports: [LoginComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: CARGADOR_CLERK, useValue: () => Promise.resolve(clerk) },
+        { provide: Router, useValue: router },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              queryParamMap: convertToParamMap(retorno === null ? {} : { retorno }),
+            },
+          },
+        },
+      ],
+    }).compileComponents();
+
+    httpMock = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(LoginComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    return fixture;
+  }
+
+  /**
+   * Al firmar sesión el servicio real pide `/auth/me`. Aquí no se prueba esa
+   * carga (T15 la cubre en su propio spec), así que se responde lo mínimo para
+   * no dejar la petición colgada mientras se verifica la navegación.
+   */
+  function responderIdentidad(): void {
+    httpMock.match(() => true).forEach((peticion) => peticion.flush({}));
+  }
+
+  it('monta la UI prebuilt de inicio de sesión de Clerk', async () => {
+    const fixture = await montar();
+
+    expect(clerk.mountSignIn).toHaveBeenCalledTimes(1);
+    const nodo = clerk.mountSignIn.calls.mostRecent().args[0] as HTMLElement;
+    expect(nodo.tagName).toBe('DIV');
+    expect(fixture.nativeElement.contains(nodo)).toBe(true);
+  });
+
+  it('no expone UI de registro', async () => {
+    const fixture = await montar();
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    expect(texto.toLowerCase()).not.toContain('registr');
+    expect((fixture.nativeElement as HTMLElement).querySelector('a[href*="sign-up"]')).toBeNull();
+  });
+
+  it('no navega mientras no hay sesión', async () => {
+    await montar('/tickets');
+
+    expect(router.navigateByUrl).not.toHaveBeenCalled();
+  });
+
+  it('tras iniciar sesión vuelve a la ruta local solicitada', async () => {
+    const fixture = await montar('/tickets');
+
+    clerk.firmarSesion();
+    responderIdentidad();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/tickets');
+  });
+
+  it('sin ruta de retorno va a /dashboard', async () => {
+    const fixture = await montar(null);
+
+    clerk.firmarSesion();
+    responderIdentidad();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('un retorno no local no se sigue: va a /dashboard', async () => {
+    const fixture = await montar('//malicioso.example');
+
+    clerk.firmarSesion();
+    responderIdentidad();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('desmonta la UI de Clerk al destruirse', async () => {
+    const fixture = await montar();
+
+    fixture.destroy();
+
+    expect(clerk.unmountSignIn).toHaveBeenCalledTimes(1);
+  });
+
+  describe('resolverDestinoRetorno', () => {
+    it('acepta rutas locales', () => {
+      expect(resolverDestinoRetorno('/tickets')).toBe('/tickets');
+      expect(resolverDestinoRetorno('/inventario?x=1')).toBe('/inventario?x=1');
+    });
+
+    it('rechaza vacío, externo y la propia ruta de login', () => {
+      expect(resolverDestinoRetorno(null)).toBe('/dashboard');
+      expect(resolverDestinoRetorno('')).toBe('/dashboard');
+      expect(resolverDestinoRetorno('https://evil.example')).toBe('/dashboard');
+      expect(resolverDestinoRetorno('//evil.example')).toBe('/dashboard');
+      expect(resolverDestinoRetorno('/login')).toBe('/dashboard');
+    });
+  });
+});

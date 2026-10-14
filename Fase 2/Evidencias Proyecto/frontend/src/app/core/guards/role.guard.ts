@@ -1,39 +1,16 @@
-import { inject } from '@angular/core';
-import { CanActivateFn, Router } from '@angular/router';
-
-import { AutenticacionService } from '../services/auth.service';
+import { CanActivateFn } from '@angular/router';
 
 /**
- * Restringe una ruta a los roles permitidos.
+ * Guard de autorización por rol — **inerte en la Feature 006**.
  *
- * Se usa como `canActivate: [RolGuard(['ADMINISTRADOR'])]`. Igual que
- * `AutenticacionGuard`, **no se aplica a ninguna ruta todavia**: el rol vive en
- * el token como decodificacion tentativa y la verificacion real es de
- * Feature 006.
+ * La sesión la administra Clerk (`AutenticacionService`) y la exigencia de
+ * identidad vive en `auth.guard.ts`. La política de roles (Admin, Bodeguero,
+ * Solicitante), las redirecciones por rol y la protección por rol son Feature
+ * 007. Hoy este guard deja pasar siempre, sin inspeccionar el token ni el rol.
  *
- * Sin token, o con un rol que no este en la lista, devuelve `false` y el router
- * aplica su redireccion por defecto. No se inventa una ruta `/sin-permisos`:
- * ese caso de uso se resuelve cuando exista la pantalla.
+ * Conserva la firma `RolGuard(roles)` para que la 007 implemente la autoría
+ * real sin cambiar los sitios de uso.
  */
-export const RolGuard = (rolesPermitidos: string[]): CanActivateFn => {
-  return () => {
-    const autenticacion = inject(AutenticacionService);
-    const router = inject(Router);
-
-    const token = autenticacion.token();
-    if (!token) {
-      return router.createUrlTree(['/dashboard']);
-    }
-
-    // Decodificacion tentativa del payload: sirve para decidir el menu, no para
-    // autorizar. La autorizacion real la hace el backend en cada endpoint.
-    try {
-      const carga = JSON.parse(atob(token.split('.')[1])) as { rol?: string };
-      return rolesPermitidos.includes(carga.rol ?? '')
-        ? true
-        : router.createUrlTree(['/dashboard']);
-    } catch {
-      return router.createUrlTree(['/dashboard']);
-    }
-  };
+export const RolGuard = (_rolesPermitidos: string[]): CanActivateFn => {
+  return () => true;
 };

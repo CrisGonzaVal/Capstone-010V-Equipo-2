@@ -25,7 +25,7 @@ Compustock ERP es un sistema web para la administración centralizada, trazabili
 - **Frontend**: Angular 18.2+ (Standalone Components, Signals, TypeScript 5.5, Tailwind CSS 3.4).
 - **Backend**: FastAPI + Uvicorn (Python 3.10+, Pydantic v2, SQLAlchemy 2.0 con psycopg2 — síncrono, pydantic-settings).
 - **Base de Datos**: PostgreSQL 16 (Docker Compose: puerto local 5433, contenedor expone 5432; base por defecto `apt_erp`).
-- **Autenticación**: decorativa por ahora — JWT local HS256 con `SECRET_KEY` (config en `backend/app/core/config.py`). Clerk NO está implementado aún; se evalúa en Release 2.0.
+- **Autenticación**: Clerk (Feature 006, Release 2.0). La sesión la administra Angular con `@clerk/clerk-js` (UI prebuilt) y presenta el token vigente como Bearer; FastAPI valida el JWT de sesión contra el JWKS de `CLERK_ISSUER` y obtiene el correo primario verificado del Backend API de Clerk con `CLERK_SECRET_KEY`. No existe emisión ni aceptación de JWT local HS256. Config en `backend/app/core/config.py` (`CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_ISSUER`).
 - **Entorno local**: Docker Compose levanta `db`, `backend` (puerto 8000) y `frontend` (puerto 8080).
 
 ## 4. Estructura del Espacio de Trabajo
@@ -100,7 +100,7 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 ## 7. Prohibiciones Estrictas ("No hagas")
 - No escribas código en `backend/` o `frontend/` sin una especificación (`spec.md`) y plan (`plan.md`) aprobados en `docs/spec/features/`.
 - No alteres el modelo de datos de 12 entidades (3NF) sin justificación aprobada en `docs/spec/stack.md`.
-- No implementes Clerk ni cambies el esquema de autenticación hasta que el sistema de gestión esté operativo: la autenticación se mantiene decorativa (JWT local HS256).
+- No cambies el esquema de autenticación ni reintroduzcas JWT local HS256: Clerk es la única autoridad de autenticación desde la Feature 006. La autorización por rol (guards, permisos, redirecciones por rol) es la Feature 007.
 - No instales paquetes en `package.json` o `requirements.txt` sin previo análisis de dependencias.
 - No subas secretos, credenciales ni archivos `.env` al repositorio.
 - **No leas ni modifiques nada fuera de `Fase 2/Evidencias Proyecto/`** — incluidas las fases hermanas. Los comandos de git son la única excepción (ver §0).

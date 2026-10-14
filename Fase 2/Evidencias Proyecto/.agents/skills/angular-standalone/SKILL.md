@@ -28,7 +28,7 @@ Variables, propiedades, funciones, métodos y campos de interfaces se escriben *
 | `auth.service.ts` | `AutenticacionService` | dominio traducido, sufijo intacto |
 | `auth.guard.ts` | `AutenticacionGuard` | idem |
 | `role.guard.ts` | `RolGuard` | idem |
-| `token.interceptor.ts` | `TokenInterceptor` | "token" es préstamo aceptado |
+| `token.interceptor.ts` | `tokenInterceptor` (función `HttpInterceptorFn`) | "token" es préstamo aceptado |
 | `inventario.component.ts` | `InventarioComponent` | dominio ya en español |
 | `inventario.service.ts` | `InventarioService` | idem |
 

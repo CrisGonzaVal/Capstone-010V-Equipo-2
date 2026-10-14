@@ -1,3 +1,4 @@
+@if (autenticacion.estaAutenticado()) {
 <div class="flex h-screen bg-gray-100 font-sans">
   <aside
     [class.w-64]="sidebarAbierto()"
@@ -72,19 +73,34 @@
       </a>
     </nav>
 
-    <div class="p-4 bg-slate-950 border-t border-slate-800 flex items-center space-x-3">
-      <div
-        class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center font-bold text-white shadow"
-        aria-hidden="true"
-      >
-        U
-      </div>
-      @if (sidebarAbierto()) {
-        <div class="overflow-hidden">
-          <p class="text-sm font-semibold text-white truncate">Super Administrator</p>
-          <p class="text-xs text-slate-400 truncate">admin&#64;compustock.cl</p>
+    <div class="p-4 bg-slate-950 border-t border-slate-800 space-y-3">
+      <div class="flex items-center space-x-3">
+        <div
+          class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center font-bold text-white shadow"
+          aria-hidden="true"
+        >
+          {{ inicialNombre() ?? '—' }}
         </div>
-      }
+        @if (sidebarAbierto()) {
+          <div class="overflow-hidden">
+            <p class="text-sm font-semibold text-white truncate">
+              {{ nombreCompleto() ?? etiquetaIdentidad() }}
+            </p>
+            <p class="text-xs text-slate-400 truncate">{{ correoLocal() ?? '—' }}</p>
+          </div>
+        }
+      </div>
+      <button
+        type="button"
+        (click)="cerrarSesion()"
+        class="w-full flex items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        aria-label="Cerrar sesión"
+      >
+        <span aria-hidden="true">⎋</span>
+        @if (sidebarAbierto()) {
+          <span>Cerrar sesión</span>
+        }
+      </button>
     </div>
   </aside>
 
@@ -98,7 +114,7 @@
           SaaS Multi-tenant Activo
         </span>
         <span class="text-sm text-slate-600">
-          Rol: <strong class="font-semibold">Superadmin</strong>
+          Rol: <strong class="font-semibold">{{ rolLegible() ?? '—' }}</strong>
         </span>
       </div>
     </header>
@@ -108,3 +124,7 @@
     </main>
   </div>
 </div>
+} @else {
+  <!-- Sin sesión (p. ej. /login): la vista ocupa toda la pantalla, sin marco de la app. -->
+  <router-outlet />
+}

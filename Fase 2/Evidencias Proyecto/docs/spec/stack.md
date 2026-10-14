@@ -8,7 +8,13 @@ Todo lo que sigue es norma. Si el código actual no la cumple, la norma gana: se
 - **Frontend SPA**: Angular 18.2+, TypeScript 5.5, Tailwind CSS 3.4 (Standalone Components, Signals).
 - **Backend API**: Python 3.10+, FastAPI, Pydantic v2, SQLAlchemy 2.0 con psycopg2 (síncrono).
 - **Base de Datos Relacional**: PostgreSQL 16, codificación UTF-8. Docker Compose: puerto local 5433, contenedor 5432, base por defecto `apt_erp`.
-- **Identidad**: decorativa por ahora — JWT local HS256 con `SECRET_KEY` (config en `backend/app/core/config.py`). Clerk (SDK frontend + validación JWT backend) queda como objetivo de Release 2.0, aún no implementado.
+- **Identidad**: Clerk (Feature 006, Release 2.0). El frontend administra la sesión con
+  `@clerk/clerk-js` (UI prebuilt embebida) y presenta el token vigente como Bearer; FastAPI
+  valida el JWT de sesión por JWKS de `CLERK_ISSUER` (`core/security.py`) y consulta el
+  Backend API de Clerk con `CLERK_SECRET_KEY` para obtener el correo primario verificado y
+  vincularlo a un `usuario` local. Config en `backend/app/core/config.py`
+  (`CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_ISSUER`). No existe emisión ni
+  aceptación de JWT local HS256.
 - **Entorno de Contenedores**: Docker Compose levanta `db`, `backend` (puerto 8000) y `frontend` (puerto 8080). pgAdmin no está implementado.
 
 ## 2. Estructura de Directorios (Definitiva)
@@ -51,7 +57,7 @@ backend/
     │
     ├── core/                  # Configuraciones globales y seguridad
     │   ├── config.py          # Variables de entorno (Pydantic Settings)
-    │   └── security.py        # Lógica de JWT local (hashing y tokens)
+    │   └── security.py        # Validación del JWT de sesión de Clerk (JWKS) y consulta al Backend API
     │
     ├── db/                    # Persistencia
     │   └── database.py        # Configuración de SQLAlchemy (Engine, SessionLocal)
@@ -69,7 +75,7 @@ backend/
     │   └── ticket_schema.py
     │
     ├── services/              # 🧠 Lógica de Negocio (Transacciones ACID)
-    │   ├── auth_service.py    # Valida contraseñas simuladas y emite JWT (stub, Feature 006)
+    │   ├── auth_service.py    # Resuelve la identidad de Clerk y la vincula al usuario local (Feature 006)
     │   ├── ticket_service.py  # Descuenta stock, cambia estados, etc.
     │   ├── usuario_service.py # Alta de usuarios y validación de correo duplicado
     │   └── inventario_service.py
@@ -149,7 +155,7 @@ frontend/
         │
 ├── core/              # ⚙️ Cosas de un solo uso (Singletons)
         │   ├── guards/        # Protección de rutas (auth.guard.ts, role.guard.ts)
-        │   ├── interceptors/  # Interceptores HTTP (token.interceptor.ts para inyectar JWT)
+        │   ├── interceptors/  # Interceptores HTTP (token.interceptor.ts inyecta el Bearer de Clerk)
         │   └── services/      # Servicios globales puros (auth.service.ts → AutenticacionService)
         │
         ├── shared/            # 🧩 Tipos y piezas reutilizables por cualquier feature
@@ -240,4 +246,8 @@ componente los importa, no los declara.
 
 - **Pasa la revisión de cualquier arquitecto de software**: Sigue el principio de Responsabilidad Única (SOLID).
 - **Cero dolores de cabeza con OpenCode / IA**: Al tener los servicios separados de las rutas (backend) y las features separadas del core (frontend), el agente de IA sabe exactamente qué archivo modificar sin romper el resto de la aplicación.
-- **Escalabilidad directa a Release 2.0**: Cuando integren Clerk, solo tendrán que modificar `core/security.py` en backend y `core/guards/` en Angular. No tendrán que tocar ni un solo archivo de la lógica de Tickets o Inventario.
+- **Escalabilidad directa a Release 2.0**: Clerk ya está integrado (Feature 006). La exigencia de
+  identidad se aplica por dependencia de seguridad en el **router agregado**
+  (`backend/app/api/v1/api.py`), de modo que todas las rutas de negocio de `/api/v1` piden un
+  Bearer válido sin tocar la lógica de Tickets o Inventario; salud y documentación quedan sin
+  protección. La autorización por rol y los guards de rol quedan para la Feature 007.

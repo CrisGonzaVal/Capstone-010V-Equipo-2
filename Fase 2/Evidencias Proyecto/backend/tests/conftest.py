@@ -31,6 +31,7 @@ from app.models import (
     Rol,
     Usuario,
 )
+from app.services.auth_service import IdentidadAutenticada
 
 #: Motor en memoria. `StaticPool` mantiene una sola conexion para que la base
 #: sobreviva entre el hilo de `TestClient` y el hilo principal.
@@ -59,9 +60,37 @@ def motor():
     motor.dispose()
 
 
+def identidad_de_prueba() -> IdentidadAutenticada:
+    """Identidad autenticada inyectable para la suite funcional legacy.
+
+    Tras la Feature 006 el router agregado de v1 exige Bearer. Las pruebas de
+    negocio, que no comprueban autenticacion, necesitan una identidad resuelta
+    para seguir ejerciendo su comportamiento funcional. Se construye un usuario
+    local valido (no persistido: los endpoints de negocio no consumen la
+    identidad) con un `sub` de Clerk ficticio. Nunca se usa una clave real.
+    """
+    usuario = Usuario(
+        usuario_id=1,
+        nombre="Identidad",
+        apellido="De Prueba",
+        correo="identidad.legacy@compustock.cl",
+        password="no-usada-por-clerk",
+        departamento_id=1,
+        rol_id=1,
+    )
+    return IdentidadAutenticada(usuario=usuario, sub="sub-legacy-pruebas")
+
+
 @contextmanager
 def _cliente_de_prueba(motor, **opciones):
-    """Enlaza `get_db` al motor en memoria durante el contexto."""
+    """Enlaza `get_db` al motor en memoria durante el contexto.
+
+    Ademas overridea `get_current_user` con `identidad_de_prueba` para que la
+    suite funcional legacy vuelva a ejercer su comportamiento de negocio bajo el
+    router protegido. Este override vive **solo** en el harness de tests y no se
+    aplica a `test_auth.py`, cuyas pruebas de seguridad construyen su propio
+    cliente sin el override.
+    """
     FabricaSesion = sessionmaker(autocommit=False, autoflush=False, bind=motor)
 
     def obtener_db_de_prueba():
@@ -72,6 +101,7 @@ def _cliente_de_prueba(motor, **opciones):
             db.close()
 
     app.dependency_overrides[dependencies.get_db] = obtener_db_de_prueba
+    app.dependency_overrides[dependencies.get_current_user] = identidad_de_prueba
     try:
         with TestClient(app, **opciones) as cliente_http:
             yield cliente_http
@@ -176,6 +206,7 @@ def datos_base(motor):
 
         return {
             "rol_id": rol.rol_id,
+            "rol_nombre": rol.nombre_rol,
             "departamento_id": departamento.departamento_id,
             "usuario_id": usuario.usuario_id,
             "prioridad_id": prioridad.prioridad_id,

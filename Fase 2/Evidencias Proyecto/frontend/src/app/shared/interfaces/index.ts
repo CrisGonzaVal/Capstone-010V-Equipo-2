@@ -162,6 +162,25 @@ export interface CatalogosTicket {
   solicitantes: Solicitante[];
 }
 
+// --- Autenticación ---
+
+/**
+ * Respuesta de `GET /api/v1/auth/me` (identidad local vinculada).
+ *
+ * Refleja 1:1 el `IdentidadAutenticadaRespuesta` de
+ * `backend/app/schemas/auth_schema.py`: los seis campos del backend y **no**
+ * `rol_id`. `correo` es el correo del registro local (clave del vínculo), no el
+ * del perfil de Clerk, y `rol` es el nombre legible (`rol.nombre_rol`).
+ */
+export interface IdentidadAutenticada {
+  usuario_id: number;
+  sub: string;
+  nombre: string;
+  apellido: string;
+  correo: string;
+  rol: string;
+}
+
 // --- Usuarios ---
 
 export interface Usuario {
