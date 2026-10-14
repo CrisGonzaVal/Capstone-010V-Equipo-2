@@ -61,16 +61,18 @@
           <span class="ml-3 font-medium">Tickets / Kanban</span>
         }
       </a>
-      <a
-        routerLink="/administracion"
-        routerLinkActive="bg-blue-600 text-white"
-        class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
-      >
-        <span class="text-xl" aria-hidden="true">⚙️</span>
-        @if (sidebarAbierto()) {
-          <span class="ml-3 font-medium">Administración</span>
-        }
-      </a>
+      @if (puedeAdministrar()) {
+        <a
+          routerLink="/administracion"
+          routerLinkActive="bg-blue-600 text-white"
+          class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+        >
+          <span class="text-xl" aria-hidden="true">⚙️</span>
+          @if (sidebarAbierto()) {
+            <span class="ml-3 font-medium">Administración</span>
+          }
+        </a>
+      }
     </nav>
 
     <div class="p-4 bg-slate-950 border-t border-slate-800 space-y-3">

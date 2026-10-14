@@ -1,16 +1,36 @@
-import { CanActivateFn } from '@angular/router';
+import { inject } from '@angular/core';
+import { CanActivateFn, Router } from '@angular/router';
+
+import { AutenticacionService } from '../services/auth.service';
 
 /**
- * Guard de autorización por rol — **inerte en la Feature 006**.
- *
- * La sesión la administra Clerk (`AutenticacionService`) y la exigencia de
- * identidad vive en `auth.guard.ts`. La política de roles (Admin, Bodeguero,
- * Solicitante), las redirecciones por rol y la protección por rol son Feature
- * 007. Hoy este guard deja pasar siempre, sin inspeccionar el token ni el rol.
- *
- * Conserva la firma `RolGuard(roles)` para que la 007 implemente la autoría
- * real sin cambiar los sitios de uso.
+ * Ruta dedicada al acceso denegado por rol. Es la navegación que devuelve el
+ * `RolGuard` cuando la identidad no tiene el rol permitido: ni `/login` ni
+ * cierre de sesión, porque la persona autenticada sigue con su sesión vigente.
  */
-export const RolGuard = (_rolesPermitidos: string[]): CanActivateFn => {
-  return () => true;
+export const RUTA_ACCESO_DENEGADO = '/acceso-denegado';
+
+/**
+ * Guard de autorización por rol.
+ *
+ * Espera el estado de identidad de `AutenticacionService` (sin repetir
+ * `/auth/me`) y compara el rol local de forma **exacta** contra los roles
+ * permitidos por la ruta. Los cuatro roles son literales distintos: `Admin` no
+ * es un alias de `Administrador` y un rol ausente/desconocido nunca concede.
+ *
+ * La exigencia de sesión vive en `AutenticacionGuard` (que redirige a `/login`
+ * con retorno); este guard nunca manda a `/login` ni cierra la sesión. Ante
+ * falta de permiso devuelve navegación a `RUTA_ACCESO_DENEGADO` y no activa la
+ * ruta, de modo que la operación de la vista no llega a ejecutarse.
+ */
+export const RolGuard = (rolesPermitidos: readonly string[]): CanActivateFn => {
+  return async () => {
+    const autenticacion = inject(AutenticacionService);
+    const router = inject(Router);
+
+    const identidad = await autenticacion.esperarIdentidad();
+
+    const autorizado = identidad !== null && rolesPermitidos.includes(identidad.rol);
+    return autorizado ? true : router.createUrlTree([RUTA_ACCESO_DENEGADO]);
+  };
 };

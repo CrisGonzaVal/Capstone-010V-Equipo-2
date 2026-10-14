@@ -10,7 +10,7 @@ class UsuarioBase(BaseModel):
 
 
 class UsuarioCrear(UsuarioBase):
-    password: str
+    """Alta de usuario: Clerk es la unica autoridad; sin credencial local (D-7)."""
 
 
 class UsuarioRespuesta(UsuarioBase):

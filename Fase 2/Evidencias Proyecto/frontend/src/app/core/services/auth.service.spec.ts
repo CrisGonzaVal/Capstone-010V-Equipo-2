@@ -275,6 +275,41 @@ describe('AutenticacionService', () => {
       expect(servicio.identidad()).toBeNull();
       expect(servicio.estadoIdentidad()).toBe('no_disponible');
     });
+
+    it('esperarIdentidad resuelve con la identidad vinculada sin repetir /auth/me', async () => {
+      await servicio.inicializar();
+      clerk.firmarSesion();
+      await esperarPeticion();
+
+      // Mientras la identidad carga, la espera no resuelve todavía.
+      const espera = servicio.esperarIdentidad();
+      await esperarPeticion();
+      httpMock.expectOne(urlAuthMe).flush(IDENTIDAD);
+
+      await expectAsync(espera).toBeResolvedTo(IDENTIDAD);
+      // La espera reutiliza la carga en curso: no dispara una segunda petición.
+      httpMock.expectNone(urlAuthMe);
+    });
+
+    it('esperarIdentidad devuelve null cuando no hay sesión', async () => {
+      await servicio.inicializar();
+
+      await expectAsync(servicio.esperarIdentidad()).toBeResolvedTo(null);
+      httpMock.expectNone(urlAuthMe);
+    });
+
+    it('esperarIdentidad devuelve null si la identidad no está disponible', async () => {
+      await servicio.inicializar();
+      clerk.firmarSesion();
+      await esperarPeticion();
+
+      const espera = servicio.esperarIdentidad();
+      httpMock
+        .expectOne(urlAuthMe)
+        .flush({ detail: 'No autenticado' }, { status: 401, statusText: 'Unauthorized' });
+
+      await expectAsync(espera).toBeResolvedTo(null);
+    });
   });
 });
 

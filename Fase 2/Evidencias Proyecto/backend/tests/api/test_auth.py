@@ -47,6 +47,7 @@ from app.api import dependencies
 from app.core.config import settings
 from app.main import app
 from app.models.usuario import Usuario
+from app.models.rol import Rol
 from app.services.auth_service import IdentidadAutenticada
 
 RUTA_ME = "/api/v1/auth/me"
@@ -573,10 +574,13 @@ def test_identidad_no_resoluble_responde_401_sin_datos_ni_mutacion(motor, datos_
         nombre="Fantasma",
         apellido="Ausente",
         correo="fantasma@compustock.cl",
-        password="no-usada-por-clerk",
         departamento_id=datos_base["departamento_id"],
         rol_id=datos_base["rol_id"],
     )
+    # Feature 007 (T2): la observacion posterior llama a `GET /api/v1/usuarios/`,
+    # que ya exige rol administrativo. La identidad necesita un rol conocido para
+    # que el 200 siga midiendo "sin mutacion" y no una denegacion por rol ausente.
+    usuario_huerfano.rol = Rol(nombre_rol="Administrador")
     identidad = IdentidadAutenticada(usuario=usuario_huerfano, sub="user_huerfano")
     overrides = {dependencies.get_current_user: lambda: identidad}
 

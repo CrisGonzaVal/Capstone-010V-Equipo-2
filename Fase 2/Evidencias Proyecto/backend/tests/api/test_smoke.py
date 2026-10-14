@@ -15,7 +15,6 @@ def _crear_usuario(datos_base):
         "nombre": "Carlos",
         "apellido": "Munoz",
         "correo": "carlos.munoz@compustock.cl",
-        "password": "hash-de-prueba",
         "departamento_id": datos_base["departamento_id"],
         "rol_id": datos_base["rol_id"],
     }

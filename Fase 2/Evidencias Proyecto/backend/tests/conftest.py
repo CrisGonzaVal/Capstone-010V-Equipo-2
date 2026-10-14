@@ -68,16 +68,23 @@ def identidad_de_prueba() -> IdentidadAutenticada:
     para seguir ejerciendo su comportamiento funcional. Se construye un usuario
     local valido (no persistido: los endpoints de negocio no consumen la
     identidad) con un `sub` de Clerk ficticio. Nunca se usa una clave real.
+
+    Feature 007 (T2): la autorizacion por rol ya esta cableada a cada operacion,
+    asi que la identidad legacy lleva el rol **Superadmin**, cuyo alcance global
+    cubre las 18 operaciones. Asi la suite funcional sigue ejerciendo su
+    comportamiento de negocio sin convertirse, sin querer, en una prueba de
+    denegacion. Las pruebas de autorizacion construyen su propia identidad por
+    rol (ver `tests/api/test_permisos_endpoints.py`).
     """
     usuario = Usuario(
         usuario_id=1,
         nombre="Identidad",
         apellido="De Prueba",
         correo="identidad.legacy@compustock.cl",
-        password="no-usada-por-clerk",
         departamento_id=1,
         rol_id=1,
     )
+    usuario.rol = Rol(nombre_rol="Superadmin")
     return IdentidadAutenticada(usuario=usuario, sub="sub-legacy-pruebas")
 
 
@@ -137,7 +144,7 @@ def datos_base(motor):
     """
     db = sessionmaker(bind=motor)()
     try:
-        rol = Rol(nombre_rol="ADMINISTRADOR_INSTITUCIONAL", descripcion="Rol de prueba")
+        rol = Rol(nombre_rol="Administrador", descripcion="Rol de prueba")
         db.add(rol)
         db.flush()
 
@@ -162,7 +169,6 @@ def datos_base(motor):
             nombre="Ana",
             apellido="Perez",
             correo="ana.prueba@compustock.cl",
-            password="hash-de-prueba",
             departamento_id=departamento.departamento_id,
             rol_id=rol.rol_id,
         )

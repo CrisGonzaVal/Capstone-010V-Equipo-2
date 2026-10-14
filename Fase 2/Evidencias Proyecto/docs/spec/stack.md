@@ -93,6 +93,37 @@ backend/
 
 **Regla de oro del Backend**: El router en `api/v1/endpoints/tickets.py` solo recibe la petición HTTP, valida con schemas y llama a `services/ticket_service.py`. Todo el procesamiento complejo y las consultas a la base de datos se hacen en el servicio.
 
+#### Autorización por rol (Feature 007)
+
+La autorización por rol es **norma** desde la Feature 007 y separa la frontera de seguridad
+(backend) de la navegación (frontend). Es el patrón a seguir para cualquier operación nueva:
+
+- **Política central.** `backend/app/core/permisos.py` define los cuatro literales de rol
+  (`RolConocido`: `Superadmin`, `Administrador`, `Bodeguero`, `Solicitante`; `Admin` es solo
+  abreviatura documental, sin alias runtime) y `MATRIZ_PERMISOS`, un mapa explícito
+  `(MÉTODO, ruta) → roles permitidos`. Una operación ausente de la matriz **no concede**
+  permiso a nadie.
+- **Dependencia por operación.** Cada endpoint declara su permiso con
+  `requiere_operacion(metodo, ruta)` o `requiere_roles(...)` desde
+  `backend/app/api/dependencies.py`. La dependencia reutiliza `get_current_user` (la
+  identidad Clerk se resuelve una sola vez por solicitud): sesión ausente o inválida
+  conserva el **401**; identidad autenticada sin el rol requerido obtiene **403**; un rol
+  ausente, vacío o desconocido nunca concede. `respuestas_de_autorizacion()` publica 401 y
+  403 en `/openapi.json` sin alterar el `response_model` de éxito.
+- **Alcance de datos en servicios, no en routers.** La regla por objeto/institución vive en
+  `backend/app/services/ambito_service.py`: deriva la institución por
+  `usuario.departamento_id → departamento.institucion_id`. Un ámbito no resoluble para un rol
+  limitado responde **403** (nunca se eleva a global); solo `Superadmin` es global. Los
+  servicios reciben la identidad ya resuelta, no flags de confianza del cliente. El catálogo
+  maestro de producto/categoría y el `stock_total` de `GET /tickets/catalogos` permanecen
+  globales en 007; su particionamiento es la Feature 008.
+- **Navegación en el frontend.** `frontend/src/app/core/guards/role.guard.ts` (`RolGuard`,
+  standalone) espera la identidad de `AutenticacionService` sin repetir `/auth/me` y compara
+  el rol exacto; `frontend/src/app/core/auth/roles.ts` es la única fuente de roles de ruta y
+  capacidades. La denegación navega a `/acceso-denegado` y no cierra sesión ni manda a
+  `/login`. El guard es navegación, **no** la frontera de seguridad: la autorización real es
+  la API (un cliente puede llamarla sin Angular).
+
 #### Read models de consulta (Feature 002)
 
 Un schema Pydantic con `model_config = ConfigDict(from_attributes=True)` sirve para
@@ -250,4 +281,5 @@ componente los importa, no los declara.
   identidad se aplica por dependencia de seguridad en el **router agregado**
   (`backend/app/api/v1/api.py`), de modo que todas las rutas de negocio de `/api/v1` piden un
   Bearer válido sin tocar la lógica de Tickets o Inventario; salud y documentación quedan sin
-  protección. La autorización por rol y los guards de rol quedan para la Feature 007.
+  protección. La autorización por rol se implementó en la Feature 007 (matriz central en el
+  backend + `RolGuard` en el frontend; ver §2).

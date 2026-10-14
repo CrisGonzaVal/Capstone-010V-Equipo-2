@@ -100,7 +100,7 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 ## 7. Prohibiciones Estrictas ("No hagas")
 - No escribas código en `backend/` o `frontend/` sin una especificación (`spec.md`) y plan (`plan.md`) aprobados en `docs/spec/features/`.
 - No alteres el modelo de datos de 12 entidades (3NF) sin justificación aprobada en `docs/spec/stack.md`.
-- No cambies el esquema de autenticación ni reintroduzcas JWT local HS256: Clerk es la única autoridad de autenticación desde la Feature 006. La autorización por rol (guards, permisos, redirecciones por rol) es la Feature 007.
+- No cambies el esquema de autenticación ni reintroduzcas JWT local HS256: Clerk es la única autoridad de autenticación desde la Feature 006. La autorización por rol (guards, permisos, redirecciones por rol) se implementó en la Feature 007; no se reabre ni se reimplementa fuera de su matriz central.
 - No instales paquetes en `package.json` o `requirements.txt` sin previo análisis de dependencias.
 - No subas secretos, credenciales ni archivos `.env` al repositorio.
 - **No leas ni modifiques nada fuera de `Fase 2/Evidencias Proyecto/`** — incluidas las fases hermanas. Los comandos de git son la única excepción (ver §0).

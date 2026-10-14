@@ -2,28 +2,29 @@
 Memoria entre sesiones. Máximo ~50 líneas: resume lo útil y elimina lo que ya no aporte.
 
 ## Estado actual
-- Features 000…006 cerradas. **006 (autenticación Clerk) CERRADA** (13/Oct/2026): **16 AC en verde**. Backend `pytest` 195 passed; frontend `ng test` 113 SUCCESS; `ng build` OK (`Initial total` 318.93 kB, sin warnings). `/openapi.json` publica `HTTPBearer` y `IdentidadAutenticadaRespuesta` con 6 campos sin `rol_id`. Recorrido funcional en 4200 (login/logout real contra Clerk, `/auth/me` 200 con perfil local "Camila Fernandez"/correo local/"Rol: Administrador"/avatar "C") y humo en 8080 tras reconstruir la imagen.
-- 006 entregó: login alojado de Clerk embebido en Angular (`/login` con UI prebuilt) y logout; `AutenticacionService` sobre `@clerk/clerk-js` con signals (sesión e identidad separadas) sin `localStorage`; `tokenInterceptor` adjunta el Bearer de `session.getToken()`; `auth.guard.ts` exige sesión y `role.guard.ts` queda inerte (007). Backend: `core/security.py` valida el JWT por JWKS de `CLERK_ISSUER` y consulta el Backend API con `CLERK_SECRET_KEY`; `GET /api/v1/auth/me` devuelve la identidad local; `get_current_user` se aplica al router agregado.
-- 005 entregó: `POST /tickets/{ticket_id}/despacho` (rebaja stock, cierra ticket y crea `SALIDA` en una transacción), `GET /inventario/movimientos` y el PATCH que reserva `EnCurso→Cerrado` con 409. 003/004: catálogos, modal nativo y Kanban.
-- Backend 195 tests y frontend 113 tests, todos en verde; estructura alineada con `docs/spec/stack.md`. Agentes en frontmatter V2 nativo.
+- Features 000…007 cerradas. **007 (control de acceso por roles) CERRADA** (14/Oct/2026): **17 AC en verde**. Backend `pytest` **377 passed**; frontend `ng test` **140 SUCCESS** (Edge 155); build de producción OK (reflejado en la imagen reconstruida `sha256:3862981…`). Migración `99_migracion_retiro_password.sql` aplicada a `apt_erp` (**12 usuarios/10 tickets intactos**, segunda ejecución idempotente). Recorrido funcional 4200 con los cuatro roles y humo en 8080 sobre la imagen reconstruida.
+- 007 entregó: los cuatro roles locales (`Superadmin`, `Administrador`, `Bodeguero`, `Solicitante`; sin alias `Admin`); autorización cliente+servidor; matriz central `backend/app/core/permisos.py` (18 endpoints) consumida por `requiere_roles`/`requiere_operacion` (`api/dependencies.py`); ámbito institucional en `services/ambito_service.py`; `RolGuard` + `/acceso-denegado` en el frontend; retiro de `usuario.password` (esquema, semilla, modelo `Usuario`, `UsuarioCrear` y tests).
+- 006 entregó: login/logout Clerk en Angular, `AutenticacionService` sobre `@clerk/clerk-js`, `tokenInterceptor` con el Bearer, `auth.guard`; backend valida el JWT por JWKS y vincula por correo primario verificado; `GET /auth/me` devuelve `usuario_id/sub/nombre/apellido/correo/rol` (sin `rol_id`).
+- 005 entregó: despacho transaccional (rebaja stock + cierre + `SALIDA` en una transacción), movimientos y PATCH `EnCurso→Cerrado` con 409. 003/004: catálogos, modal nativo y Kanban.
 
-## Decisiones de la 006
-- Clerk es la única autoridad de autenticación: se retiró JWT HS256, el login simulado y el almacenamiento local del token (D-1).
-- El correo se lee del Backend API de Clerk (`GET /v1/users/{sub}`) tras validar el JWT; el token de sesión no trae email y no se usa JWT template (D-2/D-6).
-- Vínculo local por correo primario verificado contra `usuario.correo` (UNIQUE); sin coincidencia → 401 sin crear usuario; el `sub` no se persiste (D-3).
-- `/auth/me` devuelve 6 campos (`usuario_id`, `sub`, `nombre`, `apellido`, `correo`, `rol`), sin `rol_id`; el rol es informativo y la autorización es Feature 007 (D-4/D-13/D-14).
-- La identidad local se carga una vez por sesión y se limpia al logout/cambio/error; sesión e identidad son estados separados.
-- `CLERK_PUBLISHABLE_KEY` va en `environment.ts` (build time); 8080 es build congelado y exige reconstruir la imagen.
+## Decisiones de la 007
+- Cuatro roles distintos; `Admin` es abreviatura documental, no alias ni normalización runtime (D-1).
+- La autorización se exige en servidor (frontera real) y en cliente (navegación); el guard **no** es seguridad (D-2).
+- Matriz explícita por operación (D-3); ámbito `usuario → departamento → institución` para Administrador/Bodeguero/Solicitante, **403** si no resuelve; solo Superadmin es global (D-4).
+- Ticket ajeno e inexistente responden ambos **404** para no revelar existencia; denegación general es **403** (D-5).
+- `POST /usuarios/`: Administrador solo asigna Bodeguero/Solicitante; Superadmin los cuatro (D-6).
+- Solicitante autoatribuido al crear ticket (ignora `usuario_id` ajeno); los demás roles conservan `usuario_id` obligatorio (AC-6).
+- Catálogo maestro y `stock_total` de `/tickets/catalogos` siguen globales en 007; su particionamiento es 008.
+- `usuario.password` se **elimina, no se sustituye** por hash; migración reproducible e idempotente (D-7).
 
 ## Aprendizajes y errores a evitar
-- **Cierre = verificación, no marcado** (AGENTS.md §8.5): tests verdes no cierran una feature; hacen falta los dos puertos (4200 funcional + 8080 de humo).
-- **8080 sirve un build congelado**: `docker compose build frontend` + `up -d --force-recreate frontend`. El backend sí se actualiza solo (`./backend/app` montado + `--reload`).
-- **`@clerk/clerk-js` v6 no incluye la UI prebuilt**: hay que cargar el bundle `@clerk/ui` desde el CDN del Frontend API y pasarlo a `load({ ui })`; sin eso `mountSignIn` lanza "Clerk was not loaded with Ui components".
-- **`docker compose restart` no recrea el contenedor ni relee el `.env`**: para aplicar variables nuevas hace falta `docker compose up -d` (recrear).
-- **Un `CLERK_ISSUER` mal escrito en el `.env` produce 401 silenciosos** en todas las rutas protegidas.
-- **Karma**: arranca en watch y esta máquina solo tiene Edge: fijar `CHROME_BIN` y usar `--watch=false --browsers=ChromeHeadless`.
-- **SQLite ignora `FOR UPDATE`** y no aplica los CHECK del DDL: el bloqueo de fila y los 422 de constraint se verifican contra PostgreSQL 16 real.
+- **Cierre = verificación, no marcado** (AGENTS.md §8.5): hacen falta los dos puertos; 8080 exige reconstruir la imagen (`docker compose build frontend` + `up -d`) — el backend sí se recarga solo.
+- **Pipes de `docker exec` desde PowerShell corrompen la entrada por codificación**: usar `cmd.exe /c "docker exec -i … < script"` (así se documentó la migración).
+- **Sin credenciales de contraseña en Clerk**, el recorrido por rol se hizo con sign-in tokens; el login por contraseña se verificó con la cuenta de prueba.
+- **Karma**: esta máquina solo tiene Edge; fijar `CHROME_BIN` y usar `--watch=false --browsers=ChromeHeadless` (nunca `npm test` a secas).
+- **SQLite ignora `FOR UPDATE`** y no aplica los CHECK del DDL: esas semánticas —y la migración— se verifican contra PostgreSQL 16 real.
+- **`@clerk/clerk-js` v6 no trae UI prebuilt**: cargar `@clerk/ui` desde el CDN del Frontend API y pasarlo a `load({ ui })`.
 
 ## Próximos pasos
-- **Feature 007** (Sprint 3): Angular Route Guards y permisos por rol (`Admin`, `Bodeguero`, `Solicitante`); `role.guard.ts` queda inerte listo para implementarla. Luego 008 (multi-tenant) y 009 (dashboard analítico).
-- Los KPI del dashboard (`1,240` productos, `14` tickets, `6` departamentos, `2` alertas y "Actividad Reciente") siguen quemados a propósito: se dejan intactos para resolverlos en la **Feature 009** (dashboard analítico).
+- **Feature 008** (Sprint 4): particionamiento lógico de datos por institución (SaaS multi-tenant), incluido el catálogo/stock hoy globales.
+- **Feature 009**: dashboard analítico de stock crítico y log de alertas (los KPI y "Actividad Reciente" siguen quemados a propósito).

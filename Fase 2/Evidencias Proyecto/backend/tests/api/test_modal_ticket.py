@@ -198,7 +198,6 @@ def test_solicitantes_orden_alfabetico_es_verificable(cliente, motor, datos_cata
             nombre="Zulma",
             apellido="Aguilera",
             correo="zulma.aguilera@compustock.cl",
-            password="hash-de-prueba",
             departamento_id=datos_catalogo_ticket["departamento_id"],
             rol_id=datos_catalogo_ticket["rol_id"],
         )

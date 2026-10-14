@@ -1,19 +1,25 @@
-"""Dependencias de la capa HTTP (Feature 006).
+"""Dependencias de la capa HTTP (Features 006 y 007).
 
 `get_db` inyecta la `Session`. Las costuras `obtener_fuente_jwks` y
 `obtener_transporte_clerk` aíslan la red (JWKS y Backend API de Clerk) para
 poder overridearlas en los tests. `get_current_user` resuelve la identidad
 vinculada delegando en `auth_service` y normaliza todo fallo a HTTP 401.
+
+La autorizacion por rol (Feature 007) se expone con `requiere_roles`, que
+fabrica una dependencia parametrizable que reutiliza `get_current_user`: la
+sesion ausente/invalida conserva el 401 y una identidad autenticada sin el rol
+requerido recibe 403. La matriz central de permisos vive en
+`app.core.permisos`; `requiere_operacion` la ata a la ruta declarada.
 """
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 
 import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.core import security
+from app.core import permisos, security
 from app.core.config import settings
 from app.core.security import FuenteJWKS
 from app.db.database import SessionLocal
@@ -42,6 +48,25 @@ def obtener_fuente_jwks() -> FuenteJWKS:
 def obtener_transporte_clerk() -> httpx.BaseTransport:
     """Costura inyectable: transporte HTTP hacia el Backend API de Clerk."""
     return httpx.HTTPTransport()
+
+
+def respuestas_de_autorizacion() -> dict[int, dict[str, str]]:
+    """Respuestas documentadas de autorizacion para las operaciones de negocio.
+
+    Feature 007 (D-5): toda operacion de la matriz declara el **401** (sesion
+    ausente o invalida) y el **403** (identidad autenticada sin el rol requerido)
+    en `/openapi.json` sin alterar el `response_model` de exito ni el contrato de
+    la respuesta. Devuelve un diccionario nuevo por llamada para que el decorador
+    de cada ruta no comparta una estructura mutable con las demas.
+    """
+    return {
+        status.HTTP_401_UNAUTHORIZED: {
+            "description": "Credenciales ausentes o invalidas, o identidad no resoluble."
+        },
+        status.HTTP_403_FORBIDDEN: {
+            "description": "Identidad autenticada sin el rol requerido para la operacion."
+        },
+    }
 
 
 def _no_autorizado() -> HTTPException:
@@ -77,3 +102,47 @@ def get_current_user(
         )
     except security.ErrorAutenticacion as exc:
         raise _no_autorizado() from exc
+
+
+def _permiso_insuficiente() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Permiso insuficiente para la operacion",
+    )
+
+
+def requiere_roles(*roles_permitidos: str) -> Callable[..., IdentidadAutenticada]:
+    """Fabrica una dependencia que exige uno de los `roles_permitidos`.
+
+    Depende de `get_current_user`, de modo que la identidad Clerk se resuelve
+    una sola vez por solicitud (FastAPI cachea dependencias equivalentes) y el
+    endpoint/servicio recibe esa misma identidad sin volver a resolverla. La
+    semantica de denegacion es D-5: sesion ausente o invalida conserva el **401**
+    de `get_current_user`; una identidad autenticada sin el rol requerido recibe
+    **403**. Un rol ausente, vacio o desconocido (p. ej. `Admin`, que no es un
+    alias) nunca concede permiso.
+    """
+    permitidos = frozenset(roles_permitidos)
+
+    def dependencia(
+        identidad: IdentidadAutenticada = Depends(get_current_user),
+    ) -> IdentidadAutenticada:
+        rol = permisos.nombre_rol_de(identidad)
+        if not permisos.rol_autorizado(rol, permitidos):
+            raise _permiso_insuficiente()
+        return identidad
+
+    return dependencia
+
+
+def requiere_operacion(
+    metodo: str, ruta: str
+) -> Callable[..., IdentidadAutenticada]:
+    """Dependencia de autorizacion para una operacion de la matriz D-3.
+
+    Lee los roles permitidos de `app.core.permisos.MATRIZ_PERMISOS` (la fuente
+    central) y delega en `requiere_roles`. Una operacion no declarada en la
+    matriz levanta `KeyError` al construir la dependencia: no hay permiso
+    implicito.
+    """
+    return requiere_roles(*permisos.roles_de_operacion(metodo, ruta))

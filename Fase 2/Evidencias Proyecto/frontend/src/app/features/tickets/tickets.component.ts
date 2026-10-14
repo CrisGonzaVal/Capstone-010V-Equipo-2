@@ -12,6 +12,8 @@ import {
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 
+import { puedeOperarTickets } from '../../core/auth/roles';
+import { AutenticacionService } from '../../core/services/auth.service';
 import {
   CatalogosTicket,
   DetalleTicketCrear,
@@ -264,6 +266,21 @@ export class TicketsComponent {
 
   private readonly servicioTickets = inject(TicketService);
   private readonly fb = inject(NonNullableFormBuilder);
+  private readonly autenticacion = inject(AutenticacionService);
+
+  /**
+   * Rol local de la identidad (`/auth/me`), o `null` mientras carga/no existe.
+   * Lo usa la vista para condicionar la UI; no es autorización (D-2): la API
+   * protege la operación aunque el control se pinte.
+   */
+  readonly rolActual = computed(() => this.autenticacion.identidad()?.rol ?? null);
+
+  /**
+   * `true` si el rol puede operar el Kanban (avanzar/retroceder estado y
+   * despachar). El Solicitante consulta y crea sus tickets, pero no opera
+   * (AC-3). Un rol ausente, alias o desconocido no concede.
+   */
+  readonly puedeGestionarKanban = computed(() => puedeOperarTickets(this.rolActual()));
 
   // --- Estado del modal ---
 

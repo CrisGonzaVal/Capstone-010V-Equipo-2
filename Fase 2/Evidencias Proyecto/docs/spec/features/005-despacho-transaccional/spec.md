@@ -31,6 +31,8 @@ La feature también expone la consulta del historial de movimientos.
 
 - Endpoint para despachar un ticket completo, con `usuario_id` explícito y validado porque
   la autenticación sigue siendo decorativa; esto no implica persistir autoría en el historial.
+  *Nota posterior al cierre: la autenticación decorativa fue superada por la Feature 006
+  (Clerk) y la autorización por roles se implementó en la Feature 007.*
 - Elegibilidad restringida al estado cuyo nombre canónico es `EnCurso`, ignorando
   mayúsculas/minúsculas. El despacho lleva el ticket directamente al estado cuyo nombre es
   `Cerrado`, también resuelto por nombre y sin ids fijos. Si hay nombres duplicados en el
@@ -312,6 +314,8 @@ filtros en esta entrega.
 - [x] **AC-27** No se modifican las doce entidades ni `database/01_esquema.sql`; no se agregan
       dependencias, se mantiene la autenticación decorativa y la lógica de negocio permanece
       fuera de los routers.
+      *Nota posterior al cierre: la autenticación decorativa fue superada por la Feature 006
+      (Clerk) y la autorización por roles se implementó en la Feature 007.*
 - [x] **AC-28** `roadmap.md` y `MEMORY.md` se actualizan al cierre solo después de todos los AC
       verificados; no se marca la feature cerrada antes de esa evidencia.
 
@@ -357,7 +361,9 @@ filtros en esta entrega.
   `backend/app/api/v1/endpoints/{tickets,inventario}.py` (solo rutas que delegan),
   los tests de API del backend, el componente/spec de `tickets` y documentación.
   Sin cambios a modelos, `database/01_esquema.sql`, semilla, dependencias ni
-  `backend/app/core/security.py`; autenticación decorativa intacta.
+   `backend/app/core/security.py`; autenticación decorativa intacta.
+   *Nota posterior al cierre: la autenticación decorativa fue superada por la Feature 006
+   (Clerk) y la autorización por roles se implementó en la Feature 007.*
 - **Coherencia documental (AGENTS.md §8.7):** `grep` sobre `AGENTS.md`, `MEMORY.md` y
   `.agents/skills/` no deja rutas ni estados falsos; ninguna skill describe el `PATCH` de
   la 004 como capaz de cerrar manualmente. Las rutas nuevas
@@ -377,6 +383,8 @@ filtros en esta entrega.
   explícitos, reglas de negocio en servicios, sesión inyectada y sin SQL raw.
 - `AGENTS.md` §7 y `stack.md`: sin cambios al modelo de 12 entidades ni al DDL; autenticación
   decorativa hasta 006/007 y sin dependencias nuevas.
+  *Nota posterior al cierre: la autenticación decorativa fue superada por la Feature 006
+  (Clerk) y la autorización por roles se implementó en la Feature 007.*
 - La unicidad de inventario por producto es un requisito de operación del despacho, no una
   nueva restricción de esquema. La base solo garantiza unicidad por pareja departamento/
   producto, de modo que los casos sin fila o con varias filas se rechazan explícitamente.

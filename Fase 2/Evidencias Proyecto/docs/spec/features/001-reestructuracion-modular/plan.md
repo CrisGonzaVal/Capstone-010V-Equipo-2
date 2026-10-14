@@ -30,6 +30,8 @@ def get_current_user(...) -> Usuario:  # stub, raise HTTPException(501)
 ```
 
 El stub es explícito: la autenticación sigue decorativa (`AGENTS.md` §7).
+*Nota posterior al cierre: la autenticación decorativa fue superada por la Feature 006
+(Clerk) y la autorización por roles se implementó en la Feature 007.*
 
 ### 2.4 Reparto de los 12 modelos
 

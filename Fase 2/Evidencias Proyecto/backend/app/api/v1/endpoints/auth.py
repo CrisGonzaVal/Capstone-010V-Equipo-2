@@ -32,10 +32,11 @@ router = APIRouter(prefix="/auth", tags=["Autenticacion"])
         "resoluble responde **401**."
     ),
     responses={
-        status.HTTP_401_UNAUTHORIZED: {
-            "description": "Credenciales ausentes o invalidas, o identidad no resoluble."
-        }
+        **dependencies.respuestas_de_autorizacion(),
     },
+    dependencies=[
+        Depends(dependencies.requiere_operacion("GET", "/api/v1/auth/me"))
+    ],
 )
 def leer_identidad_autenticada(
     identidad: dependencies.IdentidadAutenticada = Depends(dependencies.get_current_user),

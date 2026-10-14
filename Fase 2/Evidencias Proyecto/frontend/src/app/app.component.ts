@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
+import { puedeAdministrar as rolPuedeAdministrar } from './core/auth/roles';
 import { AutenticacionService } from './core/services/auth.service';
 
 @Component({
@@ -34,6 +35,15 @@ export class AppComponent {
   readonly correoLocal = computed(() => this.autenticacion.identidad()?.correo ?? null);
 
   readonly rolLegible = computed(() => this.autenticacion.identidad()?.rol ?? null);
+
+  /**
+   * `true` si el rol puede acceder al área administrativa. Solo oculta el
+   * enlace de la navegación (AC-3): la ruta sigue protegida por el guard de rol,
+   * de modo que un acceso directo no depende de este control de interfaz.
+   */
+  readonly puedeAdministrar = computed(() =>
+    rolPuedeAdministrar(this.autenticacion.identidad()?.rol ?? null),
+  );
 
   /** Inicial del nombre normalizada a mayúscula; `null` sin identidad resuelta. */
   readonly inicialNombre = computed(() => {

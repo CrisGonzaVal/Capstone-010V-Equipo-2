@@ -74,6 +74,8 @@ válidas — con errores honestos y sin depender de ids numéricos fijos.
 - **Vista de detalle del ticket**: hacer clic para ver ítems o descripción completa.
 - **Permisos por rol**: hasta la Feature 007 todos pueden transicionar (la autenticación es
   decorativa).
+  *Nota posterior al cierre: la autenticación decorativa fue superada por la Feature 006
+  (Clerk) y la autorización por roles se implementó en la Feature 007.*
 - **CRUD de estados**: el catálogo de estados es de solo lectura; no se agregan ni editan
   etapas desde la interfaz.
 - **Reabrir tickets cerrados**: el estado terminal no admite retroceso (en el catálogo
@@ -318,6 +320,8 @@ estado inexistente) se rechaza sin modificar el ticket (D-2, D-8).
   al modelo de 12 entidades.
 - `AGENTS.md` §6: identificadores en español.
 - Autenticación decorativa hasta la Feature 006/007: no se filtra por rol ni sede.
+  *Nota posterior al cierre: la autenticación decorativa fue superada por la Feature 006
+  (Clerk) y la autorización por roles se implementó en la Feature 007.*
 - **Catálogo de estados degenerado**: si está vacío, el tablero muestra un estado de error
   visible (nunca columnas en blanco silencioso); si trae un número distinto de estados, el
   flujo ordinal se adapta sin casos especiales; y si falta el estado llamado `"Cerrado"`,

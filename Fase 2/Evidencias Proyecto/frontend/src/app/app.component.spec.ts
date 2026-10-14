@@ -194,4 +194,36 @@ describe('AppComponent', () => {
       }
     });
   });
+
+  /**
+   * AC-3: el Solicitante no recibe el acceso administrativo en la navegación.
+   * Es comodidad de interfaz; la ruta sigue protegida por el guard de rol.
+   */
+  describe('navegación por rol (AC-3)', () => {
+    function destinos(compilado: HTMLElement): string[] {
+      return Array.from(compilado.querySelectorAll('a')).map(
+        (enlace) => enlace.getAttribute('href') ?? '',
+      );
+    }
+
+    it('oculta el enlace de administración al Solicitante', () => {
+      autenticacionFalsa.identidad.set({ ...IDENTIDAD_RESUELTA, rol: 'Solicitante' });
+      const compilado = crearYRenderizar();
+
+      expect(destinos(compilado)).not.toContain('/administracion');
+      // Las demás secciones permitidas siguen visibles.
+      expect(destinos(compilado)).toContain('/dashboard');
+      expect(destinos(compilado)).toContain('/inventario');
+      expect(destinos(compilado)).toContain('/tickets');
+    });
+
+    it('mantiene el enlace de administración a Administrador y Superadmin', () => {
+      for (const rol of ['Administrador', 'Superadmin']) {
+        autenticacionFalsa.identidad.set({ ...IDENTIDAD_RESUELTA, rol });
+        const compilado = crearYRenderizar();
+
+        expect(destinos(compilado)).withContext(rol).toContain('/administracion');
+      }
+    });
+  });
 });

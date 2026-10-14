@@ -15,6 +15,13 @@
     </button>
   </div>
 
+  @if (!puedeGestionarKanban() && rolActual() !== null) {
+    <p class="bg-slate-50 border border-slate-200 text-slate-600 text-sm px-4 py-3 rounded-lg">
+      Vista de solo consulta: tu perfil no puede mover tickets de estado ni
+      realizar despachos.
+    </p>
+  }
+
   @if (ticketCreado() !== null) {
     <div role="alert" class="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-4 py-3 rounded-lg">
       Ticket <span class="font-semibold">#{{ ticketCreado() }}</span> creado correctamente.
@@ -313,7 +320,7 @@
                   Cerrado: {{ tarjeta.fechaCierre | date: 'short' }}
                 </p>
               }
-              @if (tarjeta.puedeRetroceder || tarjeta.puedeAvanzar) {
+              @if (puedeGestionarKanban() && (tarjeta.puedeRetroceder || tarjeta.puedeAvanzar)) {
                 <div class="flex items-center gap-2 pt-1">
                   @if (tarjeta.puedeRetroceder) {
                     <button

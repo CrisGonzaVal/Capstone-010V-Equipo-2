@@ -151,6 +151,13 @@ export class AutenticacionService {
    */
   private generacionIdentidad = 0;
 
+  /**
+   * Esperas activas de identidad. Se resuelven cuando el estado deja de estar
+   * `cargando`, para que los guards no decidan por rol sobre una identidad en
+   * tránsito ni repitan `/auth/me`.
+   */
+  private esperasIdentidad: Array<() => void> = [];
+
   /** `true` cuando Clerk reconoce una sesión activa. No evalúa roles. */
   readonly estaAutenticado = computed(() => this._sesion() !== null);
 
@@ -182,6 +189,23 @@ export class AutenticacionService {
   async obtenerToken(): Promise<string | null> {
     const sesion = this._sesion();
     return sesion ? sesion.getToken() : null;
+  }
+
+  /**
+   * Espera a que el estado de identidad deje de estar `cargando`, **sin volver a
+   * pedir `/auth/me`**, y devuelve la identidad vinculada o `null` si no hay
+   * sesión, el vínculo falló o la identidad no existe.
+   *
+   * Es la costura que usan los guards de rol: esperar aquí evita decidir sobre
+   * una identidad en tránsito y evita duplicar la carga que el servicio ya hace
+   * una sola vez por sesión.
+   */
+  async esperarIdentidad(): Promise<IdentidadAutenticada | null> {
+    await this.inicializar();
+    while (this._estadoIdentidad() === 'cargando') {
+      await new Promise<void>((resolver) => this.esperasIdentidad.push(resolver));
+    }
+    return this._estadoIdentidad() === 'disponible' ? this._identidad() : null;
   }
 
   /** Cierre de sesión programático. El listener refleja el nuevo estado. */
@@ -244,7 +268,7 @@ export class AutenticacionService {
     const generacion = this.generacionIdentidad;
 
     this._identidad.set(null);
-    this._estadoIdentidad.set('cargando');
+    this.publicarEstadoIdentidad('cargando');
 
     try {
       const identidad = await firstValueFrom(
@@ -254,14 +278,14 @@ export class AutenticacionService {
         return; // Respuesta tardía de una sesión ya cerrada/cambiada.
       }
       this._identidad.set(identidad);
-      this._estadoIdentidad.set('disponible');
+      this.publicarEstadoIdentidad('disponible');
     } catch {
       if (generacion !== this.generacionIdentidad) {
         return;
       }
       // Error/401: sin identidad y sin sustituto desde el perfil de Clerk.
       this._identidad.set(null);
-      this._estadoIdentidad.set('no_disponible');
+      this.publicarEstadoIdentidad('no_disponible');
     }
   }
 
@@ -269,7 +293,24 @@ export class AutenticacionService {
   private limpiarIdentidad(): void {
     this.invalidarRespuestasPendientes();
     this._identidad.set(null);
-    this._estadoIdentidad.set('no_disponible');
+    this.publicarEstadoIdentidad('no_disponible');
+  }
+
+  /**
+   * Publica el estado de identidad y resuelve las esperas activas cuando deja de
+   * estar `cargando`. Encapsular el `set` garantiza que `esperarIdentidad()`
+   * nunca quede colgada.
+   */
+  private publicarEstadoIdentidad(estado: EstadoIdentidad): void {
+    this._estadoIdentidad.set(estado);
+    if (estado === 'cargando') {
+      return;
+    }
+    const esperas = this.esperasIdentidad;
+    this.esperasIdentidad = [];
+    for (const resolver of esperas) {
+      resolver();
+    }
   }
 
   private invalidarRespuestasPendientes(): void {

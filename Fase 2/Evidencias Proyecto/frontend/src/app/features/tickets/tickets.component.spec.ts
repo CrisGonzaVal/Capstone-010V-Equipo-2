@@ -1,9 +1,11 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { WritableSignal, signal } from '@angular/core';
 
 import { URL_API } from '../../shared/config/url-api';
-import { CatalogosTicket, Ticket } from '../../shared/interfaces';
+import { AutenticacionService } from '../../core/services/auth.service';
+import { CatalogosTicket, IdentidadAutenticada, Ticket } from '../../shared/interfaces';
 import { TicketsComponent } from './tickets.component';
 
 const RUTA_CATALOGOS = `${URL_API}/tickets/catalogos`;
@@ -314,6 +316,20 @@ describe('TicketsComponent', () => {
   let componente: TicketsComponent;
   let httpMock: HttpTestingController;
 
+  /** Identidad local (`/auth/me`) que el componente lee para condicionar la UI. */
+  let identidad: WritableSignal<IdentidadAutenticada | null>;
+
+  function crearIdentidad(rol: string): IdentidadAutenticada {
+    return {
+      usuario_id: 9,
+      sub: 'user_operativo',
+      nombre: 'Bruno',
+      apellido: 'Soto',
+      correo: 'bruno.soto@losalpes.cl',
+      rol,
+    };
+  }
+
   /** Responde las dos peticiones del arranque del tablero. */
   function responderArranque(
     catalogos: CatalogosTicket = CATALOGOS,
@@ -345,9 +361,17 @@ describe('TicketsComponent', () => {
   }
 
   beforeEach(async () => {
+    // El componente condiciona la UI al rol de la identidad local. Se inyecta un
+    // doble con `identidad` como señal para no arrancar Clerk (ni red) en Karma.
+    identidad = signal<IdentidadAutenticada | null>(crearIdentidad('Bodeguero'));
+
     await TestBed.configureTestingModule({
       imports: [TicketsComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AutenticacionService, useValue: { identidad } },
+      ],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -1218,6 +1242,52 @@ describe('TicketsComponent', () => {
           columna.tarjetas.some((t) => t.ticket.ticket_id === 42)
         )
       ).toBe(false);
+    });
+  });
+
+  /**
+   * AC-3: el Solicitante consulta sus tickets pero no opera el Kanban (avanzar,
+   * retroceder, despachar). Es comodidad de interfaz: la frontera de seguridad
+   * real está en la API (D-2).
+   */
+  describe('capacidades por rol (AC-3)', () => {
+    it('oculta las operaciones de Kanban al Solicitante', () => {
+      identidad.set(crearIdentidad('Solicitante'));
+      responderArranque(CATALOGOS, TICKETS_TRANSICION);
+
+      expect(componente.puedeGestionarKanban()).toBe(false);
+      expect(
+        fixture.nativeElement.querySelector('button[aria-label^="Avanzar ticket"]')
+      ).toBeNull();
+      expect(
+        fixture.nativeElement.querySelector('button[aria-label^="Retroceder ticket"]')
+      ).toBeNull();
+    });
+
+    it('ofrece las operaciones de Kanban a Bodeguero, Administrador y Superadmin', () => {
+      responderArranque(CATALOGOS, TICKETS_TRANSICION);
+
+      for (const rol of ['Bodeguero', 'Administrador', 'Superadmin']) {
+        identidad.set(crearIdentidad(rol));
+        fixture.detectChanges();
+
+        expect(componente.puedeGestionarKanban()).withContext(rol).toBe(true);
+        expect(
+          fixture.nativeElement.querySelector('button[aria-label^="Avanzar ticket"]')
+        )
+          .withContext(rol)
+          .not.toBeNull();
+      }
+    });
+
+    it('no ofrece operaciones ante un rol alias o ausente', () => {
+      responderArranque();
+
+      identidad.set(crearIdentidad('Admin'));
+      expect(componente.puedeGestionarKanban()).toBe(false);
+
+      identidad.set(null);
+      expect(componente.puedeGestionarKanban()).toBe(false);
     });
   });
 });

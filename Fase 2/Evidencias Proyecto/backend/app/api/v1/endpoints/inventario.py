@@ -16,6 +16,7 @@ from app.schemas.producto_schema import (
     ProductoRespuesta,
 )
 from app.services import inventario_service
+from app.services.auth_service import IdentidadAutenticada
 
 router = APIRouter(prefix="/inventario", tags=["Inventario y Productos"])
 
@@ -25,6 +26,10 @@ router = APIRouter(prefix="/inventario", tags=["Inventario y Productos"])
     response_model=List[CategoriaRespuesta],
     status_code=status.HTTP_200_OK,
     summary="Listar categorias de productos",
+    responses=dependencies.respuestas_de_autorizacion(),
+    dependencies=[
+        Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/categorias"))
+    ],
 )
 def listar_categorias(db: Session = Depends(dependencies.get_db)):
     return inventario_service.listar_categorias(db)
@@ -35,6 +40,10 @@ def listar_categorias(db: Session = Depends(dependencies.get_db)):
     response_model=List[ProductoRespuesta],
     status_code=status.HTTP_200_OK,
     summary="Listar productos del catalogo",
+    responses=dependencies.respuestas_de_autorizacion(),
+    dependencies=[
+        Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/productos"))
+    ],
 )
 def listar_productos(db: Session = Depends(dependencies.get_db)):
     return inventario_service.listar_productos(db)
@@ -45,6 +54,10 @@ def listar_productos(db: Session = Depends(dependencies.get_db)):
     response_model=ProductoRespuesta,
     status_code=status.HTTP_201_CREATED,
     summary="Crear un producto en el catalogo",
+    responses=dependencies.respuestas_de_autorizacion(),
+    dependencies=[
+        Depends(dependencies.requiere_operacion("POST", "/api/v1/inventario/productos"))
+    ],
 )
 def crear_producto(datos: ProductoCrear, db: Session = Depends(dependencies.get_db)):
     return inventario_service.crear_producto(db, datos)
@@ -62,6 +75,7 @@ def crear_producto(datos: ProductoCrear, db: Session = Depends(dependencies.get_
         "evalua sobre el total: un producto con `stock_total <= stock_minimo` "
         "queda marcado como critico."
     ),
+    responses=dependencies.respuestas_de_autorizacion(),
 )
 def listar_existencias(
     q: Optional[str] = Query(
@@ -75,6 +89,9 @@ def listar_existencias(
     solo_criticos: bool = Query(
         default=False, description="Deja solo los productos con stock igual o bajo el minimo."
     ),
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("GET", "/api/v1/inventario/existencias")
+    ),
     db: Session = Depends(dependencies.get_db),
 ):
     return inventario_service.listar_existencias(
@@ -83,6 +100,7 @@ def listar_existencias(
         categoria_id=categoria_id,
         departamento_id=departamento_id,
         solo_criticos=solo_criticos,
+        identidad=identidad,
     )
 
 
@@ -91,11 +109,16 @@ def listar_existencias(
     response_model=List[InventarioRespuesta],
     status_code=status.HTTP_200_OK,
     summary="Listar existencias, opcionalmente por departamento",
+    responses=dependencies.respuestas_de_autorizacion(),
 )
 def listar_inventario(
-    departamento_id: int = None, db: Session = Depends(dependencies.get_db)
+    departamento_id: int = None,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("GET", "/api/v1/inventario/stock")
+    ),
+    db: Session = Depends(dependencies.get_db),
 ):
-    return inventario_service.listar_inventario(db, departamento_id)
+    return inventario_service.listar_inventario(db, departamento_id, identidad)
 
 
 @router.get(
@@ -113,20 +136,31 @@ def listar_inventario(
         "ofrece modificacion ni borrado, porque el historial es la evidencia "
         "inmutable de la trazabilidad de stock."
     ),
+    responses=dependencies.respuestas_de_autorizacion(),
 )
-def listar_movimientos(db: Session = Depends(dependencies.get_db)):
-    return inventario_service.listar_movimientos(db)
+def listar_movimientos(
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("GET", "/api/v1/inventario/movimientos")
+    ),
+    db: Session = Depends(dependencies.get_db),
+):
+    return inventario_service.listar_movimientos(db, identidad)
 
 
 @router.post(
     "/movimientos",
     status_code=status.HTTP_201_CREATED,
     summary="Registrar una entrada o salida de stock",
+    responses=dependencies.respuestas_de_autorizacion(),
 )
 def registrar_movimiento(
-    datos: MovimientoCrear, db: Session = Depends(dependencies.get_db)
+    datos: MovimientoCrear,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("POST", "/api/v1/inventario/movimientos")
+    ),
+    db: Session = Depends(dependencies.get_db),
 ):
-    inventario = inventario_service.registrar_movimiento(db, datos)
+    inventario = inventario_service.registrar_movimiento(db, datos, identidad)
     return {
         "message": "Movimiento registrado exitosamente",
         "nuevo_stock": inventario.stock_actual,

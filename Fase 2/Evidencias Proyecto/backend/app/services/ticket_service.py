@@ -17,6 +17,7 @@ from app.models import (
     Ticket,
     Usuario,
 )
+from app.core import permisos
 from app.schemas.ticket_schema import (
     CatalogosTicketRespuesta,
     EstadoTicketRespuesta,
@@ -26,6 +27,8 @@ from app.schemas.ticket_schema import (
     TicketCrear,
     TicketDespacho,
 )
+from app.services import ambito_service
+from app.services.auth_service import IdentidadAutenticada
 from app.services.inventario_service import TIPO_SALIDA, es_stock_critico
 
 #: Nombres canonicos de los estados que gobiernan el despacho. Se buscan por
@@ -42,8 +45,98 @@ PLANTILLA_OBSERVACION_DESPACHO = (
     "producto_id={producto_id}"
 )
 
+#: Rol cuya propiedad se resuelve por `ticket.usuario_id` y no por institucion.
+_SOLICITANTE = permisos.RolConocido.SOLICITANTE.value
 
-def obtener_catalogos(db: Session) -> CatalogosTicketRespuesta:
+
+def _es_solicitante(identidad: IdentidadAutenticada | None) -> bool:
+    """`True` solo para el rol `Solicitante` (un rol ausente/desconocido no)."""
+    return permisos.nombre_rol_de(identidad) == _SOLICITANTE
+
+
+def _ticket_no_encontrado() -> HTTPException:
+    """404 unico de ticket: oculta por igual el inexistente y el ajeno (D-5)."""
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado"
+    )
+
+
+def _institucion_de_usuario(db: Session, usuario: Usuario | None) -> str | None:
+    """Institucion de un usuario via `departamento_id -> departamento`, o `None`."""
+    if usuario is None or usuario.departamento_id is None:
+        return None
+    departamento = db.get(Departamento, usuario.departamento_id)
+    return None if departamento is None else departamento.institucion_id
+
+
+def _institucion_de_ticket(db: Session, ticket: Ticket) -> str | None:
+    """Institucion del solicitante de un ticket (su `usuario_id`)."""
+    return _institucion_de_usuario(db, db.get(Usuario, ticket.usuario_id))
+
+
+def _acotar_consulta_tickets(
+    db: Session, consulta, identidad: IdentidadAutenticada | None
+):
+    """Aplica el alcance de lectura a la consulta de tickets (D-3, AC-6, AC-8).
+
+    Superadmin no se filtra; el Solicitante ve solo sus propios tickets por
+    `usuario_id`; Administrador y Bodeguero, solo los tickets de solicitantes de
+    su institucion (via join a `usuario -> departamento`). Una institucion no
+    resoluble responde 403 (`ambito_service.alcance_institucional`).
+    """
+    if identidad is None or ambito_service.es_alcance_global(identidad):
+        return consulta
+    if _es_solicitante(identidad):
+        return consulta.where(Ticket.usuario_id == identidad.usuario.usuario_id)
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    return (
+        consulta.join(Usuario, Ticket.usuario_id == Usuario.usuario_id)
+        .join(Departamento, Usuario.departamento_id == Departamento.departamento_id)
+        .where(Departamento.institucion_id == institucion_id)
+    )
+
+
+def _verificar_alcance_de_ticket(
+    db: Session, ticket: Ticket, identidad: IdentidadAutenticada | None
+) -> None:
+    """Comprueba que el ticket este dentro del alcance del rol antes de mutar.
+
+    Se invoca despues de resolver la existencia del ticket: un ticket de otra
+    institucion para Administrador/Bodeguero, o ajeno al Solicitante, responde
+    **404** igual que uno inexistente, sin revelar su existencia (D-5, AC-6). Si
+    la institucion de un rol limitado no se resuelve, `alcance_institucional`
+    responde 403 (D-4). Superadmin no se restringe.
+    """
+    if identidad is None or ambito_service.es_alcance_global(identidad):
+        return
+    if _es_solicitante(identidad):
+        if ticket.usuario_id != identidad.usuario.usuario_id:
+            raise _ticket_no_encontrado()
+        return
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    if _institucion_de_ticket(db, ticket) != institucion_id:
+        raise _ticket_no_encontrado()
+
+
+def _acotar_consulta_solicitantes(
+    db: Session, consulta, identidad: IdentidadAutenticada | None
+):
+    """Aplica el alcance al catalogo de solicitantes de `GET /tickets/catalogos`.
+
+    El Solicitante solo se ve a si mismo; Administrador y Bodeguero, a los
+    solicitantes de su institucion; Superadmin, a todos (D-3, AC-9).
+    """
+    if identidad is None or ambito_service.es_alcance_global(identidad):
+        return consulta
+    if _es_solicitante(identidad):
+        return consulta.where(Usuario.usuario_id == identidad.usuario.usuario_id)
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    return consulta.where(Departamento.institucion_id == institucion_id)
+
+
+def obtener_catalogos(
+    db: Session, identidad: IdentidadAutenticada | None = None
+) -> CatalogosTicketRespuesta:
     """Read model de los cuatro catalogos que necesita el modal de alta.
 
     Cada lista se arma con la tecnica que le corresponde y no con una sola
@@ -101,6 +194,11 @@ def obtener_catalogos(db: Session) -> CatalogosTicketRespuesta:
         .join(Departamento, Usuario.departamento_id == Departamento.departamento_id)
         .order_by(Usuario.apellido, Usuario.nombre, Usuario.usuario_id)
     )
+    # El catalogo de solicitantes se acota por rol (D-3, AC-9): el resto de listas
+    # (prioridades, estados, productos y su `stock_total` global) permanece igual.
+    consulta_solicitantes = _acotar_consulta_solicitantes(
+        db, consulta_solicitantes, identidad
+    )
 
     return CatalogosTicketRespuesta(
         prioridades=[PrioridadRespuesta.model_validate(p) for p in prioridades],
@@ -123,7 +221,11 @@ def obtener_catalogos(db: Session) -> CatalogosTicketRespuesta:
     )
 
 
-def listar_tickets(db: Session, estado_id: Optional[int] = None) -> List[Ticket]:
+def listar_tickets(
+    db: Session,
+    estado_id: Optional[int] = None,
+    identidad: IdentidadAutenticada | None = None,
+) -> List[Ticket]:
     """Lista los tickets con su coleccion cargada eager y un orden estable.
 
     El orden es explicito y no el que devuelva la base: `fecha_creacion`
@@ -138,6 +240,9 @@ def listar_tickets(db: Session, estado_id: Optional[int] = None) -> List[Ticket]
 
     El filtro por `estado_id` se comprueba con `is not None`: un `0` o un id
     valido nunca deben confundirse con "sin filtro".
+
+    Feature 007 (D-3/AC-6/AC-8): la lectura se acota por rol; el Solicitante ve
+    solo sus tickets y Administrador/Bodeguero, los de su institucion.
     """
     consulta = (
         select(Ticket)
@@ -146,6 +251,7 @@ def listar_tickets(db: Session, estado_id: Optional[int] = None) -> List[Ticket]
         )
         .order_by(Ticket.fecha_creacion.desc(), Ticket.ticket_id.desc())
     )
+    consulta = _acotar_consulta_tickets(db, consulta, identidad)
     if estado_id is not None:
         consulta = consulta.where(Ticket.estado_id == estado_id)
     return db.execute(consulta).scalars().all()
@@ -182,7 +288,9 @@ def _verificar_productos(db: Session, detalles) -> None:
         )
 
 
-def crear_ticket(db: Session, datos: TicketCrear) -> Ticket:
+def crear_ticket(
+    db: Session, datos: TicketCrear, identidad: IdentidadAutenticada | None = None
+) -> Ticket:
     """Persiste el ticket y sus detalles en una sola transaccion ACID.
 
     Antes este flujo hacia dos `commit()`: el ticket quedaba persistido aunque
@@ -212,10 +320,39 @@ def crear_ticket(db: Session, datos: TicketCrear) -> Ticket:
     de quien lo llama, que es lo que dejaria de ser cierto en cuanto dos
     tickets compartieran transaccion.
 
+    Feature 007 (D-3/AC-6): el Solicitante queda **siempre** atribuido a su
+    identidad autenticada e ignora cualquier `usuario_id` alternativo del
+    payload. Administrador/Bodeguero conservan el contrato vigente con
+    `usuario_id` obligatorio, pero solo pueden elegir un solicitante de su
+    institucion; uno ajeno responde 403. Superadmin elige libremente.
+
     AC-17: si el estado destino es `Cerrado` (case-insensitive), se sella
     `fecha_cierre` en la propia creacion.
     """
+    if _es_solicitante(identidad):
+        # Se ignora el `usuario_id` recibido y se reescribe al del autenticado:
+        # no es un 422 (el contrato no cambio) ni un 403, es autoatribucion.
+        datos = datos.model_copy(
+            update={"usuario_id": identidad.usuario.usuario_id}
+        )
+
     _verificar_referencia(db, Usuario, datos.usuario_id, "usuario")
+    if (
+        identidad is not None
+        and not _es_solicitante(identidad)
+        and not ambito_service.es_alcance_global(identidad)
+    ):
+        # Administrador/Bodeguero: el solicitante elegido debe pertenecer a su
+        # institucion; el de otra responde 403 (D-3, AC-6).
+        institucion_id = ambito_service.alcance_institucional(db, identidad)
+        institucion_solicitante = _institucion_de_usuario(
+            db, db.get(Usuario, datos.usuario_id)
+        )
+        if institucion_solicitante != institucion_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="El solicitante indicado esta fuera de la institucion del usuario",
+            )
     _verificar_referencia(db, Prioridad, datos.prioridad_id, "prioridad")
     _verificar_referencia(db, EstadoTicket, datos.estado_id, "estado")
     _verificar_productos(db, datos.detalles)
@@ -259,7 +396,12 @@ def crear_ticket(db: Session, datos: TicketCrear) -> Ticket:
     return nuevo_ticket
 
 
-def actualizar_estado_ticket(db: Session, ticket_id: int, estado_id: int) -> Ticket:
+def actualizar_estado_ticket(
+    db: Session,
+    ticket_id: int,
+    estado_id: int,
+    identidad: IdentidadAutenticada | None = None,
+) -> Ticket:
     """Aplica una transicion del flujo lineal y sella el cierre, atomicamente.
 
     Orden de validacion (D-8): ticket (404) -> estado pedido (404) -> flujo
@@ -282,10 +424,16 @@ def actualizar_estado_ticket(db: Session, ticket_id: int, estado_id: int) -> Tic
     duplicados), nunca por el ultimo ordinal: en un catalogo degenerado el
     ultimo estado podria no ser `Cerrado`. La guardia va despues de validar el
     flujo (orden D-8) y antes de cualquier escritura.
+
+    Feature 007 (D-5/AC-6): tras comprobar la existencia se verifica el alcance
+    del rol; un ticket de otra institucion (Administrador/Bodeguero) o ajeno al
+    Solicitante responde 404, igual que uno inexistente, antes de tocar nada.
     """
     ticket = db.get(Ticket, ticket_id)
     if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+        raise _ticket_no_encontrado()
+
+    _verificar_alcance_de_ticket(db, ticket, identidad)
 
     estados = db.execute(
         select(EstadoTicket).order_by(EstadoTicket.estado_id)
@@ -367,7 +515,10 @@ def _resolver_estado_por_nombre(estados, nombre: str):
 
 
 def despachar_ticket(
-    db: Session, ticket_id: int, datos: TicketDespacho
+    db: Session,
+    ticket_id: int,
+    datos: TicketDespacho,
+    identidad: IdentidadAutenticada | None = None,
 ) -> Ticket:
     """Despacha un ticket aprobado: rebaja stock, cierra y audita en una ACID.
 
@@ -389,14 +540,19 @@ def despachar_ticket(
     escribir. La rebaja, las cantidades entregadas, el cierre y las salidas son
     una sola transaccion; cualquier fallo de escritura o commit revierte todo y
     se propaga (`constitucion.md` §3).
+
+    Feature 007 (D-5/AC-6): tras comprobar la existencia se verifica el alcance
+    del rol; un ticket de otra institucion (Administrador/Bodeguero) o ajeno al
+    Solicitante responde 404 antes de tocar stock, estado o auditoria, de modo
+    que la denegacion no muta la transaccion de despacho.
     """
     ticket = db.execute(
         select(Ticket).where(Ticket.ticket_id == ticket_id).with_for_update()
     ).scalar_one_or_none()
     if ticket is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado"
-        )
+        raise _ticket_no_encontrado()
+
+    _verificar_alcance_de_ticket(db, ticket, identidad)
 
     if db.get(Usuario, datos.usuario_id) is None:
         raise HTTPException(

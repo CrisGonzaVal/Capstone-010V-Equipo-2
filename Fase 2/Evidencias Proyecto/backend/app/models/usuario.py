@@ -11,7 +11,6 @@ class Usuario(Base):
     nombre = Column(String(100), nullable=False)
     apellido = Column(String(100), nullable=False)
     correo = Column(String(150), nullable=False, unique=True, index=True)
-    password = Column(String(255), nullable=False)
     departamento_id = Column(Integer, ForeignKey("departamento.departamento_id"), nullable=False)
     rol_id = Column(Integer, ForeignKey("rol.rol_id"), nullable=False)
 

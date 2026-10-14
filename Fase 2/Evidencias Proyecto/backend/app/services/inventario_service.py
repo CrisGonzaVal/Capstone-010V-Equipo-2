@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Categoria, Departamento, Inventario, MovimientoInventario, Producto
@@ -12,6 +12,8 @@ from app.schemas.inventario_schema import (
     SedeExistenciaRespuesta,
 )
 from app.schemas.producto_schema import ProductoCrear
+from app.services import ambito_service
+from app.services.auth_service import IdentidadAutenticada
 
 TIPO_ENTRADA = "ENTRADA"
 TIPO_SALIDA = "SALIDA"
@@ -56,8 +58,22 @@ def crear_producto(db: Session, datos: ProductoCrear) -> Producto:
     return nuevo_producto
 
 
-def listar_inventario(db: Session, departamento_id: Optional[int] = None) -> List[Inventario]:
+def listar_inventario(
+    db: Session,
+    departamento_id: Optional[int] = None,
+    identidad: IdentidadAutenticada | None = None,
+) -> List[Inventario]:
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    if departamento_id:
+        ambito_service.validar_departamento_en_alcance(
+            db, departamento_id, institucion_id
+        )
+
     consulta = db.query(Inventario)
+    if institucion_id is not None:
+        consulta = consulta.join(
+            Departamento, Inventario.departamento_id == Departamento.departamento_id
+        ).filter(Departamento.institucion_id == institucion_id)
     if departamento_id:
         consulta = consulta.filter(Inventario.departamento_id == departamento_id)
     return consulta.order_by(Inventario.inventario_id).all()
@@ -69,6 +85,7 @@ def listar_existencias(
     categoria_id: Optional[int] = None,
     departamento_id: Optional[int] = None,
     solo_criticos: bool = False,
+    identidad: IdentidadAutenticada | None = None,
 ) -> List[ProductoExistenciaRespuesta]:
     """Un elemento por producto del catalogo, con su stock y el desglose por sede.
 
@@ -78,7 +95,29 @@ def listar_existencias(
     `producto.categoria_id` es NOT NULL con FK; `inventario` y `departamento`
     entran con `outerjoin` para que un producto sin existencias no desaparezca
     del catalogo (spec D-4).
+
+    Ambito institucional (`ambito_service`, D-4/AC-8): el catalogo maestro es
+    global, pero para un rol limitado el `outerjoin` de inventario solo acepta
+    las existencias de su institucion, de modo que un producto ajeno aparece con
+    `sedes` vacio y `stock_total` 0. Un `departamento_id` explicito de otra
+    institucion responde 403.
     """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    if departamento_id is not None:
+        ambito_service.validar_departamento_en_alcance(
+            db, departamento_id, institucion_id
+        )
+
+    condicion_inventario = Producto.producto_id == Inventario.producto_id
+    if institucion_id is not None:
+        departamentos_propios = select(Departamento.departamento_id).where(
+            Departamento.institucion_id == institucion_id
+        )
+        condicion_inventario = and_(
+            condicion_inventario,
+            Inventario.departamento_id.in_(departamentos_propios),
+        )
+
     consulta = (
         select(
             Producto.producto_id,
@@ -95,7 +134,7 @@ def listar_existencias(
             Departamento.nombre_dep,
         )
         .join(Categoria, Producto.categoria_id == Categoria.categoria_id)
-        .outerjoin(Inventario, Producto.producto_id == Inventario.producto_id)
+        .outerjoin(Inventario, condicion_inventario)
         .outerjoin(Departamento, Inventario.departamento_id == Departamento.departamento_id)
     )
 
@@ -167,7 +206,9 @@ def listar_existencias(
     return existencias
 
 
-def listar_movimientos(db: Session) -> List[MovimientoInventarioRespuesta]:
+def listar_movimientos(
+    db: Session, identidad: IdentidadAutenticada | None = None
+) -> List[MovimientoInventarioRespuesta]:
     """Historial de movimientos con sus datos asociados (plan §3.4, AC-17..AC-20).
 
     Como `listar_existencias`, cruza varias tablas, asi que usa `select()` de
@@ -181,8 +222,13 @@ def listar_movimientos(db: Session) -> List[MovimientoInventarioRespuesta]:
     Los joins son internos porque cada movimiento persistido resuelve su
     inventario, producto y departamento por FK. El orden `fecha_movimiento DESC,
     movimiento_id DESC` es determinista incluso ante empates de fecha (AC-19); no
-    hay paginacion ni filtros en esta entrega.
+    hay paginacion.
+
+    Ambito institucional (D-4/AC-8): un rol limitado solo ve los movimientos cuyo
+    inventario pertenece a un departamento de su institucion.
     """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+
     consulta = (
         select(
             MovimientoInventario.movimiento_id,
@@ -206,18 +252,31 @@ def listar_movimientos(db: Session) -> List[MovimientoInventarioRespuesta]:
         )
     )
 
+    if institucion_id is not None:
+        consulta = consulta.where(Departamento.institucion_id == institucion_id)
+
     return [
         MovimientoInventarioRespuesta(**fila)
         for fila in db.execute(consulta).mappings()
     ]
 
 
-def registrar_movimiento(db: Session, movimiento: MovimientoCrear) -> Inventario:
+def registrar_movimiento(
+    db: Session,
+    movimiento: MovimientoCrear,
+    identidad: IdentidadAutenticada | None = None,
+) -> Inventario:
     """Aplica un movimiento de stock y deja rastro en `movimiento_inventario`.
 
     Trazabilidad Absoluta (`constitucion.md` §2): el registro de auditoria se
     escribe en la misma transaccion que la mutacion del stock, o no se escribe.
+
+    Ambito institucional (D-4/AC-8): un rol limitado solo puede mover stock de un
+    inventario de su institucion; un inventario de otra institucion responde 403
+    sin mutar el stock.
     """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+
     inventario = (
         db.query(Inventario)
         .filter(Inventario.inventario_id == movimiento.inventario_id)
@@ -225,6 +284,11 @@ def registrar_movimiento(db: Session, movimiento: MovimientoCrear) -> Inventario
     )
     if not inventario:
         raise HTTPException(status_code=404, detail="Inventario no encontrado")
+
+    if institucion_id is not None:
+        ambito_service.validar_departamento_en_alcance(
+            db, inventario.departamento_id, institucion_id
+        )
 
     tipo = movimiento.tipo_movimiento.upper()
     if tipo == TIPO_ENTRADA:

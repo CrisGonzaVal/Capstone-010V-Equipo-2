@@ -57,7 +57,6 @@ CREATE TABLE usuario (
     nombre VARCHAR(100) NOT NULL,
     apellido VARCHAR(100) NOT NULL,
     correo VARCHAR(150) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
     departamento_id INTEGER NOT NULL,
     rol_id INTEGER NOT NULL,
 

@@ -109,21 +109,21 @@ INSERT INTO rol (rol_id, nombre_rol, descripcion) OVERRIDING SYSTEM VALUE VALUES
 -- =====================================================
 -- 4. USUARIO  (10 filas)
 -- =====================================================
--- `password` en texto plano a proposito: la autenticacion es decorativa
--- (AGENTS.md n7) y `auth_service.autenticar` todavia no implementa JWT
--- (Feature 006). Cuando exista hash real, este bloque habra que migrar.
+-- Clerk es la unica autoridad de autenticacion (Feature 006): el usuario local
+-- no guarda credencial alguna. El vinculo con Clerk se resuelve por `correo`
+-- (UNIQUE) contra el correo primario verificado, no por contrasena.
 
-INSERT INTO usuario (usuario_id, nombre, apellido, correo, password, departamento_id, rol_id) OVERRIDING SYSTEM VALUE VALUES
-(1,  'Camila',   'Fernandez', 'camila.fernandez@losalpes.cl',   'demo1234', 1, 2),
-(2,  'Diego',    'Munoz',     'diego.munoz@losalpes.cl',       'demo1234', 2, 4),
-(3,  'Valentina', 'Reyes',     'valentina.reyes@losalpes.cl',   'demo1234', 3, 2),
-(4,  'Sebastian','Gutierrez', 'sebastian.gutierrez@losalpes.cl','demo1234', 4, 2),
-(5,  'Isabel',   'Contreras', 'isabel.contreras@losalpes.cl',  'demo1234', 5, 4),
-(6,  'Andres',   'Vargas',    'andres.vargas@losalpes.cl',     'demo1234', 6, 3),
-(7,  'Marcela',  'Nunez',     'marcela.nunez@losalpes.cl',     'demo1234', 7, 3),
-(8,  'Felipe',   'Soto',      'felipe.soto@cfsnorte.cl',       'demo1234', 8, 4),
-(9,  'Carla',    'Mancilla',  'carla.mancilla@cordillera.cl',  'demo1234', 9, 4),
-(10, 'Andres',   'Pino',      'andres.pino@talagante.cl',      'demo1234', 10, 2);
+INSERT INTO usuario (usuario_id, nombre, apellido, correo, departamento_id, rol_id) OVERRIDING SYSTEM VALUE VALUES
+(1,  'Camila',   'Fernandez', 'camila.fernandez@losalpes.cl',   1, 2),
+(2,  'Diego',    'Munoz',     'diego.munoz@losalpes.cl',       2, 4),
+(3,  'Valentina', 'Reyes',     'valentina.reyes@losalpes.cl',   3, 2),
+(4,  'Sebastian','Gutierrez', 'sebastian.gutierrez@losalpes.cl', 4, 2),
+(5,  'Isabel',   'Contreras', 'isabel.contreras@losalpes.cl',  5, 4),
+(6,  'Andres',   'Vargas',    'andres.vargas@losalpes.cl',     6, 3),
+(7,  'Marcela',  'Nunez',     'marcela.nunez@losalpes.cl',     7, 3),
+(8,  'Felipe',   'Soto',      'felipe.soto@cfsnorte.cl',       8, 4),
+(9,  'Carla',    'Mancilla',  'carla.mancilla@cordillera.cl',  9, 4),
+(10, 'Andres',   'Pino',      'andres.pino@talagante.cl',      10, 2);
 
 -- =====================================================
 -- 5. CATEGORIA  (10 filas)
