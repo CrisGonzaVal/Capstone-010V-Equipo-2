@@ -553,13 +553,27 @@ def test_auth_me_devuelve_identidad_local_completa(
 
 
 def test_auth_me_no_expone_rol_id(cliente_auth, datos_base, respuesta_clerk, firmar_token):
-    """AC-8: el contrato no incluye `rol_id`; solo el nombre legible del rol."""
+    """AC-8/AC-17: el contrato no incluye `rol_id`; solo el nombre legible del rol."""
     _cuerpo_happy(datos_base, respuesta_clerk)
     respuesta = cliente_auth.get(RUTA_ME, headers=_auth(firmar_token()))
     assert respuesta.status_code == 200, respuesta.text
     cuerpo = respuesta.json()
     assert "rol_id" not in cuerpo
-    assert set(cuerpo) == {"usuario_id", "sub", "nombre", "apellido", "correo", "rol"}
+    assert set(cuerpo) == {
+        "usuario_id",
+        "sub",
+        "nombre",
+        "apellido",
+        "correo",
+        "rol",
+        "institucion",
+    }
+    # Feature 008 (AC-17): la institucion efectiva del rol limitado se deriva del
+    # `departamento` sembrado, con id + nombre coherentes con `/usuarios/instituciones`.
+    assert cuerpo["institucion"] == {
+        "institucion_id": datos_base["institucion_id"],
+        "nombre": "Instituto de Prueba",
+    }
 
 
 def test_identidad_no_resoluble_responde_401_sin_datos_ni_mutacion(motor, datos_base):

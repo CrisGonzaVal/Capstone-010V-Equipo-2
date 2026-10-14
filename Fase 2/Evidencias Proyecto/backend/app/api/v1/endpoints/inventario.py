@@ -31,8 +31,39 @@ router = APIRouter(prefix="/inventario", tags=["Inventario y Productos"])
         Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/categorias"))
     ],
 )
-def listar_categorias(db: Session = Depends(dependencies.get_db)):
-    return inventario_service.listar_categorias(db)
+def listar_categorias(
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("GET", "/api/v1/inventario/categorias")
+    ),
+    db: Session = Depends(dependencies.get_db),
+):
+    return inventario_service.listar_categorias(db, identidad)
+
+
+@router.get(
+    "/categorias/{categoria_id}",
+    response_model=CategoriaRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener una categoria por id",
+    description=(
+        "Devuelve la categoria pedida si pertenece al ambito del usuario. Un id "
+        "ajeno se oculta con **404**, igual que uno inexistente (Feature 008, D-4)."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+    },
+)
+def obtener_categoria(
+    categoria_id: int,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion(
+            "GET", "/api/v1/inventario/categorias/{categoria_id}"
+        )
+    ),
+    db: Session = Depends(dependencies.get_db),
+):
+    return inventario_service.obtener_categoria(db, categoria_id, identidad)
 
 
 @router.get(
@@ -45,8 +76,39 @@ def listar_categorias(db: Session = Depends(dependencies.get_db)):
         Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/productos"))
     ],
 )
-def listar_productos(db: Session = Depends(dependencies.get_db)):
-    return inventario_service.listar_productos(db)
+def listar_productos(
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("GET", "/api/v1/inventario/productos")
+    ),
+    db: Session = Depends(dependencies.get_db),
+):
+    return inventario_service.listar_productos(db, identidad)
+
+
+@router.get(
+    "/productos/{producto_id}",
+    response_model=ProductoRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Obtener un producto por id",
+    description=(
+        "Devuelve el producto pedido si pertenece al ambito del usuario. Un id "
+        "ajeno se oculta con **404**, igual que uno inexistente (Feature 008, D-4)."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+    },
+)
+def obtener_producto(
+    producto_id: int,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion(
+            "GET", "/api/v1/inventario/productos/{producto_id}"
+        )
+    ),
+    db: Session = Depends(dependencies.get_db),
+):
+    return inventario_service.obtener_producto(db, producto_id, identidad)
 
 
 @router.post(
@@ -54,13 +116,22 @@ def listar_productos(db: Session = Depends(dependencies.get_db)):
     response_model=ProductoRespuesta,
     status_code=status.HTTP_201_CREATED,
     summary="Crear un producto en el catalogo",
-    responses=dependencies.respuestas_de_autorizacion(),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+    },
     dependencies=[
         Depends(dependencies.requiere_operacion("POST", "/api/v1/inventario/productos"))
     ],
 )
-def crear_producto(datos: ProductoCrear, db: Session = Depends(dependencies.get_db)):
-    return inventario_service.crear_producto(db, datos)
+def crear_producto(
+    datos: ProductoCrear,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("POST", "/api/v1/inventario/productos")
+    ),
+    db: Session = Depends(dependencies.get_db),
+):
+    return inventario_service.crear_producto(db, datos, identidad)
 
 
 @router.get(
@@ -151,7 +222,10 @@ def listar_movimientos(
     "/movimientos",
     status_code=status.HTTP_201_CREATED,
     summary="Registrar una entrada o salida de stock",
-    responses=dependencies.respuestas_de_autorizacion(),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+    },
 )
 def registrar_movimiento(
     datos: MovimientoCrear,

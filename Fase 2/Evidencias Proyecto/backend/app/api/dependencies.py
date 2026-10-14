@@ -69,6 +69,41 @@ def respuestas_de_autorizacion() -> dict[int, dict[str, str]]:
     }
 
 
+def respuesta_recurso_oculto() -> dict[int, dict[str, str]]:
+    """Documenta el **404** con el que se oculta un recurso inexistente o ajeno.
+
+    Feature 008 (D-4/AC-9/AC-16): un id de otra institucion responde 404 igual que
+    uno inexistente, de modo que no revela su existencia. Devuelve un diccionario
+    nuevo por llamada, igual que `respuestas_de_autorizacion`.
+    """
+    return {
+        status.HTTP_404_NOT_FOUND: {
+            "description": (
+                "Recurso inexistente o ajeno al ambito del usuario: se oculta como "
+                "inexistente (Feature 008). En una operacion de creacion, ninguna "
+                "fila parcial queda persistida."
+            )
+        }
+    }
+
+
+def respuesta_conflicto() -> dict[int, dict[str, str]]:
+    """Documenta el **409** de estado/catalogo/stock o referencia cruzada.
+
+    Feature 008 (AC-12/AC-16): un estado no elegible, stock insuficiente o una
+    referencia institucional cruzada responden 409 sin aplicar cambios.
+    """
+    return {
+        status.HTTP_409_CONFLICT: {
+            "description": (
+                "Conflicto de estado del flujo, catalogo incompleto, stock "
+                "insuficiente o referencia institucional cruzada; no se aplica "
+                "ningun cambio."
+            )
+        }
+    }
+
+
 def _no_autorizado() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

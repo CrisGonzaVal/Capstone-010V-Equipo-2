@@ -37,6 +37,25 @@ export class AppComponent {
   readonly rolLegible = computed(() => this.autenticacion.identidad()?.rol ?? null);
 
   /**
+   * Contexto institucional derivado de `/auth/me` (Feature 008, AC-17/AC-19).
+   *
+   * Para Administrador, Bodeguero y Solicitante es el nombre de su institución
+   * efectiva; para Superadmin, cuya `institucion` es `null`, es un contexto
+   * global explícito ("Todas las instituciones"), no un vacío. Es informativo:
+   * la vista solo lo presenta, no autoriza ni permite elegir ámbito.
+   */
+  readonly contextoInstitucional = computed(() => {
+    const identidad = this.autenticacion.identidad();
+    if (!identidad) {
+      return null;
+    }
+    if (identidad.institucion) {
+      return identidad.institucion.nombre;
+    }
+    return identidad.rol === 'Superadmin' ? 'Todas las instituciones' : null;
+  });
+
+  /**
    * `true` si el rol puede acceder al área administrativa. Solo oculta el
    * enlace de la navegación (AC-3): la ruta sigue protegida por el guard de rol,
    * de modo que un acceso directo no depende de este control de interfaz.

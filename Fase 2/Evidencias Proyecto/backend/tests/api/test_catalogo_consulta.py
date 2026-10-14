@@ -37,8 +37,12 @@ def datos_catalogo(motor, datos_base):
     """
     db = sessionmaker(bind=motor)()
     try:
+        # Feature 008: el catalogo es institucional, asi que todo el fixture
+        # pertenece a INST01 (la institucion de `datos_base`).
         categoria_toner = Categoria(
-            nombre_cat="Toner y Cartuchos", descripcion_cat="Consumibles de impresion"
+            nombre_cat="Toner y Cartuchos",
+            descripcion_cat="Consumibles de impresion",
+            institucion_id="INST01",
         )
         db.add(categoria_toner)
         db.flush()
@@ -58,6 +62,7 @@ def datos_catalogo(motor, datos_base):
                 unidad_medida=unidad,
                 stock_minimo=minimo,
                 categoria_id=categoria_id,
+                institucion_id="INST01",
             )
             db.add(producto)
             db.flush()
@@ -69,6 +74,7 @@ def datos_catalogo(motor, datos_base):
                 ubicacion=ubicacion,
                 departamento_id=departamento_id,
                 producto_id=producto_id,
+                institucion_id="INST01",
             )
             db.add(inventario)
             db.flush()
@@ -295,7 +301,12 @@ def test_consultar_existencias_no_altera_el_stock(cliente, datos_catalogo):
 def test_listados_existentes_conservan_su_json_con_orden_determinista(cliente, datos_catalogo):
     """El unico cambio en estas tres rutas es que el orden deja de ser indefinido."""
     categorias = cliente.get(RUTA_CATEGORIAS).json()
-    assert set(categorias[0]) == {"categoria_id", "nombre_cat", "descripcion_cat"}
+    assert set(categorias[0]) == {
+        "categoria_id",
+        "nombre_cat",
+        "descripcion_cat",
+        "institucion_id",
+    }
     assert [c["nombre_cat"] for c in categorias] == sorted(c["nombre_cat"] for c in categorias)
 
     productos = cliente.get(RUTA_PRODUCTOS).json()
@@ -307,6 +318,7 @@ def test_listados_existentes_conservan_su_json_con_orden_determinista(cliente, d
         "stock_minimo",
         "categoria_id",
         "categoria",
+        "institucion_id",
     }
     assert [p["nombre"] for p in productos] == sorted(p["nombre"] for p in productos)
 
@@ -318,6 +330,7 @@ def test_listados_existentes_conservan_su_json_con_orden_determinista(cliente, d
         "departamento_id",
         "producto_id",
         "producto",
+        "institucion_id",
     }
     assert [s["inventario_id"] for s in stock] == sorted(s["inventario_id"] for s in stock)
 

@@ -255,4 +255,59 @@ describe('InventarioComponent', () => {
     expect(mensaje).toContain('Ningún insumo coincide con los filtros aplicados.');
     expect(mensaje).not.toContain('El catálogo no tiene insumos cargados.');
   });
+
+  /**
+   * AC-19: la vista de una institución presenta exactamente el catálogo y el
+   * stock que el servidor devolvió para su ámbito. El servidor ya aísla (T6);
+   * el cliente no agrega ni recombina datos de otra institución, y tampoco
+   * elige el ámbito: no lo envía.
+   */
+  describe('aislamiento institucional en la vista (AC-19)', () => {
+    /** Homónimo de INST-A: mismo nombre que en INST-B, con id y stock propios. */
+    const INSUMOS_A: ProductoExistencia[] = [
+      crearInsumo({
+        producto_id: 101,
+        nombre: 'Resma Carta 75g',
+        stock_total: 120,
+        stock_minimo: 20,
+        sedes: [crearSede({ inventario_id: 55, stock_actual: 120 })],
+      }),
+    ];
+
+    const CATEGORIAS_A: Categoria[] = [crearCategoria()];
+
+    it('presenta solo el catálogo y el stock del ámbito recibido', () => {
+      fixture.detectChanges();
+      cargar(CATEGORIAS_A, INSUMOS_A);
+
+      expect(componente.insumos()).toEqual(INSUMOS_A);
+      expect(componente.categorias()).toEqual(CATEGORIAS_A);
+
+      const texto = textoDeLaTabla();
+      expect(texto).toContain('Resma Carta 75g');
+      // El stock es el de INST-A (120), no una suma ni un valor de INST-B.
+      expect(texto).toContain('120');
+      // Solo las filas que el servidor devolvió: nada de homónimos de INST-B.
+      expect(filas().length).toBe(1);
+      expect(componente.totalCatalogo()).toBe(1);
+    });
+
+    it('no envía institución ni parámetros de ámbito: el filtro es del servidor', () => {
+      fixture.detectChanges();
+      const peticiones = {
+        insumos: httpMock.expectOne(RUTA_EXISTENCIAS),
+        categorias: httpMock.expectOne(RUTA_CATEGORIAS),
+      };
+      peticiones.insumos.flush(INSUMOS_A);
+      peticiones.categorias.flush(CATEGORIAS_A);
+      fixture.detectChanges();
+
+      for (const peticion of [peticiones.insumos, peticiones.categorias]) {
+        expect(peticion.request.method).toBe('GET');
+        expect(peticion.request.params.has('institucion_id')).toBe(false);
+        expect(peticion.request.body).toBeNull();
+        expect(peticion.request.headers.get('X-Institucion-Id')).toBeNull();
+      }
+    });
+  });
 });

@@ -30,28 +30,111 @@ def es_stock_critico(stock_actual: int, stock_minimo: int) -> bool:
     return stock_actual <= stock_minimo
 
 
-def listar_categorias(db: Session) -> List[Categoria]:
-    return db.query(Categoria).order_by(Categoria.nombre_cat).all()
+def listar_categorias(
+    db: Session, identidad: IdentidadAutenticada | None = None
+) -> List[Categoria]:
+    """Categorias del catalogo acotadas a la institucion (008 D-1/AC-5).
+
+    El catalogo deja de ser global: un rol limitado solo ve las categorias de su
+    institucion; Superadmin (alcance global) las ve todas con su `institucion_id`.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    consulta = db.query(Categoria)
+    consulta = ambito_service.filtrar_por_institucion(
+        consulta, Categoria.institucion_id, institucion_id
+    )
+    return consulta.order_by(Categoria.nombre_cat).all()
 
 
-def listar_productos(db: Session) -> List[Producto]:
-    # `selectinload` evita el N+1: sin el, cada producto dispara su propia consulta
-    # a `categoria` al serializar la respuesta.
-    return (
+def listar_productos(
+    db: Session, identidad: IdentidadAutenticada | None = None
+) -> List[Producto]:
+    """Productos del catalogo acotados a la institucion (008 D-1/AC-5).
+
+    `selectinload` evita el N+1: sin el, cada producto dispara su propia consulta
+    a `categoria` al serializar la respuesta.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    consulta = db.query(Producto).options(selectinload(Producto.categoria))
+    consulta = ambito_service.filtrar_por_institucion(
+        consulta, Producto.institucion_id, institucion_id
+    )
+    return consulta.order_by(Producto.nombre, Producto.producto_id).all()
+
+
+def obtener_categoria(
+    db: Session, categoria_id: int, identidad: IdentidadAutenticada | None = None
+) -> Categoria:
+    """Categoria por id con ocultacion 404 de una categoria ajena (008 D-4/AC-9).
+
+    Un id ajeno es indistinguible de uno inexistente: ambos responden 404.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    categoria = db.get(Categoria, categoria_id)
+    if categoria is None:
+        raise HTTPException(status_code=404, detail="Categoria no encontrada")
+    ambito_service.exigir_pertenencia(
+        ambito_service.institucion_de_recurso(categoria),
+        institucion_id,
+        detalle="Categoria no encontrada",
+    )
+    return categoria
+
+
+def obtener_producto(
+    db: Session, producto_id: int, identidad: IdentidadAutenticada | None = None
+) -> Producto:
+    """Producto por id con ocultacion 404 de un producto ajeno (008 D-4/AC-9)."""
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    producto = (
         db.query(Producto)
         .options(selectinload(Producto.categoria))
-        .order_by(Producto.nombre, Producto.producto_id)
-        .all()
+        .filter(Producto.producto_id == producto_id)
+        .first()
+    )
+    if producto is None:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    ambito_service.exigir_pertenencia(
+        ambito_service.institucion_de_recurso(producto),
+        institucion_id,
+        detalle="Producto no encontrado",
+    )
+    return producto
+
+
+def crear_producto(
+    db: Session,
+    datos: ProductoCrear,
+    identidad: IdentidadAutenticada | None = None,
+) -> Producto:
+    """Alta de producto anclada a la institucion del usuario (008 D-1/AC-2/AC-10).
+
+    El producto pertenece a la institucion del creador y su categoria debe ser de
+    esa misma institucion: una categoria ajena se oculta con **404** (D-4/AC-9),
+    sin dejar fila. Sin institucion resoluble, el rol limitado responde 403
+    (`alcance_institucional`); Superadmin no escribe catalogo (matriz 008).
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+
+    categoria = db.get(Categoria, datos.categoria_id)
+    if categoria is None:
+        raise HTTPException(status_code=404, detail="No existe la categoria indicada")
+    # Una categoria de otra institucion no habilita el alta (AC-9/AC-10).
+    ambito_service.exigir_pertenencia(
+        ambito_service.institucion_de_recurso(categoria),
+        institucion_id,
+        detalle="No existe la categoria indicada",
     )
 
-
-def crear_producto(db: Session, datos: ProductoCrear) -> Producto:
-    # Sin esta comprobacion, la FK viola en el `commit()` y FastAPI responde 500
-    # a un cliente que solo mando una categoria que no existe (spec D-8).
-    if db.get(Categoria, datos.categoria_id) is None:
-        raise HTTPException(status_code=404, detail="No existe la categoria indicada")
-
-    nuevo_producto = Producto(**datos.model_dump())
+    # La institucion del producto es la del usuario; solo si el ambito fuera
+    # global (Superadmin, que la matriz 008 no autoriza a escribir) cae a la de
+    # la categoria, para no romper la FK compuesta.
+    institucion_producto = (
+        institucion_id if institucion_id is not None else categoria.institucion_id
+    )
+    nuevo_producto = Producto(
+        **datos.model_dump(), institucion_id=institucion_producto
+    )
     db.add(nuevo_producto)
     db.commit()
     db.refresh(nuevo_producto)
@@ -96,10 +179,12 @@ def listar_existencias(
     entran con `outerjoin` para que un producto sin existencias no desaparezca
     del catalogo (spec D-4).
 
-    Ambito institucional (`ambito_service`, D-4/AC-8): el catalogo maestro es
-    global, pero para un rol limitado el `outerjoin` de inventario solo acepta
-    las existencias de su institucion, de modo que un producto ajeno aparece con
-    `sedes` vacio y `stock_total` 0. Un `departamento_id` explicito de otra
+    Ambito institucional (`ambito_service`, D-1/D-4/AC-5/AC-8): el catalogo es
+    institucional, asi que un rol limitado solo ve los productos de su
+    institucion, y su `outerjoin` de inventario solo acepta las existencias de su
+    institucion (un producto propio sin existencias aparece con `sedes` vacio y
+    `stock_total` 0). Superadmin ve el catalogo global y cada elemento queda
+    atribuido por `institucion_id`. Un `departamento_id` explicito de otra
     institucion responde 403.
     """
     institucion_id = ambito_service.alcance_institucional(db, identidad)
@@ -125,6 +210,7 @@ def listar_existencias(
             Producto.descripcion,
             Producto.unidad_medida,
             Producto.stock_minimo,
+            Producto.institucion_id,
             Categoria.categoria_id,
             Categoria.nombre_cat,
             Inventario.inventario_id,
@@ -137,6 +223,11 @@ def listar_existencias(
         .outerjoin(Inventario, condicion_inventario)
         .outerjoin(Departamento, Inventario.departamento_id == Departamento.departamento_id)
     )
+
+    if institucion_id is not None:
+        # El catalogo ya es institucional (D-1/AC-5): un rol limitado solo ve los
+        # productos de su institucion, no uno ajeno con `sedes` vacio.
+        consulta = consulta.where(Producto.institucion_id == institucion_id)
 
     if q:
         patron = f"%{q.strip()}%"
@@ -171,6 +262,7 @@ def listar_existencias(
                 "categoria_id": fila.categoria_id,
                 "categoria_nombre": fila.nombre_cat,
                 "stock_total": 0,
+                "institucion_id": fila.institucion_id,
                 "sedes": [],
             }
         acumulador = acumuladores[fila.producto_id]
@@ -241,6 +333,7 @@ def listar_movimientos(
             Producto.nombre.label("producto_nombre"),
             Inventario.departamento_id,
             Departamento.nombre_dep.label("departamento_nombre"),
+            Departamento.institucion_id,
             Inventario.ubicacion,
         )
         .join(Inventario, MovimientoInventario.inventario_id == Inventario.inventario_id)

@@ -19,8 +19,12 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core import security
 from app.core.security import ErrorAutenticacion, FuenteJWKS
+from app.models.institucion import Institucion
 from app.models.usuario import Usuario
-from app.schemas.auth_schema import IdentidadAutenticadaRespuesta
+from app.schemas.auth_schema import (
+    IdentidadAutenticadaRespuesta,
+    InstitucionEfectivaRespuesta,
+)
 
 
 @dataclass(frozen=True)
@@ -65,11 +69,18 @@ def construir_identidad_autenticada(
     db: Session,
     identidad: IdentidadAutenticada,
 ) -> IdentidadAutenticadaRespuesta:
-    """Proyecta la identidad local completa para `GET /auth/me` (AC-8, AC-9).
+    """Proyecta la identidad local completa para `GET /auth/me` (AC-8, AC-9, AC-17).
 
     Lee el usuario vinculado y su `rol` con SQLAlchemy ORM (relación cargada con
     `joinedload`, sin SQL raw ni consultas N+1) y arma el DTO con `rol` como el
     nombre legible `rol.nombre_rol`; nunca expone `rol_id`.
+
+    Feature 008 (AC-17): agrega `institucion`, la institución efectiva derivada
+    en el servidor (`usuario -> departamento -> institucion`) mediante los helpers
+    de `app.services.ambito_service`. Para Superadmin es `None` explícito
+    (alcance global); para un rol limitado, si el ámbito no se resuelve, responde
+    **403** en vez de degradar a global (008 D-4/§8). El campo es informativo: no
+    autoriza ni acepta entrada del cliente.
 
     Si el usuario o su relación de rol no son resolubles, responde 401 sin datos
     parciales y sin crear ni modificar filas.
@@ -85,6 +96,7 @@ def construir_identidad_autenticada(
             detail="No autenticado",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    identidad_resuelta = IdentidadAutenticada(usuario=usuario, sub=identidad.sub)
     return IdentidadAutenticadaRespuesta(
         usuario_id=usuario.usuario_id,
         sub=identidad.sub,
@@ -92,5 +104,35 @@ def construir_identidad_autenticada(
         apellido=usuario.apellido,
         correo=usuario.correo,
         rol=usuario.rol.nombre_rol,
+        institucion=_institucion_efectiva(db, identidad_resuelta),
+    )
+
+
+def _institucion_efectiva(
+    db: Session, identidad: IdentidadAutenticada
+) -> InstitucionEfectivaRespuesta | None:
+    """Institucion informativa del usuario: `None` para Superadmin (AC-17).
+
+    Delega la resolucion y la denegacion en `ambito_service` para no duplicar la
+    regla de ambito: alcance global -> `None`; rol limitado -> la institucion
+    derivada, o **403** si no se resuelve. La identidad se reconstruye desde el
+    usuario releido para que el rol global sea el persistido, no el del token.
+    """
+    # Import local: `ambito_service` importa `IdentidadAutenticada` de este
+    # modulo, de modo que un import a nivel de modulo seria circular.
+    from app.services import ambito_service
+
+    if ambito_service.es_alcance_global(identidad):
+        return None
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    institucion = db.get(Institucion, institucion_id)
+    if institucion is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No se pudo resolver la institucion del usuario",
+        )
+    return InstitucionEfectivaRespuesta(
+        institucion_id=institucion.institucion_id,
+        nombre=institucion.nombre,
     )
 

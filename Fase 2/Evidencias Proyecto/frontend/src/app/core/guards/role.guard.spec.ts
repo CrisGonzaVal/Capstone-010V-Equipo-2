@@ -30,6 +30,7 @@ describe('RolGuard', () => {
       apellido: 'Fernández',
       correo: 'camila.fernandez@losalpes.cl',
       rol,
+      institucion: { institucion_id: 'inst-los-alpes', nombre: 'Los Alpes' },
     };
   }
 

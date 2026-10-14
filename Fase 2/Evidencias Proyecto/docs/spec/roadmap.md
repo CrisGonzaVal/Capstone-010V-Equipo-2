@@ -9,7 +9,7 @@ El proyecto se ejecuta en dos grandes Versiones (Releases), priorizando el motor
 > El estado de cada feature vive en **una sola columna**, en el índice de especificaciones. Las listas de sprint son la vista cronológica y no llevan estado en prosa, para que no se desincronicen.
 > Ojo: en los `tasks.md` de cada feature, `[!]` significa "bloqueado". Acá significa "falta la verificación manual de cierre".
 
-**Siguiente feature:** la primera fila `[ ]` del índice, hoy la **008**. Se mueve al cerrar cada una.
+**Siguiente feature:** la primera fila `[ ]` del índice, hoy la **009**. Se mueve al cerrar cada una.
 
 ---
 
@@ -38,7 +38,7 @@ El proyecto se ejecuta en dos grandes Versiones (Releases), priorizando el motor
 - [x] Feature 007: Angular Route Guards y permisos por roles (los cuatro roles locales). Retiró además la columna obsoleta `usuario.password` (texto plano, sin uso desde la 006) del esquema, la semilla, el modelo SQLAlchemy, el schema `UsuarioCrear` y los tests.
 
 #### Sprint 4 (24/Nov/2026 - 11/Dic/2026): Aislamiento Multi-Tenant y Métricas
-- [ ] Feature 008: Particionamiento lógico de datos por institución (SaaS multi-inquilino).
+- [x] Feature 008: Particionó catálogo e inventario por institución con claves compuestas, ajustó la matriz (Superadmin con lectura global), añadió institución efectiva a `/auth/me` y aplicó migración idempotente a la base real.
 - [ ] Feature 009: Dashboard analítico de stock crítico y log de alertas.
 
 > **Hito 2 (11/Dic/2026)**: Despliegue en producción y entrega del proyecto de título.
@@ -61,5 +61,5 @@ Cada feature tiene su carpeta en `docs/spec/features/NNN-nombre-feature/` con `s
 | 005 | 1.0 | 2 | `005-despacho-transaccional/` | `[x]` Cerrada: 28 AC en verde, 140 tests de backend, 69 tests de frontend, recorrido funcional en 4200 con despacho real persistido en PostgreSQL y recorrido de humo en 8080 tras reconstruir la imagen; `FOR UPDATE` y concurrencia (200/409) verificados contra PostgreSQL 16 real | [spec.md](features/005-despacho-transaccional/spec.md) · [plan.md](features/005-despacho-transaccional/plan.md) · [tasks.md](features/005-despacho-transaccional/tasks.md) |
 | 006 | 2.0 | 3 | `006-autenticacion-clerk/` | `[x]` Cerrada: 16 AC en verde, 195 tests de backend, 113 tests de frontend, recorrido funcional en 4200 con login/logout real contra Clerk y recorrido de humo en 8080 tras reconstruir la imagen | [spec.md](features/006-autenticacion-clerk/spec.md) · [plan.md](features/006-autenticacion-clerk/plan.md) · [tasks.md](features/006-autenticacion-clerk/tasks.md) |
 | 007 | 2.0 | 3 | `007-control-acceso-roles/` | `[x]` Cerrada: 17 AC en verde, 377 tests de backend, 140 tests de frontend, build de producción OK; autorización por rol cliente+servidor con matriz central y ámbito institucional; retiro de `usuario.password` con migración PostgreSQL idempotente (12 usuarios/10 tickets preservados); recorrido funcional en 4200 con los cuatro roles y humo en 8080 tras reconstruir la imagen | [spec.md](features/007-control-acceso-roles/spec.md) · [plan.md](features/007-control-acceso-roles/plan.md) · [tasks.md](features/007-control-acceso-roles/tasks.md) |
-| 008 | 2.0 | 4 | *(sin carpeta)* | `[ ]` No iniciada | — |
+| 008 | 2.0 | 4 | `008-particionamiento-institucional/` | `[x]` Cerrada: 21 AC en verde, 487 tests de backend (5 omitidos; 492 verificados con PostgreSQL 16), 153 tests de frontend; recorrido funcional en 4200 con escritura real y humo en 8080 tras reconstruir la imagen; migración idempotente aplicada in-place y matriz de permisos de 20 operaciones | [spec.md](features/008-particionamiento-institucional/spec.md) · [plan.md](features/008-particionamiento-institucional/plan.md) · [tasks.md](features/008-particionamiento-institucional/tasks.md) |
 | 009 | 2.0 | 4 | *(sin carpeta)* | `[ ]` No iniciada | — |

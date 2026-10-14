@@ -14,6 +14,8 @@ class InventarioRespuesta(BaseModel):
     ubicacion: Optional[str] = None
     departamento_id: int
     producto_id: int
+    # Feature 008 (AC-8): institucion del inventario, derivada del departamento.
+    institucion_id: Optional[str] = None
     producto: Optional[ProductoRespuesta] = None
 
 
@@ -37,6 +39,9 @@ class MovimientoInventarioRespuesta(BaseModel):
     departamento_id: int
     departamento_nombre: str
     ubicacion: Optional[str] = None
+    # Feature 008 (AC-8): institucion del inventario del movimiento, para que las
+    # lecturas globales del Superadmin atribuyan cada fila de auditoria.
+    institucion_id: Optional[str] = None
 
 
 class MovimientoCrear(BaseModel):
@@ -79,4 +84,7 @@ class ProductoExistenciaRespuesta(BaseModel):
     categoria_nombre: str
     stock_total: int
     es_critico: bool
+    # Feature 008 (AC-8): institucion del producto, para la atribucion de las
+    # lecturas globales del Superadmin.
+    institucion_id: Optional[str] = None
     sedes: List[SedeExistenciaRespuesta]

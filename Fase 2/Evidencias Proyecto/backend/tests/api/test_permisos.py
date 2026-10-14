@@ -29,8 +29,15 @@ from app.services.auth_service import IdentidadAutenticada
 _TODOS = {"Superadmin", "Administrador", "Bodeguero", "Solicitante"}
 _ADMINISTRATIVOS = {"Superadmin", "Administrador"}
 _INVENTARIO_Y_TICKETS = {"Superadmin", "Administrador", "Bodeguero"}
+# Ajuste Feature 008 (D-3/AC-10): Superadmin deja de escribir catalogo,
+# stock/movimientos y tickets; esas escrituras son institucionales.
+_ESCRITURA_CATALOGO = {"Administrador"}
+_ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
+_ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 
-#: Las 18 operaciones de negocio de D-3 -> roles permitidos.
+#: Las 20 operaciones de negocio -> roles permitidos (matriz vigente tras el
+#: ajuste puntual de la Feature 008; el resto de la matriz D-3 de 007 no cambia,
+#: salvo los dos GET por objeto de catalogo que exige AC-9/AC-16 de la 008).
 MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
     ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
@@ -39,17 +46,19 @@ MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/usuarios/departamentos"): _ADMINISTRATIVOS,
     ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
     ("GET", "/api/v1/inventario/categorias"): _TODOS,
+    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
     ("GET", "/api/v1/inventario/productos"): _TODOS,
-    ("POST", "/api/v1/inventario/productos"): _ADMINISTRATIVOS,
+    ("GET", "/api/v1/inventario/productos/{producto_id}"): _TODOS,
+    ("POST", "/api/v1/inventario/productos"): _ESCRITURA_CATALOGO,
     ("GET", "/api/v1/inventario/existencias"): _TODOS,
     ("GET", "/api/v1/inventario/stock"): _TODOS,
     ("GET", "/api/v1/inventario/movimientos"): _INVENTARIO_Y_TICKETS,
-    ("POST", "/api/v1/inventario/movimientos"): _INVENTARIO_Y_TICKETS,
+    ("POST", "/api/v1/inventario/movimientos"): _ESCRITURA_STOCK,
     ("GET", "/api/v1/tickets/catalogos"): _TODOS,
     ("GET", "/api/v1/tickets/"): _TODOS,
-    ("POST", "/api/v1/tickets/"): _TODOS,
-    ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _INVENTARIO_Y_TICKETS,
-    ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _INVENTARIO_Y_TICKETS,
+    ("POST", "/api/v1/tickets/"): _ESCRITURA_TICKETS,
+    ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _ESCRITURA_STOCK,
+    ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -127,12 +136,13 @@ def test_cuatro_roles_exactos_sin_alias_admin():
 
 
 # ---------------------------------------------------------------------------
-# AC-9: la matriz central es exactamente la de D-3 (18 operaciones)
+# AC-9: la matriz central es exactamente la de D-3 (20 operaciones vigentes
+# tras la Feature 008: las 18 de 007 mas los dos GET por objeto de catalogo)
 # ---------------------------------------------------------------------------
 
 
 def test_matriz_cubre_exactamente_las_operaciones_de_d3():
-    assert len(MATRIZ_ESPERADA) == 18
+    assert len(MATRIZ_ESPERADA) == 20
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_ESPERADA

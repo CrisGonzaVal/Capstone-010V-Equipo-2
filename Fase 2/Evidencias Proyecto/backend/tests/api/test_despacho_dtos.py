@@ -31,6 +31,8 @@ CAMPOS_HISTORIAL = {
     "departamento_id",
     "departamento_nombre",
     "ubicacion",
+    # Feature 008 (AC-8): atribucion institucional del movimiento.
+    "institucion_id",
 }
 
 

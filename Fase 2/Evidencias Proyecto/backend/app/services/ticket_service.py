@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
@@ -62,16 +62,32 @@ def _ticket_no_encontrado() -> HTTPException:
 
 
 def _institucion_de_usuario(db: Session, usuario: Usuario | None) -> str | None:
-    """Institucion de un usuario via `departamento_id -> departamento`, o `None`."""
-    if usuario is None or usuario.departamento_id is None:
-        return None
-    departamento = db.get(Departamento, usuario.departamento_id)
-    return None if departamento is None else departamento.institucion_id
+    """Institucion de un usuario via `departamento_id -> departamento`, o `None`.
+
+    Delegado a `ambito_service` (Feature 008): la resolucion del ambito vive en
+    un solo sitio y no se duplica aqui.
+    """
+    return ambito_service.institucion_de_usuario(db, usuario)
 
 
 def _institucion_de_ticket(db: Session, ticket: Ticket) -> str | None:
     """Institucion del solicitante de un ticket (su `usuario_id`)."""
-    return _institucion_de_usuario(db, db.get(Usuario, ticket.usuario_id))
+    return ambito_service.institucion_de_ticket(db, ticket)
+
+
+def _institucion_efectiva(
+    db: Session, identidad: IdentidadAutenticada | None
+) -> str | None:
+    """Institucion efectiva del actor para operar tickets; `None` si es global.
+
+    Con `identidad` presente y rol limitado resuelve su institucion (403 si no
+    es resoluble, `alcance_institucional`); con Superadmin devuelve `None`. La
+    `identidad` ausente (llamada directa al servicio en pruebas) no restringe,
+    preservando el contrato previo.
+    """
+    if identidad is None:
+        return None
+    return ambito_service.alcance_institucional(db, identidad)
 
 
 def _acotar_consulta_tickets(
@@ -147,7 +163,15 @@ def obtener_catalogos(
     `GET /inventario/existencias`. Importar una funcion pura de otro service no
     duplica logica de negocio ni cruza features (esta es la capa de servicios):
     si la regla del stock critico cambia, cambia en un solo sitio.
+
+    Feature 008 (D-1/AC-6): el catalogo deja de ser global. Un rol limitado solo
+    recibe los productos de su institucion y su `stock_total` suma unicamente las
+    existencias de los departamentos de esa misma institucion; el stock de otra
+    institucion no influye. Superadmin (alcance global) ve el catalogo completo,
+    cada producto atribuido con su `institucion_id` (AC-8).
     """
+    institucion_id = _institucion_efectiva(db, identidad)
+
     prioridades = db.execute(
         select(Prioridad).order_by(Prioridad.prioridad_id)
     ).scalars().all()
@@ -162,26 +186,45 @@ def obtener_catalogos(
     #
     # `outerjoin` + `coalesce`: un producto sin filas en `inventario` tiene que
     # salir en 0 y no en `None`, porque `stock_total` es `NOT NULL` en el DTO.
+    condicion_inventario = Inventario.producto_id == Producto.producto_id
+    if institucion_id is not None:
+        # El `outerjoin` de inventario solo acepta existencias de departamentos
+        # de la institucion del actor; el stock ajeno no entra al agregado.
+        departamentos_propios = select(Departamento.departamento_id).where(
+            Departamento.institucion_id == institucion_id
+        )
+        condicion_inventario = and_(
+            condicion_inventario,
+            Inventario.departamento_id.in_(departamentos_propios),
+        )
+
     consulta_productos = (
         select(
             Producto.producto_id,
             Producto.nombre,
             Producto.unidad_medida,
             Producto.stock_minimo,
+            Producto.institucion_id,
             Categoria.nombre_cat.label("categoria_nombre"),
             func.coalesce(func.sum(Inventario.stock_actual), 0).label("stock_total"),
         )
         .join(Categoria, Producto.categoria_id == Categoria.categoria_id)
-        .outerjoin(Inventario, Inventario.producto_id == Producto.producto_id)
+        .outerjoin(Inventario, condicion_inventario)
         .group_by(
             Producto.producto_id,
             Producto.nombre,
             Producto.unidad_medida,
             Producto.stock_minimo,
+            Producto.institucion_id,
             Categoria.nombre_cat,
         )
         .order_by(Producto.nombre, Producto.producto_id)
     )
+    if institucion_id is not None:
+        # El catalogo es institucional: un rol limitado no ve el producto ajeno.
+        consulta_productos = consulta_productos.where(
+            Producto.institucion_id == institucion_id
+        )
 
     consulta_solicitantes = (
         select(
@@ -194,8 +237,7 @@ def obtener_catalogos(
         .join(Departamento, Usuario.departamento_id == Departamento.departamento_id)
         .order_by(Usuario.apellido, Usuario.nombre, Usuario.usuario_id)
     )
-    # El catalogo de solicitantes se acota por rol (D-3, AC-9): el resto de listas
-    # (prioridades, estados, productos y su `stock_total` global) permanece igual.
+    # El catalogo de solicitantes se acota por rol (D-3, AC-9).
     consulta_solicitantes = _acotar_consulta_solicitantes(
         db, consulta_solicitantes, identidad
     )
@@ -211,6 +253,7 @@ def obtener_catalogos(
                 categoria_nombre=fila.categoria_nombre,
                 stock_total=fila.stock_total,
                 es_critico=es_stock_critico(fila.stock_total, fila.stock_minimo),
+                institucion_id=fila.institucion_id,
             )
             for fila in db.execute(consulta_productos).all()
         ],
@@ -272,19 +315,32 @@ def _verificar_referencia(db: Session, modelo, valor: int, etiqueta: str) -> Non
         )
 
 
-def _verificar_productos(db: Session, detalles) -> None:
+def _verificar_productos(
+    db: Session, detalles, institucion_id: str | None
+) -> None:
     """Valida todos los `producto_id` del payload antes de escribir nada.
 
     Los ids se deduplican con un `set` para que cinco lineas del mismo producto
-    costen una sola busqueda, y el mensaje reporta **el id mas bajo** que falta
+    costen una sola busqueda, y el mensaje reporta **el id mas bajo** que falla
     (`sorted`) para que sea determinista entre ejecuciones.
+
+    Feature 008 (D-4/AC-11): un producto de otra institucion se **oculta con
+    404**, con el mismo mensaje que uno inexistente, de modo que un id ajeno no
+    revele su existencia. Con alcance global (`institucion_id is None`) no se
+    restringe por institucion.
     """
     ids_requeridos = {detalle.producto_id for detalle in detalles}
-    faltantes = [id_ for id_ in sorted(ids_requeridos) if db.get(Producto, id_) is None]
-    if faltantes:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No existe producto indicado: {faltantes[0]}",
+    for producto_id in sorted(ids_requeridos):
+        producto = db.get(Producto, producto_id)
+        if producto is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No existe producto indicado: {producto_id}",
+            )
+        ambito_service.exigir_pertenencia(
+            ambito_service.institucion_de_recurso(producto),
+            institucion_id,
+            detalle=f"No existe producto indicado: {producto_id}",
         )
 
 
@@ -324,7 +380,18 @@ def crear_ticket(
     identidad autenticada e ignora cualquier `usuario_id` alternativo del
     payload. Administrador/Bodeguero conservan el contrato vigente con
     `usuario_id` obligatorio, pero solo pueden elegir un solicitante de su
-    institucion; uno ajeno responde 403. Superadmin elige libremente.
+    institucion. Superadmin no crea tickets de una institucion concreta (matriz
+    008), pero el servicio mantiene el contrato si se le invocara directamente.
+
+    Feature 008 (D-4/AC-11): el ticket se ancla a la institucion de su
+    solicitante y cada producto del detalle debe pertenecer a esa misma
+    institucion. Un solicitante de otra institucion para un rol limitado y un
+    producto ajeno se **ocultan con 404**, igual que si no existieran; un
+    `usuario_id` inexistente conserva el 404 que nombra la referencia. Todo
+    rechazo ocurre **antes del primer `add()`**, de modo que no quedan ticket ni
+    detalle parciales. Se pueblan `ticket.institucion_id` y
+    `detalle_ticket.institucion_id` con esa institucion, satisfaciendo las
+    claves compuestas del esquema (AC-4).
 
     AC-17: si el estado destino es `Cerrado` (case-insensitive), se sella
     `fecha_cierre` en la propia creacion.
@@ -337,25 +404,26 @@ def crear_ticket(
         )
 
     _verificar_referencia(db, Usuario, datos.usuario_id, "usuario")
-    if (
-        identidad is not None
-        and not _es_solicitante(identidad)
-        and not ambito_service.es_alcance_global(identidad)
-    ):
-        # Administrador/Bodeguero: el solicitante elegido debe pertenecer a su
-        # institucion; el de otra responde 403 (D-3, AC-6).
-        institucion_id = ambito_service.alcance_institucional(db, identidad)
-        institucion_solicitante = _institucion_de_usuario(
-            db, db.get(Usuario, datos.usuario_id)
+
+    # Institucion efectiva del actor (`None` = Superadmin) y del solicitante
+    # elegido: el ticket hereda la del solicitante (spec §6).
+    institucion_actor = _institucion_efectiva(db, identidad)
+    solicitante = db.get(Usuario, datos.usuario_id)
+    institucion_ticket = _institucion_de_usuario(db, solicitante)
+
+    if institucion_actor is not None:
+        # Rol limitado: el solicitante debe pertenecer a su institucion; uno
+        # ajeno se oculta con 404 (D-4/AC-11), indistinguible de un usuario
+        # inexistente.
+        ambito_service.exigir_pertenencia(
+            institucion_ticket,
+            institucion_actor,
+            detalle=f"No existe usuario indicado: {datos.usuario_id}",
         )
-        if institucion_solicitante != institucion_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="El solicitante indicado esta fuera de la institucion del usuario",
-            )
+
     _verificar_referencia(db, Prioridad, datos.prioridad_id, "prioridad")
     _verificar_referencia(db, EstadoTicket, datos.estado_id, "estado")
-    _verificar_productos(db, datos.detalles)
+    _verificar_productos(db, datos.detalles, institucion_ticket)
 
     # Determinar si el estado destino es "Cerrado" (case-insensitive)
     estados = db.execute(
@@ -369,7 +437,10 @@ def crear_ticket(
     )
 
     try:
-        nuevo_ticket = Ticket(**datos.model_dump(exclude={"detalles"}))
+        nuevo_ticket = Ticket(
+            **datos.model_dump(exclude={"detalles"}),
+            institucion_id=institucion_ticket,
+        )
         db.add(nuevo_ticket)
         db.flush()  # asigna ticket_id sin cerrar la transaccion
 
@@ -384,6 +455,7 @@ def crear_ticket(
                     producto_id=detalle.producto_id,
                     cantidad_solicitada=detalle.cantidad_solicitada,
                     cantidad_entregada=0,
+                    institucion_id=institucion_ticket,
                 )
             )
 
@@ -545,6 +617,13 @@ def despachar_ticket(
     del rol; un ticket de otra institucion (Administrador/Bodeguero) o ajeno al
     Solicitante responde 404 antes de tocar stock, estado o auditoria, de modo
     que la denegacion no muta la transaccion de despacho.
+
+    Feature 008 (D-2/D-4/AC-12): el ticket se ancla a la institucion de su
+    solicitante y tanto el producto de cada detalle como el inventario que se
+    rebaja deben pertenecer a esa misma institucion. Una referencia cruzada es
+    una inconsistencia que impide resolver el despacho: responde **409**, se
+    evalua antes de cualquier escritura y, como el resto de rechazos, no deja
+    stock, entrega, estado ni auditoria parciales en la unica transaccion.
     """
     ticket = db.execute(
         select(Ticket).where(Ticket.ticket_id == ticket_id).with_for_update()
@@ -553,6 +632,10 @@ def despachar_ticket(
         raise _ticket_no_encontrado()
 
     _verificar_alcance_de_ticket(db, ticket, identidad)
+
+    # Institucion del ticket (la de su solicitante): todo detalle y el inventario
+    # que se rebaje debe pertenecer a ella (D-2, AC-12).
+    institucion_ticket = _institucion_de_ticket(db, ticket)
 
     if db.get(Usuario, datos.usuario_id) is None:
         raise HTTPException(
@@ -612,12 +695,24 @@ def despachar_ticket(
 
     inventario_unico: dict[int, Inventario] = {}
     for producto_id in ids_producto:
-        if db.get(Producto, producto_id) is None:
+        producto = db.get(Producto, producto_id)
+        if producto is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
                     f"No se puede resolver el producto {producto_id} de un "
                     "detalle del ticket"
+                ),
+            )
+        # AC-12: el producto del detalle debe ser de la institucion del ticket.
+        if not ambito_service.pertenece_al_alcance(
+            ambito_service.institucion_de_recurso(producto), institucion_ticket
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"El producto {producto_id} no pertenece a la institucion "
+                    "del ticket"
                 ),
             )
         filas = inventario_por_producto.get(producto_id, [])
@@ -629,7 +724,21 @@ def despachar_ticket(
                     f"inventario para despachar y tiene {len(filas)}"
                 ),
             )
-        inventario_unico[producto_id] = filas[0]
+        inventario = filas[0]
+        # AC-12: el inventario que se rebaja debe ser de la institucion del
+        # ticket (su institucion se deriva del departamento).
+        if not ambito_service.pertenece_al_alcance(
+            ambito_service.institucion_de_inventario(db, inventario),
+            institucion_ticket,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"El inventario {inventario.inventario_id} del producto "
+                    f"{producto_id} no pertenece a la institucion del ticket"
+                ),
+            )
+        inventario_unico[producto_id] = inventario
 
     for producto_id, requerido in cantidad_requerida.items():
         disponible = inventario_unico[producto_id].stock_actual

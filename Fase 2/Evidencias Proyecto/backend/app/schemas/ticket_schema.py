@@ -94,7 +94,12 @@ class EstadoTicketRespuesta(BaseModel):
 class ProductoCatalogoRespuesta(BaseModel):
     """Read model de `producto` + `categoria` + stock agregado. Sin
     `from_attributes` porque `categoria_nombre` y `stock_total` no son columnas
-    de la entidad: los arma `ticket_service.obtener_catalogos()`."""
+    de la entidad: los arma `ticket_service.obtener_catalogos()`.
+
+    Feature 008 (AC-8): `institucion_id` atribuye cada producto a su institucion,
+    de modo que la lectura global de Superadmin no mezcle registros homonimos de
+    instituciones distintas. Para un rol limitado coincide con su institucion.
+    """
 
     producto_id: int
     nombre: str
@@ -102,6 +107,7 @@ class ProductoCatalogoRespuesta(BaseModel):
     categoria_nombre: str
     stock_total: int
     es_critico: bool
+    institucion_id: Optional[str] = None
 
 
 class SolicitanteRespuesta(BaseModel):

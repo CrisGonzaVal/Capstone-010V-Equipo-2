@@ -29,7 +29,9 @@ from app.models import EstadoTicket, MovimientoInventario
 #: Ruta contractual del historial (`spec.md` §5).
 RUTA_HISTORIAL = "/api/v1/inventario/movimientos"
 
-#: Las once claves del DTO `MovimientoInventarioRespuesta` (`spec.md` §5).
+#: Las doce claves del DTO `MovimientoInventarioRespuesta` (`spec.md` §5 y
+#: Feature 008: `institucion_id` da la atribucion institucional para las lecturas
+#: globales del Superadmin, AC-8).
 CAMPOS_HISTORIAL = {
     "movimiento_id",
     "tipo_movimiento",
@@ -42,6 +44,7 @@ CAMPOS_HISTORIAL = {
     "departamento_id",
     "departamento_nombre",
     "ubicacion",
+    "institucion_id",
 }
 
 

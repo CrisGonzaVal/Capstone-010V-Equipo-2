@@ -10,7 +10,7 @@ reemplazarla, para no duplicar el catalogo minimo ni modificar `conftest.py`.
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from app.models import EstadoTicket, Producto, Prioridad
+from app.models import Departamento, EstadoTicket, Institucion, Producto, Prioridad
 
 
 @pytest.fixture
@@ -41,6 +41,7 @@ def datos_catalogo_ticket(motor, datos_base):
             unidad_medida="UNIDAD",
             stock_minimo=5,
             categoria_id=datos_base["categoria_id"],
+            institucion_id=datos_base["institucion_id"],
         )
         db.add(producto_sin_stock)
         db.commit()
@@ -219,7 +220,33 @@ def test_catalogos_vacios_responden_listas_vacias(cliente, motor):
 
     Una clave ausente no permitiria al formulario distinguir "no hay catalogo"
     de "el backend no respondio" (spec, contrato de `GET /tickets/catalogos`).
+
+    Feature 008: la identidad legacy es un rol limitado (Administrador), cuyo
+    ambito exige una institucion resoluble. Se siembra la institucion y su
+    departamento (id 1) pero **ningun** catalogo, para que las cuatro listas
+    sigan vacias y el contrato se observe igual.
     """
+    db = sessionmaker(bind=motor)()
+    try:
+        institucion = Institucion(
+            institucion_id="INST01",
+            nombre="Instituto de Prueba",
+            rut="1-9",
+            direccion="Calle Falsa 123",
+        )
+        db.add(institucion)
+        db.flush()
+        db.add(
+            Departamento(
+                nombre_dep="Operaciones",
+                descripcion="Departamento de prueba",
+                institucion_id=institucion.institucion_id,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
     respuesta = cliente.get("/api/v1/tickets/catalogos")
 
     assert respuesta.status_code == 200

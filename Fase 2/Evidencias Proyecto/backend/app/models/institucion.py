@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
@@ -17,6 +17,14 @@ class Institucion(Base):
 
 class Departamento(Base):
     __tablename__ = "departamento"
+    __table_args__ = (
+        # Destino de la FK compuesta `inventario -> departamento` (Feature 008,
+        # AC-2/AC-4): obliga a que el inventario y su departamento compartan
+        # institucion. La PK simple se conserva.
+        UniqueConstraint(
+            "institucion_id", "departamento_id", name="departamento_institucion_uk"
+        ),
+    )
 
     departamento_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     nombre_dep = Column(String(100), nullable=False)

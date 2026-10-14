@@ -118,6 +118,14 @@
         <span class="text-sm text-slate-600">
           Rol: <strong class="font-semibold">{{ rolLegible() ?? '—' }}</strong>
         </span>
+        @if (contextoInstitucional(); as contexto) {
+          <span
+            class="bg-slate-100 text-slate-700 text-xs font-semibold px-2.5 py-1 rounded-full"
+            aria-label="Contexto institucional"
+          >
+            Institución: {{ contexto }}
+          </span>
+        }
       </div>
     </header>
 

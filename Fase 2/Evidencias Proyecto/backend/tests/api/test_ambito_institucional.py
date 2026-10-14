@@ -11,7 +11,9 @@ inventario, catalogo y movimientos propios, y se observa, por rol, que:
   * Una identidad limitada sin institucion resoluble responde 403; nunca obtiene
     alcance global.
   * Superadmin conserva alcance global.
-  * El catalogo maestro de categoria/producto es compartido (global) en 007.
+  * El catalogo de categoria/producto deja de ser global en 008 (D-1): el rol
+    limitado solo recibe los registros de su institucion, y el acceso por objeto
+    a un registro ajeno se oculta con 404.
 
 Fuera de alcance de T3 (lo cubre T4): el filtro del catalogo de solicitantes de
 `GET /tickets/catalogos` y la propiedad de tickets. Esta suite no los toca.
@@ -95,11 +97,33 @@ def ambito(motor, datos_base):
         db.add(usuario_ajeno)
         db.flush()
 
+        # Feature 008 (D-1/D-2): el catalogo es institucional. INST02 tiene su
+        # propio producto, y su inventario solo puede referenciar ese producto.
+        categoria_ajena = Categoria(
+            nombre_cat="Solo Ajeno",
+            descripcion_cat="Catalogo de la institucion ajena",
+            institucion_id="INST02",
+        )
+        db.add(categoria_ajena)
+        db.flush()
+
+        producto_ajeno = Producto(
+            nombre="Insumo Ajeno",
+            descripcion="Producto de la institucion ajena",
+            unidad_medida="UNIDAD",
+            stock_minimo=0,
+            categoria_id=categoria_ajena.categoria_id,
+            institucion_id="INST02",
+        )
+        db.add(producto_ajeno)
+        db.flush()
+
         inventario_ajeno = Inventario(
             stock_actual=7,
             ubicacion="Bodega Sur - S1",
             departamento_id=departamento_ajeno.departamento_id,
-            producto_id=datos_base["producto_id"],
+            producto_id=producto_ajeno.producto_id,
+            institucion_id="INST02",
         )
         db.add(inventario_ajeno)
         db.flush()
@@ -119,32 +143,6 @@ def ambito(motor, datos_base):
             inventario_id=datos_base["inventario_id"],
         )
         db.add(movimiento_propio)
-        db.flush()
-
-        # Catalogo global: categoria y producto referenciados solo por INST02.
-        categoria_ajena = Categoria(
-            nombre_cat="Solo Ajeno", descripcion_cat="Catalogo maestro compartido"
-        )
-        db.add(categoria_ajena)
-        db.flush()
-
-        producto_ajeno = Producto(
-            nombre="Insumo Ajeno",
-            descripcion="Producto del catalogo maestro usado por INST02",
-            unidad_medida="UNIDAD",
-            stock_minimo=0,
-            categoria_id=categoria_ajena.categoria_id,
-        )
-        db.add(producto_ajeno)
-        db.flush()
-
-        inventario_producto_ajeno = Inventario(
-            stock_actual=3,
-            ubicacion="Bodega Sur - S2",
-            departamento_id=departamento_ajeno.departamento_id,
-            producto_id=producto_ajeno.producto_id,
-        )
-        db.add(inventario_producto_ajeno)
         db.commit()
 
         return {
@@ -154,7 +152,6 @@ def ambito(motor, datos_base):
             "dep_ajeno_id": departamento_ajeno.departamento_id,
             "usuario_ajeno_id": usuario_ajeno.usuario_id,
             "inventario_ajeno_id": inventario_ajeno.inventario_id,
-            "inventario_producto_ajeno_id": inventario_producto_ajeno.inventario_id,
             "movimiento_ajeno_id": movimiento_ajeno.movimiento_id,
             "movimiento_propio_id": movimiento_propio.movimiento_id,
             "categoria_ajena_id": categoria_ajena.categoria_id,
@@ -239,9 +236,13 @@ def test_bodeguero_ajeno_existencias_solo_su_institucion(motor, ambito):
         respuesta = cliente.get(RUTA_EXISTENCIAS)
     assert respuesta.status_code == 200, respuesta.text
 
-    cuaderno = _existencia(respuesta.json(), ambito["producto_id"])
-    assert cuaderno["stock_total"] == 7
-    assert [s["departamento_nombre"] for s in cuaderno["sedes"]] == ["Bodega Sur"]
+    ajeno = _existencia(respuesta.json(), ambito["producto_ajeno_id"])
+    assert ajeno["stock_total"] == 7
+    assert [s["departamento_nombre"] for s in ajeno["sedes"]] == ["Bodega Sur"]
+    # El producto de INST01 no aparece en el catalogo de INST02 (D-1/AC-5).
+    assert ambito["producto_id"] not in {
+        e["producto_id"] for e in respuesta.json()
+    }
 
 
 def test_solicitante_existencias_solo_su_institucion(motor, ambito):
@@ -254,31 +255,35 @@ def test_solicitante_existencias_solo_su_institucion(motor, ambito):
     assert cuaderno["stock_total"] == 50
 
 
-def test_superadmin_existencias_es_global(motor, ambito):
-    """Superadmin ve todas las sedes: 50 (INST01) + 7 (INST02)."""
+def test_superadmin_existencias_es_global_y_atribuye_institucion(motor, ambito):
+    """Superadmin ve ambas instituciones, cada producto con su `institucion_id` (AC-8)."""
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         respuesta = cliente.get(RUTA_EXISTENCIAS)
     assert respuesta.status_code == 200, respuesta.text
 
     cuaderno = _existencia(respuesta.json(), ambito["producto_id"])
-    assert cuaderno["stock_total"] == 57
-    assert {s["departamento_nombre"] for s in cuaderno["sedes"]} == {
-        "Operaciones",
-        "Bodega Sur",
-    }
-
-
-def test_catalogo_es_global_para_el_rol_limitado(motor, ambito):
-    """El catalogo maestro sigue compartido: un Administrador de INST01 ve el
-    producto de INST02, pero sin su stock (stock_total 0)."""
-    with _cliente(motor, "Administrador", ambito["departamento_id"]) as cliente:
-        respuesta = cliente.get(RUTA_EXISTENCIAS)
-    assert respuesta.status_code == 200, respuesta.text
+    assert cuaderno["stock_total"] == 50
+    assert [s["departamento_nombre"] for s in cuaderno["sedes"]] == ["Operaciones"]
+    assert cuaderno["institucion_id"] == "INST01"
 
     ajeno = _existencia(respuesta.json(), ambito["producto_ajeno_id"])
-    assert ajeno["nombre"] == "Insumo Ajeno"
-    assert ajeno["stock_total"] == 0
-    assert ajeno["sedes"] == []
+    assert ajeno["stock_total"] == 7
+    assert [s["departamento_nombre"] for s in ajeno["sedes"]] == ["Bodega Sur"]
+    assert ajeno["institucion_id"] == "INST02"
+
+
+def test_catalogo_no_incluye_productos_de_otra_institucion(motor, ambito):
+    """El catalogo deja de ser global (008 D-1): un Administrador de INST01 no ve
+    el producto de INST02 en `/existencias` ni en `/productos`."""
+    with _cliente(motor, "Administrador", ambito["departamento_id"]) as cliente:
+        existencias = cliente.get(RUTA_EXISTENCIAS).json()
+        productos = cliente.get(RUTA_PRODUCTOS).json()
+
+    assert ambito["producto_ajeno_id"] not in {
+        e["producto_id"] for e in existencias
+    }
+    assert ambito["producto_ajeno_id"] not in {p["producto_id"] for p in productos}
+    assert ambito["producto_id"] in {p["producto_id"] for p in productos}
 
 
 def test_existencias_departamento_ajeno_responde_403(motor, ambito):
@@ -497,13 +502,116 @@ def test_roles_son_compartidos_para_el_administrador(motor, ambito):
     assert respuesta.json()
 
 
-def test_categorias_y_productos_siguen_siendo_globales(motor, ambito):
-    """El catalogo maestro de categoria/producto es compartido en 007."""
+def test_categorias_y_productos_son_institucionales(motor, ambito):
+    """008 D-1: el catalogo de categorias/productos deja de ser global; el rol
+    limitado solo recibe los registros de su institucion."""
     with _cliente(motor, "Administrador", ambito["departamento_id"]) as cliente:
         categorias = cliente.get(RUTA_CATEGORIAS)
         productos = cliente.get(RUTA_PRODUCTOS)
 
     assert categorias.status_code == 200, categorias.text
     assert productos.status_code == 200, productos.text
-    assert ambito["categoria_ajena_id"] in {c["categoria_id"] for c in categorias.json()}
-    assert ambito["producto_ajeno_id"] in {p["producto_id"] for p in productos.json()}
+    assert ambito["categoria_ajena_id"] not in {
+        c["categoria_id"] for c in categorias.json()
+    }
+    assert ambito["producto_ajeno_id"] not in {
+        p["producto_id"] for p in productos.json()
+    }
+    assert {c["institucion_id"] for c in categorias.json()} == {"INST01"}
+    assert {p["institucion_id"] for p in productos.json()} == {"INST01"}
+
+
+def test_superadmin_categorias_y_productos_atribuyen_institucion(motor, ambito):
+    """Superadmin ve el catalogo global con `institucion_id` por registro (AC-8)."""
+    with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
+        categorias = cliente.get(RUTA_CATEGORIAS).json()
+        productos = cliente.get(RUTA_PRODUCTOS).json()
+
+    assert {c["institucion_id"] for c in categorias} >= {"INST01", "INST02"}
+    producto_ajeno = next(p for p in productos if p["producto_id"] == ambito["producto_ajeno_id"])
+    assert producto_ajeno["institucion_id"] == "INST02"
+
+
+# ---------------------------------------------------------------------------
+# Acceso por objeto (008 AC-9): ajeno oculto con 404, igual que inexistente
+# ---------------------------------------------------------------------------
+
+
+def test_producto_ajeno_responde_404_igual_que_inexistente(motor, ambito):
+    with _cliente(motor, "Administrador", ambito["departamento_id"]) as cliente:
+        propio = cliente.get(f"{RUTA_PRODUCTOS}/{ambito['producto_id']}")
+        ajeno = cliente.get(f"{RUTA_PRODUCTOS}/{ambito['producto_ajeno_id']}")
+        inexistente = cliente.get(f"{RUTA_PRODUCTOS}/999999")
+
+    assert propio.status_code == 200, propio.text
+    assert ajeno.status_code == 404, ajeno.text
+    assert inexistente.status_code == 404, inexistente.text
+    assert ajeno.json() == inexistente.json()
+
+
+def test_categoria_ajena_responde_404_igual_que_inexistente(motor, ambito):
+    with _cliente(motor, "Administrador", ambito["departamento_id"]) as cliente:
+        propio = cliente.get(f"{RUTA_CATEGORIAS}/{ambito['categoria_id']}")
+        ajeno = cliente.get(f"{RUTA_CATEGORIAS}/{ambito['categoria_ajena_id']}")
+        inexistente = cliente.get(f"{RUTA_CATEGORIAS}/999999")
+
+    assert propio.status_code == 200, propio.text
+    assert ajeno.status_code == 404, ajeno.text
+    assert inexistente.status_code == 404, inexistente.text
+    assert ajeno.json() == inexistente.json()
+
+
+def test_superadmin_producto_por_objeto_es_global(motor, ambito):
+    with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
+        ajeno = cliente.get(f"{RUTA_PRODUCTOS}/{ambito['producto_ajeno_id']}")
+    assert ajeno.status_code == 200, ajeno.text
+    assert ajeno.json()["institucion_id"] == "INST02"
+
+
+@pytest.mark.parametrize("rol", ["Administrador", "Bodeguero", "Solicitante"])
+def test_rol_limitado_sin_institucion_producto_por_objeto_403(motor, ambito, rol):
+    with _cliente(motor, rol, _SIN_DEPARTAMENTO) as cliente:
+        respuesta = cliente.get(f"{RUTA_PRODUCTOS}/{ambito['producto_id']}")
+    assert respuesta.status_code == 403, respuesta.text
+
+
+# ---------------------------------------------------------------------------
+# Escritura de catalogo (008 AC-2/AC-10): categoria institucional y sin mutacion
+# ---------------------------------------------------------------------------
+
+
+def test_crear_producto_con_categoria_ajena_responde_404_sin_persistir(motor, ambito):
+    """AC-9/AC-10: la categoria ajena no habilita el alta ni deja fila."""
+    with _cliente(motor, "Administrador", ambito["departamento_id"]) as cliente:
+        antes = cliente.get(RUTA_PRODUCTOS).json()
+        respuesta = cliente.post(
+            RUTA_PRODUCTOS,
+            json={
+                "nombre": "Producto cruce",
+                "descripcion": None,
+                "unidad_medida": "UNIDAD",
+                "stock_minimo": 1,
+                "categoria_id": ambito["categoria_ajena_id"],
+            },
+        )
+        despues = cliente.get(RUTA_PRODUCTOS).json()
+
+    assert respuesta.status_code == 404, respuesta.text
+    assert despues == antes
+
+
+def test_crear_producto_propio_queda_en_la_institucion_del_usuario(motor, ambito):
+    with _cliente(motor, "Administrador", ambito["departamento_id"]) as cliente:
+        respuesta = cliente.post(
+            RUTA_PRODUCTOS,
+            json={
+                "nombre": "Producto propio",
+                "descripcion": None,
+                "unidad_medida": "UNIDAD",
+                "stock_minimo": 1,
+                "categoria_id": ambito["categoria_id"],
+            },
+        )
+
+    assert respuesta.status_code == 201, respuesta.text
+    assert respuesta.json()["institucion_id"] == "INST01"

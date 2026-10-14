@@ -69,12 +69,19 @@ def identidad_de_prueba() -> IdentidadAutenticada:
     local valido (no persistido: los endpoints de negocio no consumen la
     identidad) con un `sub` de Clerk ficticio. Nunca se usa una clave real.
 
-    Feature 007 (T2): la autorizacion por rol ya esta cableada a cada operacion,
-    asi que la identidad legacy lleva el rol **Superadmin**, cuyo alcance global
-    cubre las 18 operaciones. Asi la suite funcional sigue ejerciendo su
-    comportamiento de negocio sin convertirse, sin querer, en una prueba de
-    denegacion. Las pruebas de autorizacion construyen su propia identidad por
-    rol (ver `tests/api/test_permisos_endpoints.py`).
+    Feature 007 (T2): la autorizacion por rol ya esta cableada a cada operacion;
+    la identidad legacy se elegia **Superadmin** porque su alcance global cubria
+    las 18 operaciones y la suite funcional no se convertia, sin querer, en una
+    prueba de denegacion.
+
+    Feature 008 (T5, D-3): el ajuste de la matriz retira a Superadmin la
+    escritura de catalogo, stock/movimientos y tickets (ahora 403). El unico rol
+    que conserva las tres familias de escritura es **Administrador**, y la
+    identidad legacy pasa a ese rol. Su alcance institucional se resuelve por
+    `departamento_id=1`, que en estas pruebas pertenece a INST01 (la unica
+    institucion que siembra la suite funcional). Las pruebas de autorizacion
+    construyen su propia identidad por rol (ver
+    `tests/api/test_permisos_endpoints.py`).
     """
     usuario = Usuario(
         usuario_id=1,
@@ -84,7 +91,7 @@ def identidad_de_prueba() -> IdentidadAutenticada:
         departamento_id=1,
         rol_id=1,
     )
-    usuario.rol = Rol(nombre_rol="Superadmin")
+    usuario.rol = Rol(nombre_rol="Administrador")
     return IdentidadAutenticada(usuario=usuario, sub="sub-legacy-pruebas")
 
 
@@ -148,6 +155,13 @@ def datos_base(motor):
         db.add(rol)
         db.flush()
 
+        # Rol asignable por el rol legacy (Feature 008: la identidad de la suite
+        # funcional es Administrador, que solo puede asignar Bodeguero/Solicitante,
+        # D-6/AC-10). El catalogo minimo lo necesita para el alta de usuarios.
+        rol_bodeguero = Rol(nombre_rol="Bodeguero", descripcion="Rol asignable de prueba")
+        db.add(rol_bodeguero)
+        db.flush()
+
         institucion = Institucion(
             institucion_id="INST01",
             nombre="Instituto de Prueba",
@@ -187,7 +201,15 @@ def datos_base(motor):
         db.add(estado_cerrado)
         db.flush()
 
-        categoria = Categoria(nombre_cat="Papeleria", descripcion_cat="Insumos de papeleria")
+        # Feature 008 (D-1): el catalogo es institucional. La institucion de
+        # `datos_base` es INST01, y la pertenencia se ancla en las columnas
+        # `institucion_id` que T6 puebla (el DDL de instalacion nueva las declara
+        # NOT NULL; aqui sostienen las FK compuestas).
+        categoria = Categoria(
+            nombre_cat="Papeleria",
+            descripcion_cat="Insumos de papeleria",
+            institucion_id=institucion.institucion_id,
+        )
         db.add(categoria)
         db.flush()
 
@@ -197,6 +219,7 @@ def datos_base(motor):
             unidad_medida="UNIDAD",
             stock_minimo=10,
             categoria_id=categoria.categoria_id,
+            institucion_id=institucion.institucion_id,
         )
         db.add(producto)
         db.flush()
@@ -206,6 +229,7 @@ def datos_base(motor):
             ubicacion="Bodega central",
             departamento_id=departamento.departamento_id,
             producto_id=producto.producto_id,
+            institucion_id=institucion.institucion_id,
         )
         db.add(inventario)
         db.commit()
@@ -213,7 +237,9 @@ def datos_base(motor):
         return {
             "rol_id": rol.rol_id,
             "rol_nombre": rol.nombre_rol,
+            "rol_bodeguero_id": rol_bodeguero.rol_id,
             "departamento_id": departamento.departamento_id,
+            "institucion_id": institucion.institucion_id,
             "usuario_id": usuario.usuario_id,
             "prioridad_id": prioridad.prioridad_id,
             "estado_ingresado_id": estado_ingresado.estado_id,
@@ -222,6 +248,133 @@ def datos_base(motor):
             "producto_id": producto.producto_id,
             "inventario_id": inventario.inventario_id,
             "correo_usado": usuario.correo,
+        }
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def dos_instituciones(motor, datos_base):
+    """Padron multiinstitucion compartido (Feature 008, T9).
+
+    Sobre `datos_base` (INST01: institucion, departamento "Operaciones", catalogo
+    "Papeleria"/"Cuaderno linedado" con existencia 50, usuario Administrador Ana y
+    los roles Administrador/Bodeguero) agrega:
+
+    * el catalogo global de los cuatro roles (Superadmin y Solicitante);
+    * INST02 ("Instituto Ajeno") con su departamento y un usuario persistido por
+      cada uno de los cuatro roles;
+    * una categoria y un producto **homonimos** de los de INST01 ("Papeleria" /
+      "Cuaderno linedado"), con su propia existencia (stock 5), para comprobar el
+      aislamiento de catalogo y stock (AC-1, AC-5, AC-6).
+
+    No construye las identidades de prueba: cada suite decide el rol y el
+    departamento del actor. Aporta un mundo coherente de dos instituciones y
+    cuatro roles que las suites no tienen que resembrar, y con las columnas
+    institucionales pobladas (el esquema las exige NOT NULL desde T9).
+    """
+    db = sessionmaker(bind=motor)()
+    try:
+        rol_superadmin = Rol(nombre_rol="Superadmin", descripcion="Rol global")
+        rol_solicitante = Rol(nombre_rol="Solicitante", descripcion="Rol limitado")
+        db.add_all([rol_superadmin, rol_solicitante])
+        db.flush()
+
+        institucion_ajena = Institucion(
+            institucion_id="INST02",
+            nombre="Instituto Ajeno",
+            rut="2-9",
+            direccion="Otra Calle 456",
+        )
+        db.add(institucion_ajena)
+        db.flush()
+
+        departamento_ajeno = Departamento(
+            nombre_dep="Bodega Sur",
+            descripcion="Deposito de la institucion ajena",
+            institucion_id="INST02",
+        )
+        db.add(departamento_ajeno)
+        db.flush()
+
+        roles = {
+            "Administrador": datos_base["rol_id"],
+            "Bodeguero": datos_base["rol_bodeguero_id"],
+            "Solicitante": rol_solicitante.rol_id,
+            "Superadmin": rol_superadmin.rol_id,
+        }
+
+        # INST01: Ana (datos_base) ya es Administrador; se agregan los otros tres.
+        usuarios_inst01 = {"Administrador": datos_base["usuario_id"]}
+        for nombre_rol, rol_id in roles.items():
+            if nombre_rol == "Administrador":
+                continue
+            usuario = Usuario(
+                nombre=nombre_rol,
+                apellido="Inst01",
+                correo=f"{nombre_rol.lower()}.inst01@compustock.cl",
+                departamento_id=datos_base["departamento_id"],
+                rol_id=rol_id,
+            )
+            db.add(usuario)
+            db.flush()
+            usuarios_inst01[nombre_rol] = usuario.usuario_id
+
+        # INST02: un usuario por rol.
+        usuarios_inst02: dict[str, int] = {}
+        for nombre_rol, rol_id in roles.items():
+            usuario = Usuario(
+                nombre=nombre_rol,
+                apellido="Inst02",
+                correo=f"{nombre_rol.lower()}.inst02@compustock.cl",
+                departamento_id=departamento_ajeno.departamento_id,
+                rol_id=rol_id,
+            )
+            db.add(usuario)
+            db.flush()
+            usuarios_inst02[nombre_rol] = usuario.usuario_id
+
+        # Homonimos institucionales con existencia independiente (AC-1, AC-6).
+        categoria_homonima = Categoria(
+            nombre_cat="Papeleria",
+            descripcion_cat="Homonimo de INST02",
+            institucion_id="INST02",
+        )
+        db.add(categoria_homonima)
+        db.flush()
+
+        producto_homonimo = Producto(
+            nombre="Cuaderno linedado",
+            descripcion="Homonimo de INST02",
+            unidad_medida="UNIDAD",
+            stock_minimo=10,
+            categoria_id=categoria_homonima.categoria_id,
+            institucion_id="INST02",
+        )
+        db.add(producto_homonimo)
+        db.flush()
+
+        inventario_homonimo = Inventario(
+            stock_actual=5,
+            ubicacion="Bodega Sur - H1",
+            departamento_id=departamento_ajeno.departamento_id,
+            producto_id=producto_homonimo.producto_id,
+            institucion_id="INST02",
+        )
+        db.add(inventario_homonimo)
+        db.commit()
+
+        return {
+            **datos_base,
+            "inst_propia": "INST01",
+            "inst_ajena": "INST02",
+            "departamento_ajeno_id": departamento_ajeno.departamento_id,
+            "categoria_homonima_ajena_id": categoria_homonima.categoria_id,
+            "producto_homonimo_ajeno_id": producto_homonimo.producto_id,
+            "inventario_homonimo_ajeno_id": inventario_homonimo.inventario_id,
+            "stock_homonimo_ajeno": 5,
+            "usuarios_inst01": usuarios_inst01,
+            "usuarios_inst02": usuarios_inst02,
         }
     finally:
         db.close()

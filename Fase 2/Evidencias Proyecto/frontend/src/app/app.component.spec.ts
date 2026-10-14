@@ -5,7 +5,16 @@ import { Router, provideRouter } from '@angular/router';
 import { AppComponent } from './app.component';
 import { routes } from './app.routes';
 import { AutenticacionService, EstadoIdentidad } from './core/services/auth.service';
-import { IdentidadAutenticada } from './shared/interfaces';
+import { IdentidadAutenticada, InstitucionEfectiva } from './shared/interfaces';
+
+/**
+ * Institución efectiva de la identidad limitada (Feature 008, AC-17). Procede de
+ * `GET /auth/me` y la vista solo la presenta como contexto.
+ */
+const INSTITUCION: InstitucionEfectiva = {
+  institucion_id: 'inst-los-alpes',
+  nombre: 'Los Alpes',
+};
 
 /**
  * Identidad local de prueba (`/auth/me`), equivalente a la usuaria real de la
@@ -19,6 +28,7 @@ const IDENTIDAD_RESUELTA: IdentidadAutenticada = {
   apellido: 'Fernandez',
   correo: 'camila.fernandez@losalpes.cl',
   rol: 'Administrador',
+  institucion: INSTITUCION,
 };
 
 /** Valores ficticios que el layout antiguo mostraba quemados (AC-16 / D-14). */
@@ -224,6 +234,73 @@ describe('AppComponent', () => {
 
         expect(destinos(compilado)).withContext(rol).toContain('/administracion');
       }
+    });
+  });
+
+  /**
+   * AC-17 / AC-19: el contexto institucional mostrado es el de `/auth/me`. Para
+   * roles limitados es el nombre de su institución efectiva; para Superadmin,
+   * cuyo `institucion` es `null`, es un contexto global explícito. La vista no
+   * ofrece ningún selector ni trata el contexto como seguridad.
+   */
+  describe('contexto institucional (AC-17, AC-19)', () => {
+    it('muestra el nombre de la institución efectiva del rol limitado', () => {
+      const fixture = TestBed.createComponent(AppComponent);
+      fixture.detectChanges();
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+      expect(fixture.componentInstance.contextoInstitucional()).toEqual('Los Alpes');
+      expect(texto).toContain('Los Alpes');
+    });
+
+    it('para Superadmin muestra un contexto global explícito, no vacío', () => {
+      autenticacionFalsa.identidad.set({
+        ...IDENTIDAD_RESUELTA,
+        rol: 'Superadmin',
+        institucion: null,
+      });
+      const fixture = TestBed.createComponent(AppComponent);
+      fixture.detectChanges();
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+      expect(fixture.componentInstance.contextoInstitucional()).toEqual(
+        'Todas las instituciones',
+      );
+      expect(texto).toContain('Todas las instituciones');
+      // El nombre de una institución concreta no se usa para Superadmin.
+      expect(texto).not.toContain('Los Alpes');
+    });
+
+    it('un rol limitado sin institución resuelta no muestra un contexto global', () => {
+      autenticacionFalsa.identidad.set({ ...IDENTIDAD_RESUELTA, institucion: null });
+      const fixture = TestBed.createComponent(AppComponent);
+      fixture.detectChanges();
+
+      // Solo Superadmin declara el contexto global; una institución ausente en
+      // un rol limitado es una ausencia, no un ámbito global (AC-17).
+      expect(fixture.componentInstance.contextoInstitucional()).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).textContent ?? '').not.toContain(
+        'Todas las instituciones',
+      );
+    });
+
+    it('mientras la identidad carga no muestra contexto institucional', () => {
+      autenticacionFalsa.identidad.set(null);
+      autenticacionFalsa.estadoIdentidad.set('cargando');
+      const fixture = TestBed.createComponent(AppComponent);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.contextoInstitucional()).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).textContent ?? '').not.toContain(
+        'Los Alpes',
+      );
+    });
+
+    it('no expone un selector ni una entrada de ámbito institucional', () => {
+      const compilado = crearYRenderizar();
+
+      expect(compilado.querySelector('select')).toBeNull();
+      expect(compilado.querySelector('input')).toBeNull();
     });
   });
 });

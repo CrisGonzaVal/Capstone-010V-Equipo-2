@@ -7,8 +7,9 @@ una y se observa, por rol, que:
   * `GET /tickets/`: el Solicitante ve solo sus tickets; Administrador/Bodeguero,
     solo los de su institucion; Superadmin, todos (D-3, AC-6, AC-8).
   * `GET /tickets/catalogos`: `solicitantes` se acota por rol (Solicitante solo su
-    identidad; Administrador/Bodeguero su institucion; Superadmin global), mientras
-    productos y `stock_total` siguen siendo globales (D-3, AC-9).
+    identidad; Administrador/Bodeguero su institucion; Superadmin global), y con la
+    Feature 008 los `productos` y su `stock_total` pasan a ser institucionales (D-1,
+    AC-6): el rol limitado solo ve (y suma el stock de) su institucion.
   * En una operacion permitida sobre un ticket de otra institucion (PATCH estado,
     despacho) el rol limitado recibe **404**, igual que para un id inexistente, sin
     mutar datos (D-5, AC-6).
@@ -32,6 +33,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api import dependencies
 from app.main import app
 from app.models import (
+    Categoria,
     Departamento,
     DetalleTicket,
     EstadoTicket,
@@ -118,54 +120,88 @@ def ambito_tickets(motor, datos_base):
         db.add(usuario_ajeno)
         db.flush()
 
-        # Producto del catalogo compartido con una sede en cada institucion: sirve
-        # para demostrar que el `stock_total` del catalogo sigue siendo global.
-        # (El producto de los tickets se deja con una sola fila de inventario para
-        # no romper la regla de despacho de Feature 005: exactamente una por
-        # producto.)
-        producto_compartido = Producto(
+        # Feature 008 (D-1/AC-6): el catalogo es institucional. Para demostrar el
+        # aislamiento se crean dos productos **homonimos independientes** (mismo
+        # nombre, id distinto), uno por institucion, cada uno con su propia
+        # existencia: el `stock_total` del catalogo de una institucion no puede
+        # sumar el de la otra.
+        categoria_ajena = Categoria(
+            nombre_cat="Insumos Ajenos",
+            descripcion_cat="Catalogo de la institucion ajena",
+            institucion_id=institucion_ajena.institucion_id,
+        )
+        db.add(categoria_ajena)
+        db.flush()
+
+        producto_institucional = Producto(
             nombre="Insumo Compartido",
-            descripcion="Producto con existencias en ambas instituciones",
+            descripcion="Homonimo de INST01 (Operaciones)",
             unidad_medida="UNIDAD",
             stock_minimo=0,
             categoria_id=datos_base["categoria_id"],
+            institucion_id=datos_base["institucion_id"],
         )
-        db.add(producto_compartido)
+        db.add(producto_institucional)
         db.flush()
         db.add(
             Inventario(
                 stock_actual=40,
                 ubicacion="Operaciones - C1",
                 departamento_id=datos_base["departamento_id"],
-                producto_id=producto_compartido.producto_id,
+                producto_id=producto_institucional.producto_id,
+                institucion_id=datos_base["institucion_id"],
             )
         )
+
+        producto_homonimo_ajeno = Producto(
+            nombre="Insumo Compartido",
+            descripcion="Homonimo de INST02 (Bodega Sur)",
+            unidad_medida="UNIDAD",
+            stock_minimo=0,
+            categoria_id=categoria_ajena.categoria_id,
+            institucion_id=institucion_ajena.institucion_id,
+        )
+        db.add(producto_homonimo_ajeno)
+        db.flush()
         db.add(
             Inventario(
                 stock_actual=7,
                 ubicacion="Bodega Sur - C1",
                 departamento_id=departamento_ajeno.departamento_id,
-                producto_id=producto_compartido.producto_id,
+                producto_id=producto_homonimo_ajeno.producto_id,
+                institucion_id=institucion_ajena.institucion_id,
             )
         )
         db.flush()
 
-        def nuevo_ticket(usuario_id: int, estado_id: int, asunto: str) -> int:
+        def nuevo_ticket(
+            usuario_id: int,
+            estado_id: int,
+            asunto: str,
+            producto_id: int,
+            institucion_id: str,
+        ) -> int:
+            # Feature 008 (T9): token institucional coherente. El detalle referencia
+            # un producto de la misma institucion que el ticket, de modo que se
+            # satisfacen las claves compuestas (detalle -> ticket y detalle ->
+            # producto) y el esquema endurecido a NOT NULL (AC-4).
             ticket = Ticket(
                 usuario_id=usuario_id,
                 prioridad_id=datos_base["prioridad_id"],
                 estado_id=estado_id,
                 asunto=asunto,
                 descripcion="Sembrado para pruebas de alcance.",
+                institucion_id=institucion_id,
             )
             db.add(ticket)
             db.flush()
             db.add(
                 DetalleTicket(
                     ticket_id=ticket.ticket_id,
-                    producto_id=datos_base["producto_id"],
+                    producto_id=producto_id,
                     cantidad_solicitada=1,
                     cantidad_entregada=0,
+                    institucion_id=institucion_id,
                 )
             )
             return ticket.ticket_id
@@ -177,28 +213,53 @@ def ambito_tickets(motor, datos_base):
             "solicitante_id": solicitante.usuario_id,
             "dep_ajeno_id": departamento_ajeno.departamento_id,
             "usuario_ajeno_id": usuario_ajeno.usuario_id,
-            "producto_compartido_id": producto_compartido.producto_id,
+            "producto_institucional_id": producto_institucional.producto_id,
+            "producto_homonimo_ajeno_id": producto_homonimo_ajeno.producto_id,
             "estado_pendiente_id": estados["Pendiente"],
             "estado_en_revision_id": estados["EnRevision"],
             "estado_en_curso_id": estados["EnCurso"],
             "estado_cerrado_id": estados["Cerrado"],
             "ticket_propio_id": nuevo_ticket(
-                solicitante.usuario_id, estados["Pendiente"], "Propio Pendiente"
+                solicitante.usuario_id,
+                estados["Pendiente"],
+                "Propio Pendiente",
+                datos_base["producto_id"],
+                datos_base["institucion_id"],
             ),
             "ticket_ajeno_id": nuevo_ticket(
-                usuario_ajeno.usuario_id, estados["Pendiente"], "Ajeno Pendiente"
+                usuario_ajeno.usuario_id,
+                estados["Pendiente"],
+                "Ajeno Pendiente",
+                producto_homonimo_ajeno.producto_id,
+                institucion_ajena.institucion_id,
             ),
             "ticket_estado_propio_id": nuevo_ticket(
-                solicitante.usuario_id, estados["EnRevision"], "Propio EnRevision"
+                solicitante.usuario_id,
+                estados["EnRevision"],
+                "Propio EnRevision",
+                datos_base["producto_id"],
+                datos_base["institucion_id"],
             ),
             "ticket_estado_ajeno_id": nuevo_ticket(
-                usuario_ajeno.usuario_id, estados["EnRevision"], "Ajeno EnRevision"
+                usuario_ajeno.usuario_id,
+                estados["EnRevision"],
+                "Ajeno EnRevision",
+                producto_homonimo_ajeno.producto_id,
+                institucion_ajena.institucion_id,
             ),
             "ticket_despacho_propio_id": nuevo_ticket(
-                solicitante.usuario_id, estados["EnCurso"], "Propio EnCurso"
+                solicitante.usuario_id,
+                estados["EnCurso"],
+                "Propio EnCurso",
+                datos_base["producto_id"],
+                datos_base["institucion_id"],
             ),
             "ticket_despacho_ajeno_id": nuevo_ticket(
-                usuario_ajeno.usuario_id, estados["EnCurso"], "Ajeno EnCurso"
+                usuario_ajeno.usuario_id,
+                estados["EnCurso"],
+                "Ajeno EnCurso",
+                producto_homonimo_ajeno.producto_id,
+                institucion_ajena.institucion_id,
             ),
         }
         db.commit()
@@ -370,20 +431,23 @@ def test_catalogo_superadmin_es_global(motor, ambito_tickets):
     } <= solicitantes
 
 
-def test_catalogo_productos_y_stock_siguen_globales(motor, ambito_tickets):
-    """El `stock_total` del catalogo agrega todas las sedes, para cualquier rol."""
+def test_catalogo_productos_y_stock_son_institucionales(motor, ambito_tickets):
+    """Feature 008 (D-1/AC-6): el `stock_total` del catalogo solo suma la sede de
+    la institucion del solicitante; el homonimo de la institucion ajena ni
+    siquiera aparece, aunque comparta nombre."""
     with _cliente(
         motor, "Solicitante", ambito_tickets["departamento_id"], ambito_tickets["solicitante_id"]
     ) as cliente:
         respuesta = cliente.get(RUTA_CATALOGOS)
     assert respuesta.status_code == 200, respuesta.text
 
-    producto = next(
-        p
-        for p in respuesta.json()["productos"]
-        if p["producto_id"] == ambito_tickets["producto_compartido_id"]
-    )
-    assert producto["stock_total"] == 47
+    productos = {p["producto_id"]: p for p in respuesta.json()["productos"]}
+    # El producto propio aparece con su stock (40) y NO con el de la institucion
+    # ajena (7); el homonimo ajeno no se filtra dentro del catalogo.
+    propio = productos[ambito_tickets["producto_institucional_id"]]
+    assert propio["stock_total"] == 40
+    assert propio["institucion_id"] == "INST01"
+    assert ambito_tickets["producto_homonimo_ajeno_id"] not in productos
 
 
 # ---------------------------------------------------------------------------
@@ -496,9 +560,11 @@ def test_solicitante_crea_y_se_atribuye_su_identidad(motor, ambito_tickets):
     assert respuesta.json()["usuario_id"] == ambito_tickets["solicitante_id"]
 
 
-def test_administrador_crea_para_solicitante_de_otra_institucion_403_sin_mutar(
+def test_administrador_crea_para_solicitante_de_otra_institucion_404_sin_mutar(
     motor, ambito_tickets
 ):
+    """Feature 008 (AC-11): un solicitante de otra institucion se oculta con 404,
+    igual que un usuario inexistente, y no deja ticket."""
     with _cliente(motor, "Superadmin", None) as supervisor:
         antes = len(supervisor.get(RUTA_TICKETS).json())
 
@@ -510,7 +576,7 @@ def test_administrador_crea_para_solicitante_de_otra_institucion_403_sin_mutar(
     with _cliente(motor, "Superadmin", None) as supervisor:
         despues = len(supervisor.get(RUTA_TICKETS).json())
 
-    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.status_code == 404, respuesta.text
     assert despues == antes
 
 
@@ -523,9 +589,14 @@ def test_administrador_crea_para_solicitante_propio_201(motor, ambito_tickets):
     assert respuesta.json()["usuario_id"] == ambito_tickets["solicitante_id"]
 
 
-@pytest.mark.parametrize("rol", ["Superadmin", "Administrador", "Bodeguero"])
+@pytest.mark.parametrize("rol", ["Administrador", "Bodeguero"])
 def test_otros_roles_conservan_usuario_id_obligatorio(motor, ambito_tickets, rol):
-    """Sin `usuario_id` el contrato vigente responde 422 para los demas roles."""
+    """Sin `usuario_id` el contrato vigente responde 422 para los roles con alta.
+
+    Feature 008 (D-3/AC-10): Superadmin ya no crea tickets de una institucion
+    concreta (recibe 403, verificado en `test_permisos_008.py`), por lo que sale
+    de esta parametrizacion; su contrato de alta institucional ya no existe.
+    """
     payload = _payload(ambito_tickets, ambito_tickets["solicitante_id"])
     payload.pop("usuario_id")
     with _cliente(motor, rol, ambito_tickets["departamento_id"]) as cliente:

@@ -26,13 +26,16 @@ router = APIRouter(prefix="/tickets", tags=["Tickets y Solicitudes"])
         "Devuelve **las cuatro listas en una sola peticion**: prioridades, estados, "
         "productos y solicitantes. Se agrupan aqui, y no en cuatro endpoints, para "
         "que el modal abra con una request en vez de cuatro.\n\n"
-        "`productos` trae el stock total agregado de todas las sedes y su marca "
-        "`es_critico`, calculada con la misma regla que "
-        "`GET /inventario/existencias` (`stock_total <= stock_minimo`). Un producto "
-        "sin existencias aparece con `stock_total` en 0.\n\n"
+        "Feature 008: el catalogo es institucional. `productos` lista solo los "
+        "productos de la institucion del usuario y su `stock_total` agrega "
+        "unicamente las existencias de los departamentos de esa institucion "
+        "(ningun stock de otra institucion influye); cada producto lleva su "
+        "`institucion_id`. Un producto sin existencias aparece con `stock_total` "
+        "en 0 y su marca `es_critico`, calculada con la misma regla que "
+        "`GET /inventario/existencias` (`stock_total <= stock_minimo`).\n\n"
         "`solicitantes` se acota por rol (Feature 007): el Solicitante solo se ve a "
         "si mismo; Administrador y Bodeguero, a los de su institucion; Superadmin, a "
-        "todos. Productos y `stock_total` siguen siendo globales.\n\n"
+        "todos con lectura global del catalogo (cada producto atribuido).\n\n"
         "El orden es determinista: prioridades y estados por su id (que es el "
         "orden del flujo), productos por nombre, solicitantes por apellido."
     ),
@@ -87,10 +90,17 @@ def listar_tickets(
         "cantidad no positiva) devuelven **422**.\n\n"
         "Atribucion (Feature 007): si el rol es Solicitante, el ticket se atribuye "
         "a su identidad e ignora cualquier `usuario_id` alternativo. "
-        "Administrador/Bodeguero conservan `usuario_id` obligatorio y solo pueden "
-        "elegir un solicitante de su institucion; uno ajeno responde **403**."
+        "Administrador/Bodeguero conservan `usuario_id` obligatorio.\n\n"
+        "Feature 008 (AC-11): el ticket pertenece a la institucion de su "
+        "solicitante y **todos** los productos del detalle deben ser de esa misma "
+        "institucion. Un solicitante de otra institucion elegido por un rol "
+        "limitado o un producto ajeno devuelven **404** (ocultacion, igual que un "
+        "id inexistente) y no dejan ticket ni detalle parciales."
     ),
-    responses=dependencies.respuestas_de_autorizacion(),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+    },
 )
 def crear_ticket(
     datos: TicketCrear,
@@ -117,11 +127,17 @@ def crear_ticket(
         "Un ticket de otra institucion (rol limitado) devuelve **404** sin mutar "
         "stock ni estado (Feature 007). El estado no elegible (ya despachado), el "
         "catalogo sin los nombres requeridos, un ticket sin detalles, un detalle "
-        "sin producto resoluble, el inventario ausente o ambiguo y el stock "
-        "insuficiente devuelven **409** sin escribir nada. Un payload invalido o "
+        "sin producto resoluble, el inventario ausente o ambiguo, el stock "
+        "insuficiente y una referencia cruzada de institucion (producto o "
+        "inventario de otra institucion que la del ticket, Feature 008) devuelven "
+        "**409** sin escribir nada. Un payload invalido o "
         "un `usuario_id` ausente/no entero devuelven **422**."
     ),
-    responses=dependencies.respuestas_de_autorizacion(),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+        **dependencies.respuesta_conflicto(),
+    },
 )
 def despachar_ticket(
     ticket_id: int,
@@ -162,7 +178,11 @@ def despachar_ticket(
         "nunca por un id fijo— se sella `fecha_cierre` en la misma operación; "
         "si ya estaba sellada, se conserva sin sobrescribirse."
     ),
-    responses=dependencies.respuestas_de_autorizacion(),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+        **dependencies.respuesta_conflicto(),
+    },
 )
 def actualizar_estado_ticket(
     ticket_id: int,

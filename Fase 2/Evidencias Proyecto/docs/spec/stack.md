@@ -166,6 +166,87 @@ el patrón anterior se abre en dos:
   frontend toman `estados[0]` como estado inicial (D-4 de la 003). Ordenar por
   `estado_id` da el primero del flujo; ordenar por nombre daría otro.
 
+#### Modelo relacional y particionamiento por institución (Feature 008)
+
+La Feature 007 dejó el catálogo maestro (`categoria`, `producto`) y el `stock_total` de
+`/tickets/catalogos` como excepción global. La Feature 008 los particiona por institución
+sobre el **mismo modelo de 12 entidades 3NF**: no se crean entidades ni relaciones de
+dominio nuevas; solo se añaden atributos de pertenencia y claves/restricciones compuestas
+en tablas existentes. Esta es la justificación que exige `AGENTS.md` §7 antes de alterar
+modelos, DDL o el esquema de datos.
+
+**Pertenencia institucional explícita y derivada**
+
+- `categoria.institucion_id` y `producto.institucion_id` (`VARCHAR(20)`, `NOT NULL`, FK a
+  `institucion`) hacen que cada registro del catálogo pertenezca a una sola institución
+  (D-1). Dos instituciones pueden repetir `nombre_cat`/`nombre`: son filas independientes y
+  sus identificadores no sirven para acceder a la otra (AC-1, AC-2).
+- `inventario.institucion_id` se **deriva del departamento** y la mantiene el servicio
+  (D-2); no es un ámbito independiente que pueda contradecir al departamento.
+  `ticket.institucion_id` se deriva del solicitante (`usuario → departamento → institucion`)
+  y `detalle_ticket.institucion_id`, del ticket. Son anclas institucionales para las claves
+  compuestas, con valores mantenidos por el servicio.
+- `rol`, `prioridad` y `estado_ticket` **no** reciben pertenencia: siguen globales y
+  compartidos por todas las instituciones (D-5, AC-3). `institucion`, `departamento`,
+  `usuario`, `categoria`, `producto`, `inventario`, `movimiento_inventario`, `ticket` y
+  `detalle_ticket` quedan aislados directa o transitivamente (`movimiento_inventario` lo
+  hereda por su `inventario_id`, sin columna nueva; es auditoría inmutable).
+
+**Claves simples conservadas y claves compuestas como destinos**
+
+Se conservan las PK simples actuales (`categoria_id`, `producto_id`, `departamento_id`,
+`ticket_id`, `inventario_id`, …): los identificadores públicos no cambian y los contratos
+existentes siguen válidos. La pertenencia se garantiza con claves únicas compuestas que
+sirven de destino a FK compuestas, de modo que PostgreSQL rechace asociaciones cruzadas:
+
+| Tabla | Clave única compuesta | Para qué |
+|---|---|---|
+| `categoria` | `(institucion_id, categoria_id)` | destino de la FK producto→categoría |
+| `producto` | `(institucion_id, producto_id)` | destino de inventario→producto y detalle→producto |
+| `departamento` | `(institucion_id, departamento_id)` | destino de inventario→departamento |
+| `ticket` | `(institucion_id, ticket_id)` | destino de detalle→ticket |
+
+**Relaciones compuestas que el esquema hace cumplir**
+
+- `producto (institucion_id, categoria_id) → categoria (institucion_id, categoria_id)`:
+  un producto solo puede apuntar a una categoría de su misma institución. Sustituye a la FK
+  simple `producto.categoria_id → categoria.categoria_id`, que queda subsumida.
+- `inventario (institucion_id, departamento_id) → departamento (institucion_id, departamento_id)`
+  **y** `inventario (institucion_id, producto_id) → producto (institucion_id, producto_id)`:
+  como `inventario.institucion_id` es única por fila, ambas FK obligan a que el departamento
+  y el producto del inventario compartan institución; no hay vía para un inventario con
+  producto ajeno (AC-2, AC-4). Se mantiene además la FK a `institucion` y la unicidad
+  `(departamento_id, producto_id)` existente.
+- `detalle_ticket (institucion_id, ticket_id) → ticket (institucion_id, ticket_id)` y
+  `detalle_ticket (institucion_id, producto_id) → producto (institucion_id, producto_id)`:
+  el detalle queda anclado a la institución de su ticket y obligado a un producto de esa
+  misma institución (AC-4). La coherencia del `ticket.institucion_id` con la institución del
+  solicitante la valida el servicio en la transacción de alta (AC-11), porque la institución
+  del usuario se deriva de su departamento y **no se duplica en `usuario`**, que no se
+  modifica en esta feature.
+
+Se descarta confiar solo en filtros de Python: dejaría una vía para insertar referencias
+cruzadas fuera del servicio. También se descarta duplicar el nombre como clave o cambiar las
+PK, porque rompería la integridad y la compatibilidad de identificadores.
+
+**Compatibilidad y migración**
+
+- `database/01_esquema.sql` pasa a crear el modelo particionado para instalaciones nuevas;
+  `database/02_datos_semilla.sql` siembra al menos dos instituciones con catálogo y stock
+  homónimos y distintos (AC-1, AC-20).
+- Las bases existentes se actualizan con
+  `database/98_migracion_particionamiento_institucional.sql`, **idempotente y no
+  destructivo**: infiere la institución de cada categoría/producto legado a partir de
+  inventario y de detalle/ticket/usuario/departamento, y **aborta sin cambios** identificando
+  el registro si la pertenencia es ambigua (AC-14). Preserva IDs, usuarios, tickets,
+  detalles, stock y movimientos, y una segunda ejecución no altera datos operativos (AC-15).
+  El prefijo `98_` corre antes de `99_migracion_retiro_password.sql`, que no se renombra.
+- Las PK simples intactas mantienen la compatibilidad de identificadores en la API. Las
+  lecturas globales de Superadmin ganan atribución explícita de institución sin fusionar
+  registros de instituciones distintas (AC-8).
+- La suite SQLite funciona pero no acredita claves/restricciones compuestas ni la migración;
+  esas semánticas se verifican contra PostgreSQL 16 (AC-18).
+
 ### 3. Estructura del Frontend (Angular 18 Standalone)
 En Angular moderno (sin NgModules), la clave es el agrupamiento por Características (Features). Esto facilita el Lazy Loading (carga perezosa) y hace que la aplicación escale sin que el código se enrede.
 

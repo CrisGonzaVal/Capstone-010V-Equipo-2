@@ -104,6 +104,7 @@ def datos_despacho(motor, datos_base):
             unidad_medida="ROLLO",
             stock_minimo=0,
             categoria_id=datos_base["categoria_id"],
+            institucion_id=datos_base["institucion_id"],
         )
         db.add(producto_escaso)
         db.flush()
@@ -113,6 +114,7 @@ def datos_despacho(motor, datos_base):
             ubicacion="Bodega escasa",
             departamento_id=datos_base["departamento_id"],
             producto_id=producto_escaso.producto_id,
+            institucion_id=datos_base["institucion_id"],
         )
         db.add(inventario_escaso)
         db.commit()
@@ -250,6 +252,7 @@ def datos_inventario_invalido(motor, datos_base):
             unidad_medida="UNIDAD",
             stock_minimo=0,
             categoria_id=datos_base["categoria_id"],
+            institucion_id=datos_base["institucion_id"],
         )
         dos_filas = Producto(
             nombre="Producto en dos depositos",
@@ -257,6 +260,7 @@ def datos_inventario_invalido(motor, datos_base):
             unidad_medida="UNIDAD",
             stock_minimo=0,
             categoria_id=datos_base["categoria_id"],
+            institucion_id=datos_base["institucion_id"],
         )
         db.add_all([sin_inventario, dos_filas])
         db.flush()
@@ -268,12 +272,14 @@ def datos_inventario_invalido(motor, datos_base):
                     ubicacion="Deposito A",
                     departamento_id=datos_base["departamento_id"],
                     producto_id=dos_filas.producto_id,
+                    institucion_id=datos_base["institucion_id"],
                 ),
                 Inventario(
                     stock_actual=10,
                     ubicacion="Deposito B",
                     departamento_id=segundo_departamento.departamento_id,
                     producto_id=dos_filas.producto_id,
+                    institucion_id=datos_base["institucion_id"],
                 ),
             ]
         )
@@ -1096,6 +1102,7 @@ def test_despacho_rechaza_detalle_con_producto_no_resoluble(
                 producto_id=999999,
                 cantidad_solicitada=1,
                 cantidad_entregada=0,
+                institucion_id=datos_despacho["institucion_id"],
             )
         )
         db.commit()

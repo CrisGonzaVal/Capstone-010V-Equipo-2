@@ -44,17 +44,35 @@ _TODOS: frozenset[str] = frozenset(
 )
 #: Roles administrativos (usuarios, departamentos y catalogo maestro).
 _ADMINISTRATIVOS: frozenset[str] = frozenset({_SUPERADMIN, _ADMINISTRADOR})
-#: Roles que operan inventario/movimientos y el flujo de tickets.
+#: Roles que operan inventario/movimientos y el flujo de tickets (lectura global
+#: de movimientos). Tras el ajuste de la Feature 008 su uso es solo de lectura;
+#: las escrituras institucionales usan los conjuntos `_ESCRITURA_*` de abajo.
 _INVENTARIO_Y_TICKETS: frozenset[str] = frozenset(
     {_SUPERADMIN, _ADMINISTRADOR, _BODEGUERO}
+)
+
+# --- Ajuste puntual de la Feature 008 (D-3/AC-10) ---------------------------
+# Superadmin conserva su lectura global pero deja de escribir datos de una
+# institucion concreta: escritura de catalogo (producto/categoria),
+# stock/movimientos y tickets. Esa escritura corresponde al Administrador de la
+# institucion (y al Bodeguero en las operaciones operativas). Es un ajuste
+# acotado a estas entradas; el resto de la matriz 007 no se modifica.
+#: Escritura de catalogo institucional (alta de producto). Solo el Administrador.
+_ESCRITURA_CATALOGO: frozenset[str] = frozenset({_ADMINISTRADOR})
+#: Escritura de stock/movimientos y operaciones de ticket (despacho, estado).
+_ESCRITURA_STOCK: frozenset[str] = frozenset({_ADMINISTRADOR, _BODEGUERO})
+#: Alta de ticket: los roles operativos de la institucion (incluye Solicitante).
+_ESCRITURA_TICKETS: frozenset[str] = frozenset(
+    {_ADMINISTRADOR, _BODEGUERO, _SOLICITANTE}
 )
 
 #: Matriz explicita operacion -> roles permitidos (D-3, AC-9).
 #:
 #: La clave es (metodo HTTP en mayusculas, ruta completa tal como la publica el
-#: contrato, con los parametros de path en su forma `{param}`). Los 18 endpoints
-#: de negocio quedan cubiertos; una operacion ausente de esta matriz no concede
-#: permiso a ningun rol.
+#: contrato, con los parametros de path en su forma `{param}`). Los 20 endpoints
+#: de negocio quedan cubiertos (las 18 operaciones de 007 mas los dos `GET` por
+#: objeto de catalogo que exige la Feature 008); una operacion ausente de esta
+#: matriz no concede permiso a ningun rol.
 MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # Autenticacion: identidad autenticada, cualquier rol.
     ("GET", "/api/v1/auth/me"): _TODOS,
@@ -66,18 +84,24 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
     # Inventario: lectura para los cuatro roles; escritura administrativa o de bodega.
     ("GET", "/api/v1/inventario/categorias"): _TODOS,
+    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
     ("GET", "/api/v1/inventario/productos"): _TODOS,
-    ("POST", "/api/v1/inventario/productos"): _ADMINISTRATIVOS,
+    ("GET", "/api/v1/inventario/productos/{producto_id}"): _TODOS,
+    # 008 D-3: escritura de catalogo solo institucional (Superadmin no escribe).
+    ("POST", "/api/v1/inventario/productos"): _ESCRITURA_CATALOGO,
     ("GET", "/api/v1/inventario/existencias"): _TODOS,
     ("GET", "/api/v1/inventario/stock"): _TODOS,
     ("GET", "/api/v1/inventario/movimientos"): _INVENTARIO_Y_TICKETS,
-    ("POST", "/api/v1/inventario/movimientos"): _INVENTARIO_Y_TICKETS,
+    # 008 D-3: movimientos de stock sin Superadmin (escritura institucional).
+    ("POST", "/api/v1/inventario/movimientos"): _ESCRITURA_STOCK,
     # Tickets: alta y consulta para los cuatro; estado y despacho sin Solicitante.
     ("GET", "/api/v1/tickets/catalogos"): _TODOS,
     ("GET", "/api/v1/tickets/"): _TODOS,
-    ("POST", "/api/v1/tickets/"): _TODOS,
-    ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _INVENTARIO_Y_TICKETS,
-    ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _INVENTARIO_Y_TICKETS,
+    # 008 D-3: alta de ticket sin Superadmin (escritura institucional).
+    ("POST", "/api/v1/tickets/"): _ESCRITURA_TICKETS,
+    # 008 D-3: despacho y cambio de estado sin Superadmin.
+    ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _ESCRITURA_STOCK,
+    ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
 }
 
 

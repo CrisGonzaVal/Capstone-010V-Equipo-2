@@ -595,7 +595,11 @@ def test_listar_tickets_no_hace_consultas_por_ticket(
         "el listado no puede emitir una consulta por ticket (N+1): "
         f"{with_uno} queries con 1 ticket y {with_tres} con 3"
     )
-    assert with_tres <= 4, (
+    # Feature 008: la identidad de la suite funcional es un rol limitado
+    # (Administrador), asi que el listado resuelve su ambito institucional con una
+    # consulta fija adicional (`alcance_institucional`); por eso el tope sube de 4
+    # a 5. Lo que protege esta prueba es que el numero NO crezca con los tickets.
+    assert with_tres <= 5, (
         "carga eager en cadena debe resolverlo en pocas consultas fijas: "
         f"{with_tres} consultas con 3 tickets"
     )

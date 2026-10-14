@@ -16,7 +16,10 @@ def _crear_usuario(datos_base):
         "apellido": "Munoz",
         "correo": "carlos.munoz@compustock.cl",
         "departamento_id": datos_base["departamento_id"],
-        "rol_id": datos_base["rol_id"],
+        # La identidad legacy es Administrador (Feature 008): solo puede asignar
+        # Bodeguero/Solicitante (D-6/AC-10). El rol "Administrador" de `datos_base`
+        # queda reservado a los casos de la regla de rol asignable.
+        "rol_id": datos_base["rol_bodeguero_id"],
     }
 
 

@@ -17,6 +17,8 @@
 --   `script_apt_erp.sql`) la "d" sortea antes que la "s", la semilla corria
 --   contra un esquema inexistente y, con ON_ERROR_STOP=1, abortaba todo el
 --   arranque. Si renuevas un nombre, revisa que no invierta el orden.
+--   Corre antes que `98_migracion_particionamiento_institucional.sql` y
+--   `99_migracion_retiro_password.sql`, que son no-op sobre una base nueva.
 --
 -- USO
 --   Automatica: al crear el volumen por primera vez (`docker compose up -d db`
@@ -34,12 +36,33 @@
 --   Es idempotente: se puede correr las veces que quieras para resetear
 --   el entorno de QA. El TRUNCATE inicial limpia las 12 tablas y reinicia
 --   las secuencias GENERATED ALWAYS AS IDENTITY, de modo que los ids siempre
---   son los mismos (1..10) y los datos son reproducibles.
+--   son los mismos y los datos son reproducibles.
+--
+-- FEATURE 008 - PARTICIONAMIENTO POR INSTITUCION
+--   La semilla deja la base en estado "ya particionada", de modo que `98_` sea
+--   un no-op sobre instalacion nueva (ver `01_esquema.sql` y
+--   docs/spec/stack.md, seccion "Modelo relacional y particionamiento por
+--   institucion"). Consecuencias en este archivo:
+--     - `categoria` y `producto` llevan `institucion_id` explicito (D-1).
+--     - `inventario`, `ticket` y `detalle_ticket` derivan su institucion del
+--       departamento / solicitante / ticket respectivamente (D-2).
+--     - Ninguna referencia cruza instituciones: todo producto de una
+--       institucion se inventaria en un departamento de ESA institucion, y todo
+--       ticket/detalle usa solicitante y productos de su misma institucion.
+--       Las FK compuestas del DDL rechazarian lo contrario.
+--     - `rol`, `prioridad` y `estado_ticket` NO llevan institucion: siguen
+--       globales y compartidos por las cuatro instituciones (D-5, AC-3).
+--   Se conservan las CUATRO instituciones y sus departamentos/usuarios. Las
+--   instituciones INST-001 y INST-002 quedan "completas" (departamentos,
+--   usuarios, catalogo, stock, movimientos y tickets). INST-003 e INST-004
+--   conservan sus departamentos y usuarios. Los nombres repetidos entre
+--   instituciones ("Papeleria", "Resma Carta 75g A4", ...) son HOMONIMOS
+--   DELIBERADOS: filas independientes con ids y stock distintos (AC-1).
 --
 -- CONVENCION DE IDs
 --   Los INSERT declaran el id de forma explicita (`OVERRIDING SYSTEM VALUE`)
 --   para que el QA manual pueda referenciar filas concretas. Eso obliga a
---   sincronizar las secuencias al final (seccion 13): si no, el primer POST
+--   sincronizar las secuencias al final (seccion 14): si no, el primer POST
 --   autogenerado choca con el id 1 y devuelve HTTP 500.
 --
 -- RESTRICCION - estado_ticket
@@ -50,8 +73,8 @@
 --   pueda referenciar filas concretas.
 --
 -- RESTRICCION - inventario
---   `inventario` tiene UNIQUE (departamento_id, producto_id). Por eso hay
---   10 filas y no 100: cada producto se ubica en un departamento distinto.
+--   `inventario` tiene UNIQUE (departamento_id, producto_id): cada producto se
+--   ubica en un departamento distinto dentro de su institucion.
 --
 -- =====================================================
 
@@ -70,6 +93,7 @@ RESTART IDENTITY CASCADE;
 -- 1. INSTITUCION  (PK VARCHAR, no identity -> valor fijo)
 -- =====================================================
 -- Varias sedes decentralizadas: el caso de uso que motiva el proyecto.
+-- Las cuatro se conservan (AC-1). INST-001 e INST-002 quedan completas.
 
 INSERT INTO institucion (institucion_id, nombre, rut, direccion) VALUES
 ('INST-001', 'Instituto Profesional Los Alpes', '65.432.100-9', 'Av. Providencia 1234, Santiago'),
@@ -80,8 +104,8 @@ INSERT INTO institucion (institucion_id, nombre, rut, direccion) VALUES
 -- =====================================================
 -- 2. DEPARTAMENTO  (10 filas)
 -- =====================================================
--- Un departamento por institucion principal (INST-001) mas dos extras
--- en otras sedes, para que el QA vea el aislamiento por institucion.
+-- INST-001 aporta 7 departamentos (1..7); INST-002 el 8; INST-003 el 9;
+-- INST-004 el 10. Los usuarios y el ambito se derivan de aqui.
 
 INSERT INTO departamento (departamento_id, nombre_dep, descripcion, institucion_id) OVERRIDING SYSTEM VALUE VALUES
 (1,  'Direccion',              'Direccion_general y planificacion',       'INST-001'),
@@ -96,7 +120,7 @@ INSERT INTO departamento (departamento_id, nombre_dep, descripcion, institucion_
 (10, 'OficinaGeneral',         'Oficina de Partes Municipal',                'INST-004');
 
 -- =====================================================
--- 3. ROL  (4 filas)
+-- 3. ROL  (4 filas)  [GLOBAL, sin institucion - D-5/AC-3]
 -- =====================================================
 -- Los tres actores del sistema mas superadmin, segun AGENTS.md seccion 2.
 
@@ -112,6 +136,7 @@ INSERT INTO rol (rol_id, nombre_rol, descripcion) OVERRIDING SYSTEM VALUE VALUES
 -- Clerk es la unica autoridad de autenticacion (Feature 006): el usuario local
 -- no guarda credencial alguna. El vinculo con Clerk se resuelve por `correo`
 -- (UNIQUE) contra el correo primario verificado, no por contrasena.
+-- La institucion del usuario NO se guarda aqui: se deriva de su departamento.
 
 INSERT INTO usuario (usuario_id, nombre, apellido, correo, departamento_id, rol_id) OVERRIDING SYSTEM VALUE VALUES
 (1,  'Camila',   'Fernandez', 'camila.fernandez@losalpes.cl',   1, 2),
@@ -128,70 +153,92 @@ INSERT INTO usuario (usuario_id, nombre, apellido, correo, departamento_id, rol_
 -- =====================================================
 -- 5. CATEGORIA  (10 filas)
 -- =====================================================
--- Catalogo maestro de insumos de ofimatica.
+-- Catalogo de insumos de ofimatica, AHORA por institucion (D-1).
+--   INST-001 -> categorias 1..6
+--   INST-002 -> categorias 7..10
+-- HOMONIMOS DELIBERADOS: 'Papeleria' existe con id 1 (INST-001) y con id 7
+-- (INST-002); 'Toner y Cartuchos' con id 2 (INST-001) y 8 (INST-002);
+-- 'Organizacion' con id 4 (INST-001) y 10 (INST-002). Son filas independientes.
 
-INSERT INTO categoria (categoria_id, nombre_cat, descripcion_cat) OVERRIDING SYSTEM VALUE VALUES
-(1,  'Papeleria',           'Hojas, resmas y sobres'),
-(2,  'Toner y Cartuchos',   'Consumibles de impresion'),
-(3,  'Escritura',           'Lapices, marcadores y rotuladores'),
-(4,  'Organizacion',        'Folders, archivadores y separadores'),
-(5,  'Oficina',             'Clip, fasteners y consumibles de escritorio'),
-(6,  'Etiquetado',          'Etiquetas y cintas adhesivas'),
-(7,  'Limpieza',            'Productos de aseo y sanitizacion'),
-(8,  'Equipos',             'Perifericos y equipos de uso diario'),
-(9,  'Didactico',           'Material para salas de clases'),
-(10, 'Papeleria Premium',   'Papel especial y de presentacion');
-
--- =====================================================
--- 6. PRODUCTO  (10 filas)
--- =====================================================
--- Datos realistas de ofimatica. Tres productos quedan por DEBAJO de su
--- stock_minimo a proposito, para que el dashboard muestre las tarjetas
--- "Alertas de Stock" y "Stock Critico" con valores reales en el QA manual.
---   producto 7  (Toner 26A)       : stock_actual  3 < stock_minimo 10
---   producto 9  (Grapadora)       : stock_actual  1 < stock_minimo  5
---   producto 10 (Rotuladores)     : stock_actual  6 < stock_minimo 12
-
-INSERT INTO producto (producto_id, nombre, descripcion, unidad_medida, stock_minimo, categoria_id) OVERRIDING SYSTEM VALUE VALUES
-(1,  'Resma Carta 75g A4',      'Resma de 500 hojas tamano carta',           'RESMA',    20, 1),
-(2,  'Resma Carta 90g A4',      'Resma de 500 hojas de alto gramaje',        'RESMA',    10, 10),
-(3,  'Toner HP 26A Negro',      'Cartucho de toner negro original HP26A',    'UNIDAD',   10, 2),
-(4,  'Folder Manila Carta',     'Carpeta de cartulina tamano carta',         'UNIDAD',   25, 4),
-(5,  'Boligrota Bic Cristal',   'Boligrota punta fina color negro',         'UNIDAD',   30, 3),
-(6,  'Clip Metrico 33mm',       'Clip de metal de 33mm en caja x100',       'CAJA',     15, 5),
-(7,  'Toner Negro 26A Comp.',   'Cartucho compatible negro para HP26A',     'UNIDAD',   10, 2),
-(8,  'Cinta Adhesiva 48mm',     'Cinta transparente de 48mm x 100m',        'ROLLO',    12, 6),
-(9,  'Grapadora Estandar',      'Grapadora de escritorio con grapa 24/6',   'UNIDAD',    5, 8),
-(10, 'Rotulador Marcador',      'Rotulador permanente punta gruesa',        'UNIDAD',   12, 3);
+INSERT INTO categoria (categoria_id, nombre_cat, descripcion_cat, institucion_id) OVERRIDING SYSTEM VALUE VALUES
+(1,  'Papeleria',           'Hojas, resmas y sobres',                'INST-001'),
+(2,  'Toner y Cartuchos',   'Consumibles de impresion',              'INST-001'),
+(3,  'Escritura',           'Lapices, marcadores y rotuladores',     'INST-001'),
+(4,  'Organizacion',        'Folders, archivadores y separadores',   'INST-001'),
+(5,  'Oficina',             'Clip, fasteners y consumibles',         'INST-001'),
+(6,  'Limpieza',            'Productos de aseo y sanitizacion',      'INST-001'),
+(7,  'Papeleria',           'Hojas, resmas y sobres',                'INST-002'),
+(8,  'Toner y Cartuchos',   'Consumibles de impresion',              'INST-002'),
+(9,  'Insumos Clinicos',    'Guantes, gasas y material de atencion', 'INST-002'),
+(10, 'Organizacion',        'Folders, archivadores y separadores',   'INST-002');
 
 -- =====================================================
--- 7. INVENTARIO  (10 filas)
+-- 6. PRODUCTO  (14 filas)
 -- =====================================================
--- UNIQUE (departamento_id, producto_id): cada producto va en un
--- departamento distinto, por eso 10 filas y no 100.
--- stock_actual vs stock_minimo del producto:
---   producto 7  -> 3  vs 10  = CRITICO
---   producto 9  -> 1  vs 5   = CRITICO
---   producto 10 -> 6  vs 12  = CRITICO
--- El resto con holgura sobre el minimo.
+-- Cada producto pertenece a la institucion de su categoria (FK compuesta
+-- producto(institucion_id, categoria_id) -> categoria(institucion_id, categoria_id)).
+--   INST-001 -> productos 1..10 (categorias 1..6)
+--   INST-002 -> productos 11..14 (categorias 7..10)
+-- HOMONIMOS DELIBERADOS entre instituciones (mismo `nombre`):
+--   'Resma Carta 75g A4'  -> prod 1 (INST-001) y prod 11 (INST-002)
+--   'Toner HP 26A Negro'  -> prod 2 (INST-001) y prod 12 (INST-002)
+--   'Folder Manila Carta' -> prod 3 (INST-001) y prod 14 (INST-002)
+-- Para INST-001 tres productos quedan por DEBAJO de su stock_minimo a proposito,
+-- para que el dashboard muestre alertas reales en el QA manual:
+--   producto 7 (Toner Negro 26A Comp.) -> 3 < 10
+--   producto 8 (Grapadora Estandar)    -> 1 < 5
+--   producto 9 (Rotulador Marcador)    -> 6 < 12
 
-INSERT INTO inventario (inventario_id, stock_actual, ubicacion, departamento_id, producto_id) OVERRIDING SYSTEM VALUE VALUES
-(1,  120, 'Bodega Central - Estante A1', 7,  1),
-(2,   45, 'Bodega Central - Estante A2', 7,  2),
-(3,   18, 'Bodega Central - Estante B1', 7,  3),
-(4,  200, 'Bodega Central - Estante C1', 6,  4),
-(5,  150, 'Bodega Central - Estante C2', 6,  5),
-(6,   35, 'Bodega Central - Estante D1', 6,  6),
-(7,    3, 'Bodega Central - Estante B2', 7,  7),
-(8,   48, 'Bodega Central - Estante D2', 1,  8),
-(9,    1, 'Bodega Central - Estante E1', 5,  9),
-(10,   6, 'Bodega Central - Estante E2', 2,  10);
+INSERT INTO producto (producto_id, nombre, descripcion, unidad_medida, stock_minimo, categoria_id, institucion_id) OVERRIDING SYSTEM VALUE VALUES
+(1,  'Resma Carta 75g A4',      'Resma de 500 hojas tamano carta',          'RESMA',  20, 1,  'INST-001'),
+(2,  'Toner HP 26A Negro',      'Cartucho de toner negro original HP26A',   'UNIDAD', 10, 2,  'INST-001'),
+(3,  'Folder Manila Carta',     'Carpeta de cartulina tamano carta',        'UNIDAD', 25, 4,  'INST-001'),
+(4,  'Boligrafo Bic Cristal',   'Boligrafo punta fina color negro',         'UNIDAD', 30, 3,  'INST-001'),
+(5,  'Clip Metrico 33mm',       'Clip de metal de 33mm en caja x100',       'CAJA',   15, 5,  'INST-001'),
+(6,  'Cinta Adhesiva 48mm',     'Cinta transparente de 48mm x 100m',        'ROLLO',  12, 6,  'INST-001'),
+(7,  'Toner Negro 26A Comp.',   'Cartucho compatible negro para HP26A',     'UNIDAD', 10, 2,  'INST-001'),
+(8,  'Grapadora Estandar',      'Grapadora de escritorio con grapa 24/6',   'UNIDAD',  5, 5,  'INST-001'),
+(9,  'Rotulador Marcador',      'Rotulador permanente punta gruesa',        'UNIDAD', 12, 3,  'INST-001'),
+(10, 'Papel Premium A4',        'Papel de presentacion alto gramaje',       'RESMA',  10, 1,  'INST-001'),
+(11, 'Resma Carta 75g A4',      'Resma de 500 hojas tamano carta',          'RESMA',  20, 7,  'INST-002'),
+(12, 'Toner HP 26A Negro',      'Cartucho de toner negro original HP26A',   'UNIDAD', 10, 8,  'INST-002'),
+(13, 'Guantes de Latex M',      'Caja de guantes de latex talla M',         'CAJA',   40, 9,  'INST-002'),
+(14, 'Folder Manila Carta',     'Carpeta de cartulina tamano carta',        'UNIDAD', 25, 10, 'INST-002');
 
 -- =====================================================
--- 8. MOVIMIENTO_INVENTARIO  (10 filas)
+-- 7. INVENTARIO  (14 filas)
 -- =====================================================
--- CHECK (cantidad > 0) respetado en todas las filas.
--- Mezcla entradas y salidas para que el QA vea historial con ambos tipos.
+-- `institucion_id` se deriva del departamento (D-2) y el producto debe ser de
+-- esa misma institucion (FK compuesta). UNIQUE (departamento_id, producto_id):
+-- cada producto va en un departamento distinto.
+--   INST-001 -> inventarios 1..10, departamentos 1,2,5,6,7
+--   INST-002 -> inventarios 11..14, departamento 8
+-- Stock diferenciable entre homonimos: prod 1 (INST-001) = 50 vs
+-- prod 11 (INST-002) = 12; prod 2 = 18 vs prod 12 = 9; prod 3 = 200 vs
+-- prod 14 = 60. El stock de una institucion nunca se usa para la otra (AC-1).
+
+INSERT INTO inventario (inventario_id, stock_actual, ubicacion, departamento_id, producto_id, institucion_id) OVERRIDING SYSTEM VALUE VALUES
+(1,   50, 'Bodega Central - Estante A1', 7,  1,  'INST-001'),
+(2,   18, 'Bodega Central - Estante A2', 7,  2,  'INST-001'),
+(3,  200, 'Bodega Central - Estante C1', 6,  3,  'INST-001'),
+(4,  150, 'Bodega Central - Estante C2', 6,  4,  'INST-001'),
+(5,   35, 'Bodega Central - Estante D1', 6,  5,  'INST-001'),
+(6,   48, 'Bodega Central - Estante D2', 1,  6,  'INST-001'),
+(7,    3, 'Bodega Central - Estante B2', 7,  7,  'INST-001'),
+(8,    1, 'Bodega Central - Estante E1', 5,  8,  'INST-001'),
+(9,    6, 'Bodega Central - Estante E2', 2,  9,  'INST-001'),
+(10,  45, 'Bodega Central - Estante F1', 2,  10, 'INST-001'),
+(11,  12, 'Bodega CFS Norte - Estante N1', 8, 11, 'INST-002'),
+(12,   9, 'Bodega CFS Norte - Estante N2', 8, 12, 'INST-002'),
+(13,   8, 'Bodega CFS Norte - Estante N3', 8, 13, 'INST-002'),
+(14,  60, 'Bodega CFS Norte - Estante N4', 8, 14, 'INST-002');
+
+-- =====================================================
+-- 8. MOVIMIENTO_INVENTARIO  (14 filas)
+-- =====================================================
+-- CHECK (cantidad > 0) respetado en todas las filas. Mezcla entradas y salidas.
+-- La institucion del movimiento se hereda del inventario (auditoria inmutable).
+--   INST-001 -> movimientos 1..10 ; INST-002 -> movimientos 11..14.
 
 INSERT INTO movimiento_inventario (movimiento_id, tipo_movimiento, cantidad, fecha_movimiento, observacion, inventario_id) OVERRIDING SYSTEM VALUE VALUES
 (1,  'ENTRADA', 50,  CURRENT_TIMESTAMP - INTERVAL '20 days', 'Compra a proveedor LICENSE-001', 1),
@@ -201,12 +248,16 @@ INSERT INTO movimiento_inventario (movimiento_id, tipo_movimiento, cantidad, fec
 (5,  'ENTRADA', 100, CURRENT_TIMESTAMP - INTERVAL '10 days', 'Compra trimestral de folders',        5),
 (6,  'SALIDA',  3,  CURRENT_TIMESTAMP - INTERVAL '8 days',  'Entrega a biblioteca',                 6),
 (7,  'SALIDA',  7,  CURRENT_TIMESTAMP - INTERVAL '6 days',  'Reposicion por merma detectada',       7),
-(8,  'ENTRADA', 25,  CURRENT_TIMESTAMP - INTERVAL '5 days',  'Compra de cintas adhesivas',          8),
+(8,  'ENTRADA', 25,  CURRENT_TIMESTAMP - INTERVAL '5 days',  'Compra de grapadoras',                8),
 (9,  'SALIDA',  4,  CURRENT_TIMESTAMP - INTERVAL '3 days',  'Prestamo a sala de clases',            9),
-(10, 'SALIDA',  4,  CURRENT_TIMESTAMP - INTERVAL '1 day',   'Reposicion por stock bajo',           10);
+(10, 'SALIDA',  4,  CURRENT_TIMESTAMP - INTERVAL '1 day',   'Reposicion por stock bajo',           10),
+(11, 'ENTRADA', 20,  CURRENT_TIMESTAMP - INTERVAL '9 days',  'Compra a proveedor LICENSE-014',      11),
+(12, 'SALIDA',  3,  CURRENT_TIMESTAMP - INTERVAL '7 days',  'Consumo en box de atencion',          12),
+(13, 'ENTRADA', 40,  CURRENT_TIMESTAMP - INTERVAL '4 days',  'Compra de insumos clinicos',          13),
+(14, 'SALIDA',  5,  CURRENT_TIMESTAMP - INTERVAL '2 days',  'Reposicion de archivadores',          14);
 
 -- =====================================================
--- 9. PRIORIDAD  (3 filas)
+-- 9. PRIORIDAD  (3 filas)  [GLOBAL, sin institucion - D-5/AC-3]
 -- =====================================================
 
 INSERT INTO prioridad (prioridad_id, nombre, descripcion) OVERRIDING SYSTEM VALUE VALUES
@@ -215,7 +266,7 @@ INSERT INTO prioridad (prioridad_id, nombre, descripcion) OVERRIDING SYSTEM VALU
 (3, 'Baja',  'Puede esperar a la siguiente compra periodica');
 
 -- =====================================================
--- 10. ESTADO_TICKET  (4 filas)
+-- 10. ESTADO_TICKET  (4 filas)  [GLOBAL, sin institucion - D-5/AC-3]
 -- =====================================================
 -- El orden de estas filas es el orden del flujo: el servicio lo lee por
 -- estado_id ascendente. El id de "Cerrado" ya no es critico: el cierre se
@@ -230,39 +281,43 @@ INSERT INTO estado_ticket (estado_id, nombre, descripcion) OVERRIDING SYSTEM VAL
 -- =====================================================
 -- 11. TICKET  (10 filas)
 -- =====================================================
--- Reparto en los 4 estados para que el futuro Kanban tenga columnas con
--- datos. Tickets en estado 4 (Cerrado) traen fecha_cierre; los demas, NULL.
+-- `institucion_id` se deriva del solicitante (usuario -> departamento ->
+-- institucion). Ningun ticket usa un solicitante de otra institucion que la de
+-- sus productos. Reparto en los 4 estados; los Cerrados traen fecha_cierre.
+--   INST-001 -> tickets 1..8 (solicitantes 1..7, departamentos 1..7)
+--   INST-002 -> tickets 9..10 (solicitante 8, departamento 8)
 
-INSERT INTO ticket (ticket_id, usuario_id, prioridad_id, estado_id, asunto, descripcion, fecha_creacion, fecha_cierre) OVERRIDING SYSTEM VALUE VALUES
-(1,  2,  2,  1, 'Resmas para sala de computacion',        'Solicitud de 10 resmas para el curso de referencia.',        CURRENT_TIMESTAMP - INTERVAL '2 days',  NULL),
-(2,  5,  1,  1, 'Toner urgente para impresora',            'La impresora de la sala 3 quedo sin toner.',               CURRENT_TIMESTAMP - INTERVAL '2 days',  NULL),
-(3,  8,  3,  2, 'Folders para fichas de pacientes',         'Fichas medicas se estan agotando.',                          CURRENT_TIMESTAMP - INTERVAL '3 days',  NULL),
-(4,  2,  2,  2, 'Boligrafos para secretaria',              'Reposicion del stock de escritura.',                         CURRENT_TIMESTAMP - INTERVAL '4 days',  NULL),
-(5,  9,  1,  3, 'Material didactico para el curso',         'Kits de escritura para 40 estudiantes.',                      CURRENT_TIMESTAMP - INTERVAL '5 days',  NULL),
-(6,  3,  2,  3, 'Clip metalico para archivo',              'El clip se perdio en la mudanza.',                           CURRENT_TIMESTAMP - INTERVAL '6 days',  NULL),
-(7,  1,  3,  4, 'Cintas para sellar sobres',                'Reposicion de cintas de la oficina.',                         CURRENT_TIMESTAMP - INTERVAL '9 days',  CURRENT_TIMESTAMP - INTERVAL '7 days'),
-(8,  4,  2,  4, 'Grapadoras para reemplazo',                'Se rompio la grapadora de la sala 2.',                      CURRENT_TIMESTAMP - INTERVAL '12 days', CURRENT_TIMESTAMP - INTERVAL '10 days'),
-(9,  7,  3,  4, 'Rotuladores para inventario',             'Rotuladores para etiquetar activos.',                       CURRENT_TIMESTAMP - INTERVAL '15 days', CURRENT_TIMESTAMP - INTERVAL '14 days'),
-(10, 6,  2,  1, 'Papel premium para presentacion',          'Papel de presentacion para el informe anual.',               CURRENT_TIMESTAMP - INTERVAL '1 day',   NULL);
+INSERT INTO ticket (ticket_id, usuario_id, prioridad_id, estado_id, asunto, descripcion, fecha_creacion, fecha_cierre, institucion_id) OVERRIDING SYSTEM VALUE VALUES
+(1,  2,  2,  1, 'Resmas para sala de computacion',   'Solicitud de 10 resmas para el curso de referencia.',   CURRENT_TIMESTAMP - INTERVAL '2 days',  NULL, 'INST-001'),
+(2,  5,  1,  1, 'Toner urgente para impresora',       'La impresora de la sala 3 quedo sin toner.',            CURRENT_TIMESTAMP - INTERVAL '2 days',  NULL, 'INST-001'),
+(3,  3,  3,  2, 'Folders para archivo de pagos',       'Carpetas para ordenar comprobantes del mes.',          CURRENT_TIMESTAMP - INTERVAL '3 days',  NULL, 'INST-001'),
+(4,  2,  2,  2, 'Boligrafos para secretaria',          'Reposicion del stock de escritura.',                    CURRENT_TIMESTAMP - INTERVAL '4 days',  NULL, 'INST-001'),
+(5,  3,  1,  3, 'Grapadoras para oficina',             'Grapadoras de reemplazo para el area de pagos.',        CURRENT_TIMESTAMP - INTERVAL '5 days',  NULL, 'INST-001'),
+(6,  1,  2,  3, 'Clip metalico para archivo',          'El clip se perdio en la mudanza.',                      CURRENT_TIMESTAMP - INTERVAL '6 days',  NULL, 'INST-001'),
+(7,  4,  3,  4, 'Cintas para sellar sobres',           'Reposicion de cintas de la oficina.',                   CURRENT_TIMESTAMP - INTERVAL '9 days',  CURRENT_TIMESTAMP - INTERVAL '7 days', 'INST-001'),
+(8,  6,  2,  4, 'Rotuladores para inventario',         'Rotuladores para etiquetar activos.',                   CURRENT_TIMESTAMP - INTERVAL '12 days', CURRENT_TIMESTAMP - INTERVAL '10 days', 'INST-001'),
+(9,  8,  1,  2, 'Guantes para box de atencion',        'Insumos clinicos para la atencion primaria.',           CURRENT_TIMESTAMP - INTERVAL '3 days',  NULL, 'INST-002'),
+(10, 8,  2,  4, 'Resmas para fichas de pacientes',     'Resmas para imprimir fichas en la recepcion.',          CURRENT_TIMESTAMP - INTERVAL '8 days',  CURRENT_TIMESTAMP - INTERVAL '6 days', 'INST-002');
 
 -- =====================================================
 -- 12. DETALLE_TICKET  (10 filas)
 -- =====================================================
 -- CHECK (cantidad_solicitada > 0) y (cantidad_entregada >= 0) respetados.
--- Los tickets en estado Cerrado (4) llevan cantidad_entregada = solicitada,
--- en coherencia con que ya fueron despachados.
+-- `institucion_id` se deriva del ticket y el producto debe ser de esa misma
+-- institucion (FK compuesta). Los tickets Cerrados (estado 4) llevan
+-- cantidad_entregada = solicitada, coherente con su despacho.
 
-INSERT INTO detalle_ticket (detalle_ticket_id, ticket_id, producto_id, cantidad_solicitada, cantidad_entregada) OVERRIDING SYSTEM VALUE VALUES
-(1,  1,  1,  10,  0),
-(2,  2,  3,  2,   0),
-(3,  3,  4,  50,  0),
-(4,  4,  5,  24,  0),
-(5,  5,  9,  3,   0),
-(6,  6,  6,  4,   0),
-(7,  7,  8,  6,   6),
-(8,  8,  9,  2,   2),
-(9,  9,  10, 8,   8),
-(10, 10, 2,  5,   0);
+INSERT INTO detalle_ticket (detalle_ticket_id, ticket_id, producto_id, cantidad_solicitada, cantidad_entregada, institucion_id) OVERRIDING SYSTEM VALUE VALUES
+(1,  1,  1,  10,  0,  'INST-001'),
+(2,  2,  2,  2,   0,  'INST-001'),
+(3,  3,  3,  50,  0,  'INST-001'),
+(4,  4,  4,  24,  0,  'INST-001'),
+(5,  5,  8,  3,   0,  'INST-001'),
+(6,  6,  5,  4,   0,  'INST-001'),
+(7,  7,  6,  6,   6,  'INST-001'),
+(8,  8,  9,  2,   2,  'INST-001'),
+(9,  9,  13, 4,   0,  'INST-002'),
+(10, 10, 11, 5,   5,  'INST-002');
 
 -- =====================================================
 -- 13. SINCRONIZAR SECUENCIAS  (NO OLVIDAR)

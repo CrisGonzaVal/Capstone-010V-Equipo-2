@@ -26,10 +26,16 @@ router = APIRouter(prefix="/auth", tags=["Autenticacion"])
         "registro local vinculado por el correo primario verificado, mas el "
         "`sub` validado de Clerk. El `sub` no se persiste en la base local y el "
         "contrato no expone `rol_id`.\n\n"
+        "Feature 008 (AC-17): incluye `institucion`, la institucion efectiva "
+        "derivada en el servidor (`usuario -> departamento -> institucion`) para "
+        "Administrador, Bodeguero y Solicitante; para Superadmin es `null`, "
+        "porque conserva su caracter global. El campo es **informativo** "
+        "(contexto de UI): no autoriza y no acepta entrada del cliente.\n\n"
         "Sin Bearer valido, con firma/emisor/vigencia incorrectos, con fallo o "
         "respuesta inadecuada del Backend API de Clerk, con correo primario no "
         "verificado, sin usuario local coincidente o con identidad/rol no "
-        "resoluble responde **401**."
+        "resoluble responde **401**. Si el ambito institucional de un rol "
+        "limitado no se resuelve, responde **403** y nunca degrada a global."
     ),
     responses={
         **dependencies.respuestas_de_autorizacion(),

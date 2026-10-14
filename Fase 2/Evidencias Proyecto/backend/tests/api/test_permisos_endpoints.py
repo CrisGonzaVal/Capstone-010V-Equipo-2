@@ -1,8 +1,9 @@
-"""T2 (Feature 007): autorizacion de las **18 operaciones reales** y contrato HTTP/OpenAPI.
+"""T2 (Feature 007): autorizacion de las **operaciones reales** y contrato HTTP/OpenAPI.
 
 Seam bajo prueba: la **interfaz HTTP del `app` real** (`TestClient`), no una app
 sonda. T1 verifico la dependencia y la matriz aisladas; aqui se comprueba que
-esas 18 operaciones estan efectivamente cableadas en los endpoints de negocio.
+esas operaciones (hoy **20**: las 18 de 007 mas los dos `GET` por objeto de
+catalogo de la Feature 008) estan efectivamente cableadas en los endpoints.
 
 Estrategia anti-tautologica: la matriz de referencia se escribe a mano (no se lee
 de `permisos.MATRIZ_PERMISOS`) y se contrasta contra las rutas que publica el
@@ -32,12 +33,18 @@ from app.models import DetalleTicket, EstadoTicket, Rol, Ticket, Usuario
 from app.services.auth_service import IdentidadAutenticada
 
 # ---------------------------------------------------------------------------
-# Fuente de verdad independiente: la matriz D-3 transcrita a mano (18 filas)
+# Fuente de verdad independiente: la matriz D-3 transcrita a mano (20 filas:
+# las 18 de 007 mas los dos GET por objeto de catalogo que exige AC-9 de la 008)
 # ---------------------------------------------------------------------------
 
 _TODOS = {"Superadmin", "Administrador", "Bodeguero", "Solicitante"}
 _ADMINISTRATIVOS = {"Superadmin", "Administrador"}
 _INVENTARIO_Y_TICKETS = {"Superadmin", "Administrador", "Bodeguero"}
+# Ajuste Feature 008 (D-3/AC-10): la escritura de catalogo, stock/movimientos y
+# tickets es institucional; Superadmin conserva solo sus lecturas.
+_ESCRITURA_CATALOGO = {"Administrador"}
+_ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
+_ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 
 MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
@@ -47,17 +54,19 @@ MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/usuarios/departamentos"): _ADMINISTRATIVOS,
     ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
     ("GET", "/api/v1/inventario/categorias"): _TODOS,
+    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
     ("GET", "/api/v1/inventario/productos"): _TODOS,
-    ("POST", "/api/v1/inventario/productos"): _ADMINISTRATIVOS,
+    ("GET", "/api/v1/inventario/productos/{producto_id}"): _TODOS,
+    ("POST", "/api/v1/inventario/productos"): _ESCRITURA_CATALOGO,
     ("GET", "/api/v1/inventario/existencias"): _TODOS,
     ("GET", "/api/v1/inventario/stock"): _TODOS,
     ("GET", "/api/v1/inventario/movimientos"): _INVENTARIO_Y_TICKETS,
-    ("POST", "/api/v1/inventario/movimientos"): _INVENTARIO_Y_TICKETS,
+    ("POST", "/api/v1/inventario/movimientos"): _ESCRITURA_STOCK,
     ("GET", "/api/v1/tickets/catalogos"): _TODOS,
     ("GET", "/api/v1/tickets/"): _TODOS,
-    ("POST", "/api/v1/tickets/"): _TODOS,
-    ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _INVENTARIO_Y_TICKETS,
-    ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _INVENTARIO_Y_TICKETS,
+    ("POST", "/api/v1/tickets/"): _ESCRITURA_TICKETS,
+    ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _ESCRITURA_STOCK,
+    ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -149,11 +158,15 @@ _SIN_AUTENTICAR = object()
 
 
 def _ruta_concreta(metodo: str, ruta: str, datos: dict) -> str:
-    """Resuelve `{ticket_id}` al ticket sembrado que corresponde a la operacion."""
+    """Resuelve los `{param}` de path al recurso sembrado que corresponde."""
     if ruta == "/api/v1/tickets/{ticket_id}/despacho":
         return ruta.replace("{ticket_id}", str(datos["ticket_despacho_id"]))
     if ruta == "/api/v1/tickets/{ticket_id}/estado":
         return ruta.replace("{ticket_id}", str(datos["ticket_estado_id"]))
+    if ruta == "/api/v1/inventario/productos/{producto_id}":
+        return ruta.replace("{producto_id}", str(datos["producto_id"]))
+    if ruta == "/api/v1/inventario/categorias/{categoria_id}":
+        return ruta.replace("{categoria_id}", str(datos["categoria_id"]))
     return ruta
 
 
@@ -246,6 +259,7 @@ def datos_autorizacion(motor, datos_base):
                 estado_id=estado_id,
                 asunto=asunto,
                 descripcion="Sembrado para pruebas de autorizacion.",
+                institucion_id=datos_base["institucion_id"],
             )
             db.add(ticket)
             db.flush()
@@ -255,6 +269,7 @@ def datos_autorizacion(motor, datos_base):
                     producto_id=datos_base["producto_id"],
                     cantidad_solicitada=1,
                     cantidad_entregada=0,
+                    institucion_id=datos_base["institucion_id"],
                 )
             )
             return ticket
@@ -283,7 +298,7 @@ def datos_autorizacion(motor, datos_base):
 
 
 def test_inventario_de_rutas_igual_a_la_matriz_d3():
-    """El `app` publica exactamente las 18 operaciones de negocio de la matriz.
+    """El `app` publica exactamente las 20 operaciones de negocio de la matriz.
 
     Falla si una ruta de negocio queda sin autorizacion declarada o si la matriz
     inventa una operacion que el contrato no expone.
@@ -445,7 +460,9 @@ REFERENCIAS_ESPERADAS = {
     ("GET", "/api/v1/usuarios/"): "UsuarioRespuesta",
     ("POST", "/api/v1/usuarios/"): "UsuarioRespuesta",
     ("GET", "/api/v1/inventario/categorias"): "CategoriaRespuesta",
+    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): "CategoriaRespuesta",
     ("GET", "/api/v1/inventario/productos"): "ProductoRespuesta",
+    ("GET", "/api/v1/inventario/productos/{producto_id}"): "ProductoRespuesta",
     ("POST", "/api/v1/inventario/productos"): "ProductoRespuesta",
     ("GET", "/api/v1/inventario/existencias"): "ProductoExistenciaRespuesta",
     ("GET", "/api/v1/inventario/stock"): "InventarioRespuesta",

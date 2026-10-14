@@ -27,6 +27,7 @@ describe('AutenticacionService', () => {
     apellido: 'Fernández',
     correo: 'camila.fernandez@losalpes.cl',
     rol: 'Administrador',
+    institucion: { institucion_id: 'inst-los-alpes', nombre: 'Los Alpes' },
   };
 
   let clerk: InstanciaClerkFalsa;
@@ -182,6 +183,26 @@ describe('AutenticacionService', () => {
       // Idempotencia: inicializar de nuevo no repite la petición.
       await servicio.inicializar();
       httpMock.expectNone(urlAuthMe);
+    });
+
+    it('conserva la institución efectiva nula de Superadmin sin inventarla (AC-17/AC-19)', async () => {
+      await servicio.inicializar();
+      clerk.firmarSesion();
+      await esperarPeticion();
+
+      const superadmin: IdentidadAutenticada = {
+        ...IDENTIDAD,
+        rol: 'Superadmin',
+        institucion: null,
+      };
+      httpMock.expectOne(urlAuthMe).flush(superadmin);
+      await esperarPeticion();
+
+      // El DTO viaja tal cual: ni el servicio ni la vista derivan una institución
+      // que el servidor declaró ausente.
+      expect(servicio.identidad()).toEqual(superadmin);
+      expect(servicio.identidad()?.institucion).toBeNull();
+      expect(servicio.estadoIdentidad()).toBe('disponible');
     });
 
     it('no repite la petición cuando Clerk reemite la misma sesión (navegación)', async () => {

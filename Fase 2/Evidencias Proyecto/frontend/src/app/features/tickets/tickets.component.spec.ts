@@ -327,6 +327,7 @@ describe('TicketsComponent', () => {
       apellido: 'Soto',
       correo: 'bruno.soto@losalpes.cl',
       rol,
+      institucion: { institucion_id: 'inst-los-alpes', nombre: 'Los Alpes' },
     };
   }
 
@@ -1288,6 +1289,94 @@ describe('TicketsComponent', () => {
 
       identidad.set(null);
       expect(componente.puedeGestionarKanban()).toBe(false);
+    });
+  });
+
+  /**
+   * AC-19: la vista de una institución presenta exactamente el catálogo, el
+   * stock y los tickets que el servidor devolvió para su ámbito. El servidor ya
+   * aísla (T7); el cliente no agrega ni recombina datos de otra institución, y
+   * tampoco elige el ámbito: no lo envía.
+   */
+  describe('aislamiento institucional en la vista (AC-19)', () => {
+    /** Catálogo de INST-A: homónimo con id y stock propios, sin nada de INST-B. */
+    const CATALOGOS_A: CatalogosTicket = {
+      ...CATALOGOS,
+      productos: [
+        {
+          producto_id: 101,
+          nombre: 'Resma Carta 75g',
+          unidad_medida: 'RESMA',
+          categoria_nombre: 'Papeleria',
+          stock_total: 120,
+          es_critico: false,
+        },
+      ],
+    };
+
+    /** Tickets de INST-A: solo su ámbito, sin tickets de INST-B. */
+    const TICKETS_A: Ticket[] = [
+      {
+        ticket_id: 301,
+        usuario_id: 5,
+        prioridad_id: 1,
+        estado_id: 1,
+        asunto: 'Reposición de resma (INST-A)',
+        descripcion: null,
+        fecha_creacion: '2026-10-01T10:00:00',
+        fecha_cierre: null,
+        detalles: [],
+      },
+    ];
+
+    function tarjetasVisibles() {
+      return componente.columnas().flatMap((columna) => columna.tarjetas);
+    }
+
+    it('presenta solo el catálogo, el stock y los tickets del ámbito recibido', () => {
+      responderArranque(CATALOGOS_A, TICKETS_A);
+
+      expect(componente.tickets()).toEqual(TICKETS_A);
+      expect(componente.productos()).toEqual(CATALOGOS_A.productos);
+      // El stock mostrado es el de INST-A (120), no el de un homónimo de INST-B.
+      expect(componente.productos()[0].stock_total).toBe(120);
+
+      const texto = fixture.nativeElement.textContent ?? '';
+      expect(texto).toContain('INST-A');
+      // Ningún dato de INST-B aparece, ni tickets ni productos homónimos.
+      expect(texto).not.toContain('INST-B');
+      expect(tarjetasVisibles().map((tarjeta) => tarjeta.ticket.ticket_id)).toEqual([301]);
+    });
+
+    it('no pide institución ni parámetros de ámbito: el filtro es del servidor', () => {
+      const peticiones = {
+        catalogos: httpMock.expectOne(RUTA_CATALOGOS),
+        tickets: httpMock.expectOne(RUTA_TICKETS),
+      };
+      peticiones.catalogos.flush(CATALOGOS_A);
+      peticiones.tickets.flush(TICKETS_A);
+      fixture.detectChanges();
+
+      for (const peticion of [peticiones.catalogos, peticiones.tickets]) {
+        expect(peticion.request.method).toBe('GET');
+        expect(peticion.request.params.has('institucion_id')).toBe(false);
+        expect(peticion.request.headers.get('X-Institucion-Id')).toBeNull();
+      }
+    });
+
+    it('el alta de ticket no reenvía la institución como autorización', () => {
+      abrirConCatalogos(CATALOGOS_A);
+
+      completarFormulario();
+      componente.enviar();
+
+      const peticion = httpMock.expectOne(RUTA_TICKETS);
+      expect(peticion.request.method).toBe('POST');
+      const cuerpo = peticion.request.body as Record<string, unknown>;
+      expect('institucion_id' in cuerpo).toBe(false);
+      expect('usuario_id' in cuerpo).toBe(true);
+
+      peticion.flush(ticketRespuesta(500));
     });
   });
 });

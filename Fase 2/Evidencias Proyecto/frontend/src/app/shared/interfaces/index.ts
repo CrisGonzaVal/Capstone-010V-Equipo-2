@@ -165,12 +165,31 @@ export interface CatalogosTicket {
 // --- Autenticación ---
 
 /**
+ * Institución efectiva del usuario autenticado (Feature 008, AC-17).
+ *
+ * Refleja 1:1 el `InstitucionEfectivaRespuesta` de
+ * `backend/app/schemas/auth_schema.py`: `institucion_id` es la misma clave que
+ * la entidad `Institucion` (y la que expone `GET /usuarios/instituciones`) y
+ * `nombre` es su etiqueta legible. Es **contexto informativo** de UI: nunca
+ * autoriza ni permite elegir el ámbito, que resuelve el servidor.
+ */
+export interface InstitucionEfectiva {
+  institucion_id: string;
+  nombre: string;
+}
+
+/**
  * Respuesta de `GET /api/v1/auth/me` (identidad local vinculada).
  *
  * Refleja 1:1 el `IdentidadAutenticadaRespuesta` de
- * `backend/app/schemas/auth_schema.py`: los seis campos del backend y **no**
+ * `backend/app/schemas/auth_schema.py`: los siete campos del backend y **no**
  * `rol_id`. `correo` es el correo del registro local (clave del vínculo), no el
  * del perfil de Clerk, y `rol` es el nombre legible (`rol.nombre_rol`).
+ *
+ * `institucion` (Feature 008, AC-17) es la institución efectiva derivada en el
+ * servidor para Administrador, Bodeguero y Solicitante; es `null` para
+ * Superadmin, que conserva su carácter global. El campo es informativo: la
+ * vista lo presenta como contexto y no lo trata como autorización.
  */
 export interface IdentidadAutenticada {
   usuario_id: number;
@@ -179,6 +198,7 @@ export interface IdentidadAutenticada {
   apellido: string;
   correo: string;
   rol: string;
+  institucion: InstitucionEfectiva | null;
 }
 
 // --- Usuarios ---

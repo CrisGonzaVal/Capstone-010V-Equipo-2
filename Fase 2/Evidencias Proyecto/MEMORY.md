@@ -2,29 +2,26 @@
 Memoria entre sesiones. Máximo ~50 líneas: resume lo útil y elimina lo que ya no aporte.
 
 ## Estado actual
-- Features 000…007 cerradas. **007 (control de acceso por roles) CERRADA** (14/Oct/2026): **17 AC en verde**. Backend `pytest` **377 passed**; frontend `ng test` **140 SUCCESS** (Edge 155); build de producción OK (reflejado en la imagen reconstruida `sha256:3862981…`). Migración `99_migracion_retiro_password.sql` aplicada a `apt_erp` (**12 usuarios/10 tickets intactos**, segunda ejecución idempotente). Recorrido funcional 4200 con los cuatro roles y humo en 8080 sobre la imagen reconstruida.
-- 007 entregó: los cuatro roles locales (`Superadmin`, `Administrador`, `Bodeguero`, `Solicitante`; sin alias `Admin`); autorización cliente+servidor; matriz central `backend/app/core/permisos.py` (18 endpoints) consumida por `requiere_roles`/`requiere_operacion` (`api/dependencies.py`); ámbito institucional en `services/ambito_service.py`; `RolGuard` + `/acceso-denegado` en el frontend; retiro de `usuario.password` (esquema, semilla, modelo `Usuario`, `UsuarioCrear` y tests).
-- 006 entregó: login/logout Clerk en Angular, `AutenticacionService` sobre `@clerk/clerk-js`, `tokenInterceptor` con el Bearer, `auth.guard`; backend valida el JWT por JWKS y vincula por correo primario verificado; `GET /auth/me` devuelve `usuario_id/sub/nombre/apellido/correo/rol` (sin `rol_id`).
-- 005 entregó: despacho transaccional (rebaja stock + cierre + `SALIDA` en una transacción), movimientos y PATCH `EnCurso→Cerrado` con 409. 003/004: catálogos, modal nativo y Kanban.
+- Features 000…008 implementadas y **008 CERRADA**: T1–T15 `[x]`, los 21 AC con evidencia, veredicto **APROBADO** del reviewer y `[x]` en `roadmap.md`. Backend `pytest` **487 passed, 5 skipped** en SQLite; **492 passed** con `POSTGRES_TEST_URL` (PostgreSQL 16). Frontend `ng test` **153 SUCCESS**. Recorrido funcional en 4200 con escritura real en `apt_erp` (ticket 25 cerrado, stock 30→20, movimiento SALIDA) y humo en 8080 sobre la imagen reconstruida `sha256:cfdd5de4…`.
+- 008 entregó: `institucion_id` en `categoria`/`producto` (catálogo por institución) y derivada en `inventario`/`ticket`/`detalle_ticket`; claves/relaciones compuestas en `01_esquema.sql`; migración `98_migracion_particionamiento_institucional.sql` fail-closed e idempotente; semilla multiinstitución con homónimos; filtros de ámbito en catálogo/inventario/movimientos/tickets/usuarios; `GET /auth/me` con institución efectiva (`null` para Superadmin); UI con contexto institucional. Ajuste puntual de la matriz de permisos: Superadmin deja de escribir catálogo/stock/tickets (lectura global intacta); matriz **20 operaciones** (las 18 de 007 + 2 `GET` por objeto de catálogo).
+- 007 entregó: cuatro roles locales (sin alias `Admin`); autorización cliente+servidor; matriz central `backend/app/core/permisos.py`; ámbito en `services/ambito_service.py`; `RolGuard` + `/acceso-denegado`; retiro de `usuario.password`.
+- 006: Clerk (login/logout, `tokenInterceptor`, JWKS, `/auth/me`). 005: despacho transaccional. 003/004: catálogos, modal, Kanban.
 
-## Decisiones de la 007
-- Cuatro roles distintos; `Admin` es abreviatura documental, no alias ni normalización runtime (D-1).
-- La autorización se exige en servidor (frontera real) y en cliente (navegación); el guard **no** es seguridad (D-2).
-- Matriz explícita por operación (D-3); ámbito `usuario → departamento → institución` para Administrador/Bodeguero/Solicitante, **403** si no resuelve; solo Superadmin es global (D-4).
-- Ticket ajeno e inexistente responden ambos **404** para no revelar existencia; denegación general es **403** (D-5).
-- `POST /usuarios/`: Administrador solo asigna Bodeguero/Solicitante; Superadmin los cuatro (D-6).
-- Solicitante autoatribuido al crear ticket (ignora `usuario_id` ajeno); los demás roles conservan `usuario_id` obligatorio (AC-6).
-- Catálogo maestro y `stock_total` de `/tickets/catalogos` siguen globales en 007; su particionamiento es 008.
-- `usuario.password` se **elimina, no se sustituye** por hash; migración reproducible e idempotente (D-7).
+## Decisiones de la 008
+- D-1: cada categoría/producto pertenece a una sola institución; no hay catálogo maestro compartido ni fallback global.
+- D-2: la existencia hereda institución del departamento y su producto debe ser de esa institución (constraint compuesta).
+- D-3: los roles limitados no eligen institución (`usuario → departamento → institución`); Superadmin lee global pero no escribe datos de institución concreta; esas escrituras son del Administrador (y del Bodeguero en lo operativo).
+- D-4: el servidor filtra y valida; el `institucion_id` del cliente nunca autoriza; objeto ajeno = **404**, departamento ajeno = **403**, ámbito irresoluble = **403**, sin mutación al denegar.
+- D-5: `rol`/`prioridad`/`estado_ticket` siguen globales.
+- D-6: la migración asigna pertenencia por relaciones persistidas; si es ambigua **aborta antes de cambios destructivos** identificando entidad/ID, sin perder ni reasignar datos, y reintenta tras corrección manual.
 
 ## Aprendizajes y errores a evitar
-- **Cierre = verificación, no marcado** (AGENTS.md §8.5): hacen falta los dos puertos; 8080 exige reconstruir la imagen (`docker compose build frontend` + `up -d`) — el backend sí se recarga solo.
-- **Pipes de `docker exec` desde PowerShell corrompen la entrada por codificación**: usar `cmd.exe /c "docker exec -i … < script"` (así se documentó la migración).
-- **Sin credenciales de contraseña en Clerk**, el recorrido por rol se hizo con sign-in tokens; el login por contraseña se verificó con la cuenta de prueba.
+- Cierre = verificación (AGENTS §8.5): hacen falta los dos puertos; 8080 exige reconstruir la imagen (`docker compose build frontend` + `up -d`); el backend sí se recarga solo.
+- La migración sobre la semilla legada real **abortó por ambigüedad** (`producto 4` referenciado por INST-001/INST-002, `producto 9` por INST-001/INST-003): el fail-closed funcionó. Se corrigió a mano (`UPDATE ticket … usuario_id`) y el reintento fue exitoso. El backup temporal `backup_apt_erp_pre008.sql` se borró al cerrar la 008 (nunca estuvo versionado).
+- Tests PostgreSQL **gated** con `POSTGRES_TEST_URL` (se saltan si no está); SQLite no verifica FK compuestas, `NOT NULL` del DDL ni `FOR UPDATE`.
+- Las columnas institucionales del DDL se endurecieron a `NOT NULL`; la migración debe rellenarlas antes de aplicarla.
+- `docker exec` con `<` desde PowerShell corrompe la entrada: usar `cmd.exe /c "docker exec -i … < script"`.
 - **Karma**: esta máquina solo tiene Edge; fijar `CHROME_BIN` y usar `--watch=false --browsers=ChromeHeadless` (nunca `npm test` a secas).
-- **SQLite ignora `FOR UPDATE`** y no aplica los CHECK del DDL: esas semánticas —y la migración— se verifican contra PostgreSQL 16 real.
-- **`@clerk/clerk-js` v6 no trae UI prebuilt**: cargar `@clerk/ui` desde el CDN del Frontend API y pasarlo a `load({ ui })`.
 
 ## Próximos pasos
-- **Feature 008** (Sprint 4): particionamiento lógico de datos por institución (SaaS multi-tenant), incluido el catálogo/stock hoy globales.
-- **Feature 009**: dashboard analítico de stock crítico y log de alertas (los KPI y "Actividad Reciente" siguen quemados a propósito).
+- **Feature 009** (siguiente, `[ ]` en el roadmap): dashboard analítico de stock crítico y log de alertas. Los KPI y "Actividad Reciente" siguen quemados a propósito y se reemplazan ahí.
