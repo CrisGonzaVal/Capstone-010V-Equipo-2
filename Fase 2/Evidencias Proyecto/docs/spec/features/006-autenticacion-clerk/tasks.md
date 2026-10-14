@@ -2,8 +2,9 @@
 
 **Spec:** [`spec.md`](spec.md) · **Plan:** [`plan.md`](plan.md)
 
-16 tareas en orden de dependencia; las tareas T1–T13 reflejan trabajo previo ya realizado y
-T14–T16 amplían la identidad local y su presentación. Cada tarea debe poder ejecutarse como
+17 tareas en orden de dependencia; las tareas T1–T13 reflejan trabajo previo ya realizado y
+T14–T16 amplían la identidad local y su presentación. T17 registra un cambio visual posterior
+al cierre, pendiente de implementación. Cada tarea debe poder ejecutarse como
 una unidad por el `@implementer`. Las tareas de comportamiento siguen TDD: primero test
 observable, luego implementación. No marcar una tarea sin cumplir `Hecho cuando:` y dejar
 evidencia concreta.
@@ -461,8 +462,21 @@ derivación de nombre/correo/rol, inicial del avatar + normalización a mayúscu
 carga con marcador, error `no_disponible` con marcador, y sin sesión sin marco ni ficticios),
 cada uno comprobando la ausencia de `Super Administrator`/`admin@compustock.cl`/`Superadmin`.
 Comandos: `$env:CHROME_BIN=…; cd frontend; npx ng test --watch=false --browsers=ChromeHeadless`
-→ **113 SUCCESS** (107 previos + 6 nuevos); `npx ng build` → OK, `Initial total` 318.93 kB
-(89.69 kB transfer) sin errores ni warnings de presupuesto.
+  → **113 SUCCESS** (107 previos + 6 nuevos); `npx ng build` → OK, `Initial total` 318.93 kB
+  (89.69 kB transfer) sin errores ni warnings de presupuesto.
+
+## T17 — Retirar tarjeta exterior del login (AC-17) — cambio posterior al cierre
+
+- [x] Actualizar la vista `/login` para retirar únicamente la tarjeta exterior propia del
+  sistema que enmarca la UI de Clerk. Conservar la cabecera CompuStock ERP sobre el login,
+  el fondo de página y el comportamiento de retorno; no modificar la UI prebuilt de Clerk
+  ni la lógica de autenticación.
+- [x] Añadir o ajustar una prueba de vista que verifique una sola caja de credenciales (la
+  de Clerk), sin tarjeta exterior propia, y que la cabecera de marca siga presente.
+- [x] Verificar visualmente `/login` en el recorrido frontend y ejecutar `ng test`.
+
+**Hecho cuando:** la vista muestra la UI prebuilt de Clerk sin tarjeta contenedora exterior,
+la cabecera/fondo/retorno se conservan, y la prueba de vista y la suite `ng test` pasan.
 
 ## Cierre
 
@@ -486,6 +500,7 @@ Comandos: `$env:CHROME_BIN=…; cd frontend; npx ng test --watch=false --browser
 | AC-14 | T1, T6, T12–T13 |
 | AC-15 | T13 |
 | AC-16 | T12, T15–T16 |
+| AC-17 | T17 |
 
 ## T13 — Evidencia AC, documentación viva y coherencia (AC-11…AC-16)
 

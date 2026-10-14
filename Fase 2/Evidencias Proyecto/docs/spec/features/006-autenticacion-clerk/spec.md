@@ -4,6 +4,9 @@
 **Release:** 2.0 — Sprint 3  
 **Tipo:** Seguridad e identidad federada
 
+> **Estado del cambio posterior:** borrador. La feature original permanece cerrada; este
+> cambio de requisito queda pendiente de implementación y verificación.
+
 ## 1. Problema
 
 La autenticación actual es decorativa: el frontend simula el estado de sesión y el backend
@@ -345,6 +348,21 @@ plan. Esta decisión técnica no altera los comportamientos de autenticación aq
   aún carga, falla o no está disponible, ENTONCES muestra un estado neutro (carga o identidad
   no disponible) y no muestra los valores ficticios anteriores ni un rol supuesto. La
   presentación no evalúa permisos, no bloquea rutas ni redirecciona según rol.
+
+- [ ] **AC-17** DADO QUE se visita `/login`, ENTONCES la vista presenta una sola caja de
+  credenciales —la UI prebuilt de Clerk— sin una tarjeta contenedora propia del sistema que
+  la enmarque. La cabecera con la marca CompuStock ERP permanece sobre la UI; también se
+  conservan el fondo de página y la lógica de retorno tras el inicio de sesión.
+
+## Cambios posteriores al cierre
+
+### CH-1 — Retirar la tarjeta exterior de `/login` (borrador)
+
+Se retira la tarjeta blanca exterior propia del sistema que enmarca el login. La página
+presenta únicamente la caja de credenciales prebuilt de Clerk, manteniendo la cabecera con
+la marca CompuStock ERP sobre ella, el fondo de página y la lógica de retorno existente.
+Este cambio visual no modifica el flujo ni el proveedor de autenticación. Su aceptación se
+registra en AC-17; hasta que se implemente y verifique, el cambio sigue en borrador.
 
 ### Evidencia de verificación al cierre
 

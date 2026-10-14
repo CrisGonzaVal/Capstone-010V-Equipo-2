@@ -68,6 +68,29 @@ describe('LoginComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('a[href*="sign-up"]')).toBeNull();
   });
 
+  it('presenta la caja de credenciales de Clerk sin tarjeta exterior propia', async () => {
+    const fixture = await montar();
+    const raiz = fixture.nativeElement as HTMLElement;
+
+    // La UI de Clerk vive en su propio contenedor, que cuelga del bloque
+    // centrado: no debe mediar una tarjeta del sistema envolviéndola.
+    const nodo = clerk.mountSignIn.calls.mostRecent().args[0] as HTMLElement;
+    const padre = nodo.parentElement as HTMLElement;
+    expect(padre.classList.contains('max-w-md')).toBe(true);
+
+    // No queda ninguna tarjeta contenedora propia del sistema (rounded-2xl + shadow-xl).
+    expect(raiz.querySelectorAll('.rounded-2xl.shadow-xl').length).toBe(0);
+  });
+
+  it('conserva la cabecera de marca sobre el login', async () => {
+    const fixture = await montar();
+    const raiz = fixture.nativeElement as HTMLElement;
+
+    const titulo = raiz.querySelector('h1');
+    expect(titulo?.textContent).toContain('CompuStock ERP');
+    expect((raiz.textContent ?? '').toLowerCase()).toContain('inicia sesión');
+  });
+
   it('no navega mientras no hay sesión', async () => {
     await montar('/tickets');
 
