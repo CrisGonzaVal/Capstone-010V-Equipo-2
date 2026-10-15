@@ -2,8 +2,8 @@
 
 Seam bajo prueba: la **interfaz HTTP del `app` real** (`TestClient`), no una app
 sonda. T1 verifico la dependencia y la matriz aisladas; aqui se comprueba que
-esas operaciones (hoy **20**: las 18 de 007 mas los dos `GET` por objeto de
-catalogo de la Feature 008) estan efectivamente cableadas en los endpoints.
+esas operaciones (hoy **21**: las 20 de 007/008 mas el `GET` consolidado del
+dashboard de la Feature 009) estan efectivamente cableadas en los endpoints.
 
 Estrategia anti-tautologica: la matriz de referencia se escribe a mano (no se lee
 de `permisos.MATRIZ_PERMISOS`) y se contrasta contra las rutas que publica el
@@ -33,8 +33,9 @@ from app.models import DetalleTicket, EstadoTicket, Rol, Ticket, Usuario
 from app.services.auth_service import IdentidadAutenticada
 
 # ---------------------------------------------------------------------------
-# Fuente de verdad independiente: la matriz D-3 transcrita a mano (20 filas:
-# las 18 de 007 mas los dos GET por objeto de catalogo que exige AC-9 de la 008)
+# Fuente de verdad independiente: la matriz D-3 transcrita a mano (21 filas:
+# las 20 de 007/008 mas el GET consolidado del dashboard que exige AC-13/AC-14
+# de la 009)
 # ---------------------------------------------------------------------------
 
 _TODOS = {"Superadmin", "Administrador", "Bodeguero", "Solicitante"}
@@ -67,6 +68,10 @@ MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     ("POST", "/api/v1/tickets/"): _ESCRITURA_TICKETS,
     ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _ESCRITURA_STOCK,
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
+    # Feature 009 (D-3/AC-13/AC-14): el dashboard consolidado es lectura para los
+    # cuatro roles. No altera la entrada de `GET /inventario/movimientos`, que
+    # sigue reservada a `_INVENTARIO_Y_TICKETS` (Solicitante excluido).
+    ("GET", "/api/v1/dashboard/"): _TODOS,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -298,7 +303,7 @@ def datos_autorizacion(motor, datos_base):
 
 
 def test_inventario_de_rutas_igual_a_la_matriz_d3():
-    """El `app` publica exactamente las 20 operaciones de negocio de la matriz.
+    """El `app` publica exactamente las 21 operaciones de negocio de la matriz.
 
     Falla si una ruta de negocio queda sin autorizacion declarada o si la matriz
     inventa una operacion que el contrato no expone.
@@ -313,6 +318,16 @@ def test_inventario_de_rutas_igual_a_la_matriz_d3():
     }
     assert operaciones_reales == set(MATRIZ_D3)
     assert set(permisos.MATRIZ_PERMISOS) == set(MATRIZ_D3)
+
+
+def test_operacion_dashboard_declarada_para_los_cuatro_roles():
+    """AC-13/AC-14: el dashboard figura en la matriz y movimientos sigue denegado.
+
+    Contraste de la fuente de verdad independiente: la operacion nueva existe para
+    los cuatro roles y el historial no amplia su permiso al Solicitante.
+    """
+    assert MATRIZ_D3[("GET", "/api/v1/dashboard/")] == _TODOS
+    assert "Solicitante" not in MATRIZ_D3[("GET", "/api/v1/inventario/movimientos")]
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +446,7 @@ def _ref_de_respuesta(operacion: dict, codigo: str) -> str | None:
 def test_openapi_toda_operacion_exige_bearer():
     esquema = app.openapi()
     for metodo, ruta in MATRIZ_D3:
+        assert ruta in esquema["paths"], (metodo, ruta, "ruta no publicada")
         operacion = esquema["paths"][ruta][metodo.lower()]
         assert operacion.get("security"), (metodo, ruta)
 
@@ -439,6 +455,7 @@ def test_openapi_declara_401_y_403_en_cada_operacion():
     """Cada operacion de la matriz documenta los dos codigos de autorizacion."""
     esquema = app.openapi()
     for metodo, ruta in MATRIZ_D3:
+        assert ruta in esquema["paths"], (metodo, ruta, "ruta no publicada")
         operacion = esquema["paths"][ruta][metodo.lower()]
         assert "401" in operacion["responses"], (metodo, ruta)
         assert "403" in operacion["responses"], (metodo, ruta)
@@ -449,6 +466,7 @@ def test_openapi_declara_401_y_403_en_cada_operacion():
 def test_openapi_declara_el_codigo_de_exito_de_cada_operacion():
     esquema = app.openapi()
     for metodo, ruta in MATRIZ_D3:
+        assert ruta in esquema["paths"], (metodo, ruta, "ruta no publicada")
         operacion = esquema["paths"][ruta][metodo.lower()]
         codigo = "201" if (metodo, ruta) in _CODIGOS_201 else "200"
         assert codigo in operacion["responses"], (metodo, ruta)
@@ -472,6 +490,7 @@ REFERENCIAS_ESPERADAS = {
     ("POST", "/api/v1/tickets/"): "TicketRespuesta",
     ("POST", "/api/v1/tickets/{ticket_id}/despacho"): "TicketRespuesta",
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): "TicketRespuesta",
+    ("GET", "/api/v1/dashboard/"): "DashboardAnaliticoRespuesta",
 }
 
 
@@ -479,6 +498,7 @@ def test_openapi_conserva_los_contratos_de_exito():
     """La autorizacion no altera el `response_model` de exito de ninguna operacion."""
     esquema = app.openapi()
     for (metodo, ruta), nombre in REFERENCIAS_ESPERADAS.items():
+        assert ruta in esquema["paths"], (metodo, ruta, "ruta no publicada")
         operacion = esquema["paths"][ruta][metodo.lower()]
         codigo = "201" if (metodo, ruta) in _CODIGOS_201 else "200"
         assert _ref_de_respuesta(operacion, codigo) == nombre, (metodo, ruta)

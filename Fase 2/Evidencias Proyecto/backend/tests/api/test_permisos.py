@@ -35,9 +35,10 @@ _ESCRITURA_CATALOGO = {"Administrador"}
 _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 
-#: Las 20 operaciones de negocio -> roles permitidos (matriz vigente tras el
-#: ajuste puntual de la Feature 008; el resto de la matriz D-3 de 007 no cambia,
-#: salvo los dos GET por objeto de catalogo que exige AC-9/AC-16 de la 008).
+#: Las 21 operaciones de negocio -> roles permitidos (matriz vigente tras el
+#: ajuste puntual de la Feature 008 y la operacion `GET /dashboard/` de la 009;
+#: el resto de la matriz D-3 de 007 no cambia, salvo los dos GET por objeto de
+#: catalogo que exige AC-9/AC-16 de la 008).
 MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
     ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
@@ -59,6 +60,8 @@ MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("POST", "/api/v1/tickets/"): _ESCRITURA_TICKETS,
     ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _ESCRITURA_STOCK,
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
+    # Feature 009 (D-3/AC-13/AC-14): lectura consolidada para los cuatro roles.
+    ("GET", "/api/v1/dashboard/"): _TODOS,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -136,13 +139,14 @@ def test_cuatro_roles_exactos_sin_alias_admin():
 
 
 # ---------------------------------------------------------------------------
-# AC-9: la matriz central es exactamente la de D-3 (20 operaciones vigentes
-# tras la Feature 008: las 18 de 007 mas los dos GET por objeto de catalogo)
+# AC-9: la matriz central es exactamente la de D-3 (21 operaciones vigentes
+# tras las Features 008 y 009: las 18 de 007 mas los dos GET por objeto de
+# catalogo de la 008 y el GET consolidado del dashboard de la 009)
 # ---------------------------------------------------------------------------
 
 
 def test_matriz_cubre_exactamente_las_operaciones_de_d3():
-    assert len(MATRIZ_ESPERADA) == 20
+    assert len(MATRIZ_ESPERADA) == 21
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_ESPERADA

@@ -9,7 +9,7 @@ El proyecto se ejecuta en dos grandes Versiones (Releases), priorizando el motor
 > El estado de cada feature vive en **una sola columna**, en el índice de especificaciones. Las listas de sprint son la vista cronológica y no llevan estado en prosa, para que no se desincronicen.
 > Ojo: en los `tasks.md` de cada feature, `[!]` significa "bloqueado". Acá significa "falta la verificación manual de cierre".
 
-**Siguiente feature:** la primera fila `[ ]` del índice, hoy la **009**. Se mueve al cerrar cada una.
+**Siguiente feature:** no queda ninguna fila `[ ]` en el índice: todas las features planificadas (000–009) están cerradas. El siguiente paso es el **Hito 2** (despliegue en producción y entrega).
 
 ---
 
@@ -39,7 +39,7 @@ El proyecto se ejecuta en dos grandes Versiones (Releases), priorizando el motor
 
 #### Sprint 4 (24/Nov/2026 - 11/Dic/2026): Aislamiento Multi-Tenant y Métricas
 - [x] Feature 008: Particionó catálogo e inventario por institución con claves compuestas, ajustó la matriz (Superadmin con lectura global), añadió institución efectiva a `/auth/me` y aplicó migración idempotente a la base real.
-- [ ] Feature 009: Dashboard analítico de stock crítico y log de alertas.
+- [x] Feature 009: Dashboard analítico de stock crítico y log de alertas (16 AC en verde; endpoint consolidado con KPIs/alertas/actividad reales, criticidad por fila, log derivado sin tabla nueva).
 
 > **Hito 2 (11/Dic/2026)**: Despliegue en producción y entrega del proyecto de título.
 
@@ -62,4 +62,4 @@ Cada feature tiene su carpeta en `docs/spec/features/NNN-nombre-feature/` con `s
 | 006 | 2.0 | 3 | `006-autenticacion-clerk/` | `[x]` Cerrada: 16 AC en verde, 195 tests de backend, 113 tests de frontend, recorrido funcional en 4200 con login/logout real contra Clerk y recorrido de humo en 8080 tras reconstruir la imagen | [spec.md](features/006-autenticacion-clerk/spec.md) · [plan.md](features/006-autenticacion-clerk/plan.md) · [tasks.md](features/006-autenticacion-clerk/tasks.md) |
 | 007 | 2.0 | 3 | `007-control-acceso-roles/` | `[x]` Cerrada: 17 AC en verde, 377 tests de backend, 140 tests de frontend, build de producción OK; autorización por rol cliente+servidor con matriz central y ámbito institucional; retiro de `usuario.password` con migración PostgreSQL idempotente (12 usuarios/10 tickets preservados); recorrido funcional en 4200 con los cuatro roles y humo en 8080 tras reconstruir la imagen | [spec.md](features/007-control-acceso-roles/spec.md) · [plan.md](features/007-control-acceso-roles/plan.md) · [tasks.md](features/007-control-acceso-roles/tasks.md) |
 | 008 | 2.0 | 4 | `008-particionamiento-institucional/` | `[x]` Cerrada: 21 AC en verde, 487 tests de backend (5 omitidos; 492 verificados con PostgreSQL 16), 153 tests de frontend; recorrido funcional en 4200 con escritura real y humo en 8080 tras reconstruir la imagen; migración idempotente aplicada in-place y matriz de permisos de 20 operaciones | [spec.md](features/008-particionamiento-institucional/spec.md) · [plan.md](features/008-particionamiento-institucional/plan.md) · [tasks.md](features/008-particionamiento-institucional/tasks.md) |
-| 009 | 2.0 | 4 | *(sin carpeta)* | `[ ]` No iniciada | — |
+| 009 | 2.0 | 4 | `009-dashboard-analitico-alertas/` | `[x]` Cerrada: 16 AC en verde, 540 tests de backend (5 omitidos; los 5 gated verificados con PostgreSQL 16), 172 tests de frontend; `GET /dashboard/` consolidado con KPIs, log de alertas derivado y actividad limitada a 10; recorrido funcional en 4200 con los cuatro roles contra la BD y humo en 8080 tras reconstruir la imagen; matriz de permisos de 21 operaciones; sin tabla/columna nueva | [spec.md](features/009-dashboard-analitico-alertas/spec.md) · [plan.md](features/009-dashboard-analitico-alertas/plan.md) · [tasks.md](features/009-dashboard-analitico-alertas/tasks.md) |

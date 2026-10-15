@@ -166,6 +166,24 @@ el patrón anterior se abre en dos:
   frontend toman `estados[0]` como estado inicial (D-4 de la 003). Ordenar por
   `estado_id` da el primero del flujo; ordenar por nombre daría otro.
 
+#### Variante: dashboard consolidado con secciones por rol (Feature 009)
+
+`obtener_dashboard_analitico()` en `dashboard_service.py` reúne en **una sola lectura**
+varios KPI (escalares), un listado derivado y una actividad acotada, con autorización por
+operación y secciones desactivables por rol:
+
+- **Una consulta por sección**, no una por métrica: los KPI escalares son `select(func.count())`
+  / `func.coalesce(func.sum(...), 0)` (agregados en SQL) y las listas son una proyección con
+  joins explícitos; así el número de consultas es constante y no hay N+1.
+- **La autorización va en la operación** (matriz central), pero **qué sección de datos se
+  ensambla lo decide el servicio**: un booleano de contrato (`actividad_disponible`) expresa
+  la sección no disponible para un rol sin conceder ni ampliar permiso sobre otro endpoint
+  (el Solicitante sigue con 403 en `/inventario/movimientos`).
+- **La regla de negocio se reutiliza como predicado puro** (`es_stock_critico`) evaluado por
+  **fila** de inventario, no sobre un agregado; el DTO expone `total_alertas == len(alertas)`.
+- **Filas multi-institución con atribución institucional** (`institucion_id`/`nombre`) sin
+  fundir homónimos; el agregado global de un escalar (Superadmin) es deliberadamente único.
+
 #### Modelo relacional y particionamiento por institución (Feature 008)
 
 La Feature 007 dejó el catálogo maestro (`categoria`, `producto`) y el `stock_total` de

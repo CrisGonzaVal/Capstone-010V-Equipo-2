@@ -201,6 +201,78 @@ export interface IdentidadAutenticada {
   institucion: InstitucionEfectiva | null;
 }
 
+// --- Dashboard analítico ---
+
+/**
+ * Los cuatro KPI del dashboard consolidado (Feature 009, D-4).
+ *
+ * Refleja 1:1 el `DashboardKpiRespuesta` de `backend/app/schemas/dashboard_schema.py`.
+ * Todos los conteos son escalares: sin datos devuelven cero.
+ */
+export interface DashboardKpi {
+  unidades_en_stock: number;
+  tickets_activos: number;
+  total_departamentos: number;
+  total_alertas: number;
+}
+
+/**
+ * Fila crítica del log de alertas (Feature 009, D-1).
+ *
+ * Refleja 1:1 el `AlertaStockRespuesta` del backend: una fila de inventario es
+ * crítica si `stock_actual <= stock_minimo` por pareja departamento-producto.
+ * `institucion_id`/`institucion_nombre` son la atribución institucional de la
+ * fila (poblada en la lectura global del Superadmin) y son `null` solo si la
+ * atribución no puede resolverse.
+ */
+export interface AlertaStock {
+  inventario_id: number;
+  producto_id: number;
+  producto_nombre: string;
+  departamento_id: number;
+  departamento_nombre: string;
+  stock_actual: number;
+  stock_minimo: number;
+  institucion_id: string | null;
+  institucion_nombre: string | null;
+}
+
+/**
+ * Fila de la actividad reciente (Feature 009, D-5).
+ *
+ * Refleja 1:1 el `MovimientoDashboardRespuesta` del backend. `fecha_movimiento`
+ * llega como cadena ISO (el backend serializa `datetime` a JSON), igual que
+ * `Ticket.fecha_creacion`. `ubicacion` es la de la fila de inventario de origen.
+ */
+export interface MovimientoDashboard {
+  movimiento_id: number;
+  tipo_movimiento: string;
+  cantidad: number;
+  fecha_movimiento: string;
+  producto_id: number;
+  producto_nombre: string;
+  departamento_id: number;
+  departamento_nombre: string;
+  ubicacion: string | null;
+  institucion_id: string | null;
+  institucion_nombre: string | null;
+}
+
+/**
+ * Respuesta consolidada de `GET /api/v1/dashboard/` (Feature 009).
+ *
+ * Refleja 1:1 el `DashboardAnaliticoRespuesta` del backend. `actividad_disponible`
+ * es `false` con lista vacía para el Solicitante (su permiso sobre el historial
+ * de movimientos sigue denegado); para los demás roles es `true` aun con lista
+ * vacía. Es un valor de presentación y no autoriza por sí mismo.
+ */
+export interface DashboardAnalitico {
+  kpi: DashboardKpi;
+  alertas: AlertaStock[];
+  actividad_disponible: boolean;
+  actividad_movimientos: MovimientoDashboard[];
+}
+
 // --- Usuarios ---
 
 export interface Usuario {
