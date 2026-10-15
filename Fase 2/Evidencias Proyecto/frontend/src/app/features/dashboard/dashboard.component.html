@@ -1,70 +1,185 @@
 <div class="space-y-6">
-  <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
-      <div>
-        <p class="text-sm font-medium text-slate-500">Productos en Stock</p>
-        <h3 class="text-3xl font-bold text-slate-800 mt-1">1,240</h3>
-      </div>
-      <div class="bg-blue-50 text-blue-600 p-3 rounded-lg text-2xl" aria-hidden="true">📦</div>
-    </div>
-    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
-      <div>
-        <p class="text-sm font-medium text-slate-500">Tickets Activos</p>
-        <h3 class="text-3xl font-bold text-amber-600 mt-1">14</h3>
-      </div>
-      <div class="bg-amber-50 text-amber-600 p-3 rounded-lg text-2xl" aria-hidden="true">🎫</div>
-    </div>
-    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
-      <div>
-        <p class="text-sm font-medium text-slate-500">Departamentos</p>
-        <h3 class="text-3xl font-bold text-emerald-600 mt-1">6</h3>
-      </div>
-      <div class="bg-emerald-50 text-emerald-600 p-3 rounded-lg text-2xl" aria-hidden="true">🏢</div>
-    </div>
-    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
-      <div>
-        <p class="text-sm font-medium text-slate-500">Alertas de Stock</p>
-        <h3 class="text-3xl font-bold text-rose-600 mt-1">2</h3>
-      </div>
-      <div class="bg-rose-50 text-rose-600 p-3 rounded-lg text-2xl" aria-hidden="true">⚠️</div>
-    </div>
-  </div>
+  <header>
+    <h2 class="text-2xl font-bold text-slate-800">Dashboard</h2>
+    <p class="text-sm text-slate-500">
+      Resumen operativo de inventario, tickets y alertas de stock (Conectado a FastAPI &amp;
+      PostgreSQL)
+    </p>
+  </header>
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-      <h3 class="text-lg font-bold text-slate-800 mb-4">Estado de Sedes Descentralizadas</h3>
-      <div
-        class="bg-slate-100 h-64 rounded-lg flex items-center justify-center text-slate-500 border border-dashed border-slate-300"
+  @if (cargando()) {
+    <p
+      role="status"
+      aria-live="polite"
+      class="rounded-xl border border-slate-100 bg-white p-8 text-center text-sm text-slate-500"
+    >
+      Cargando dashboard...
+    </p>
+  } @else if (mensajeError()) {
+    <div
+      role="alert"
+      class="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+    >
+      <span>{{ mensajeError() }}</span>
+      <button
+        type="button"
+        class="rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-100 focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+        (click)="reintentar()"
       >
-        [ Mapa de Sedes / Métricas Geográficas en Tiempo Real ]
-      </div>
+        Reintentar
+      </button>
     </div>
+  } @else {
+    @if (kpi(); as resumen) {
+      <!-- Indicadores -->
+      <div class="grid grid-cols-1 gap-6 md:grid-cols-4">
+        <div
+          class="flex items-center justify-between rounded-xl border border-slate-100 bg-white p-6 shadow-sm"
+        >
+          <div>
+            <p class="text-sm font-medium text-slate-500">Unidades en Stock</p>
+            <h3 class="mt-1 text-3xl font-bold text-slate-800">
+              {{ resumen.unidades_en_stock }}
+            </h3>
+          </div>
+          <div class="rounded-lg bg-blue-50 p-3 text-2xl text-blue-600" aria-hidden="true">📦</div>
+        </div>
 
-    <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-      <h3 class="text-lg font-bold text-slate-800 mb-4">Actividad Reciente</h3>
-      <div class="space-y-4">
-        <div class="flex items-start space-x-3 text-sm">
-          <span class="bg-blue-100 text-blue-800 p-1 rounded" aria-hidden="true">📦</span>
+        <div
+          class="flex items-center justify-between rounded-xl border border-slate-100 bg-white p-6 shadow-sm"
+        >
           <div>
-            <p class="font-medium text-slate-800">Entrada de Insumos</p>
-            <p class="text-slate-500 text-xs">Se añadieron 200 lápices pasta azul.</p>
+            <p class="text-sm font-medium text-slate-500">Tickets Activos</p>
+            <h3 class="mt-1 text-3xl font-bold text-amber-600">
+              {{ resumen.tickets_activos }}
+            </h3>
+          </div>
+          <div class="rounded-lg bg-amber-50 p-3 text-2xl text-amber-600" aria-hidden="true">
+            🎫
           </div>
         </div>
-        <div class="flex items-start space-x-3 text-sm">
-          <span class="bg-emerald-100 text-emerald-800 p-1 rounded" aria-hidden="true">🎫</span>
+
+        <div
+          class="flex items-center justify-between rounded-xl border border-slate-100 bg-white p-6 shadow-sm"
+        >
           <div>
-            <p class="font-medium text-slate-800">Nuevo Ticket Creado</p>
-            <p class="text-slate-500 text-xs">Dpto. Salud solicitó insumos médicos.</p>
+            <p class="text-sm font-medium text-slate-500">Departamentos</p>
+            <h3 class="mt-1 text-3xl font-bold text-emerald-600">
+              {{ resumen.total_departamentos }}
+            </h3>
+          </div>
+          <div class="rounded-lg bg-emerald-50 p-3 text-2xl text-emerald-600" aria-hidden="true">
+            🏢
           </div>
         </div>
-        <div class="flex items-start space-x-3 text-sm">
-          <span class="bg-rose-100 text-rose-800 p-1 rounded" aria-hidden="true">⚠️</span>
+
+        <div
+          class="flex items-center justify-between rounded-xl border border-slate-100 bg-white p-6 shadow-sm"
+        >
           <div>
-            <p class="font-medium text-slate-800">Stock Crítico</p>
-            <p class="text-slate-500 text-xs">Resmas de papel bajo el mínimo.</p>
+            <p class="text-sm font-medium text-slate-500">Alertas de Stock</p>
+            <h3 class="mt-1 text-3xl font-bold text-rose-600">
+              {{ resumen.total_alertas }}
+            </h3>
           </div>
+          <div class="rounded-lg bg-rose-50 p-3 text-2xl text-rose-600" aria-hidden="true">⚠️</div>
         </div>
       </div>
-    </div>
-  </div>
+
+      <!-- Log de alertas: unica lista de filas departamento-producto criticas -->
+      <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <h3 class="mb-4 text-lg font-bold text-slate-800">Alertas de Stock</h3>
+
+        @if (alertas().length) {
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <caption class="sr-only">
+                Filas de inventario por departamento y producto con stock igual o por debajo del mínimo
+              </caption>
+              <thead>
+                <tr
+                  class="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-500"
+                >
+                  <th scope="col" class="py-3 pr-4">Producto</th>
+                  <th scope="col" class="py-3 pr-4">Departamento</th>
+                  <th scope="col" class="py-3 pr-4">Institución</th>
+                  <th scope="col" class="py-3 pr-4 text-right">Stock actual</th>
+                  <th scope="col" class="py-3 text-right">Mínimo</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 text-slate-700">
+                @for (alerta of alertas(); track alerta.inventario_id) {
+                  <tr class="hover:bg-slate-50">
+                    <td class="py-3 pr-4 font-medium text-slate-900">
+                      {{ alerta.producto_nombre }}
+                    </td>
+                    <td class="py-3 pr-4">{{ alerta.departamento_nombre }}</td>
+                    <td class="py-3 pr-4 text-slate-500">
+                      {{ alerta.institucion_nombre ?? 'Global' }}
+                    </td>
+                    <td class="py-3 pr-4 text-right font-bold text-rose-600">
+                      {{ alerta.stock_actual }}
+                    </td>
+                    <td class="py-3 text-right text-slate-500">{{ alerta.stock_minimo }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p
+            class="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500"
+          >
+            No hay alertas de stock.
+          </p>
+        }
+      </section>
+
+      <!-- Actividad reciente: solo si el servidor la autoriza para el rol -->
+      @if (actividadDisponible()) {
+        <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+          <h3 class="mb-4 text-lg font-bold text-slate-800">Actividad Reciente</h3>
+
+          @if (actividad().length) {
+            <ul class="space-y-4">
+              @for (movimiento of actividad(); track movimiento.movimiento_id) {
+                <li class="flex items-start gap-3 text-sm">
+                  <span
+                    class="rounded p-1 text-base"
+                    aria-hidden="true"
+                    [class.bg-emerald-100]="movimiento.tipo_movimiento === 'ENTRADA'"
+                    [class.text-emerald-800]="movimiento.tipo_movimiento === 'ENTRADA'"
+                    [class.bg-blue-100]="movimiento.tipo_movimiento !== 'ENTRADA'"
+                    [class.text-blue-800]="movimiento.tipo_movimiento !== 'ENTRADA'"
+                  >
+                    {{ movimiento.tipo_movimiento === 'ENTRADA' ? '📦' : '📤' }}
+                  </span>
+                  <div>
+                    <p class="font-medium text-slate-800">
+                      {{ movimiento.tipo_movimiento }} de {{ movimiento.cantidad }} ·
+                      {{ movimiento.producto_nombre }}
+                    </p>
+                    <p class="text-xs text-slate-500">
+                      {{ movimiento.departamento_nombre }} ·
+                      {{ movimiento.ubicacion ?? 'Sin ubicación' }} ·
+                      {{ movimiento.institucion_nombre ?? 'Global' }}
+                    </p>
+                    <p class="text-xs text-slate-400">
+                      {{ movimiento.fecha_movimiento | date: 'short' }}
+                    </p>
+                  </div>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p
+              class="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500"
+            >
+              Sin movimientos recientes.
+            </p>
+          }
+        </section>
+      }
+    }
+  }
 </div>

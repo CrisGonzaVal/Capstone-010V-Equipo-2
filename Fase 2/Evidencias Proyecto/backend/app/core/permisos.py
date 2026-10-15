@@ -69,10 +69,11 @@ _ESCRITURA_TICKETS: frozenset[str] = frozenset(
 #: Matriz explicita operacion -> roles permitidos (D-3, AC-9).
 #:
 #: La clave es (metodo HTTP en mayusculas, ruta completa tal como la publica el
-#: contrato, con los parametros de path en su forma `{param}`). Los 20 endpoints
-#: de negocio quedan cubiertos (las 18 operaciones de 007 mas los dos `GET` por
-#: objeto de catalogo que exige la Feature 008); una operacion ausente de esta
-#: matriz no concede permiso a ningun rol.
+#: contrato, con los parametros de path en su forma `{param}`). Los 21 endpoints
+#: de negocio quedan cubiertos (las 18 operaciones de 007, los dos `GET` por
+#: objeto de catalogo que exige la Feature 008 y el `GET` consolidado del
+#: dashboard de la Feature 009); una operacion ausente de esta matriz no concede
+#: permiso a ningun rol.
 MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # Autenticacion: identidad autenticada, cualquier rol.
     ("GET", "/api/v1/auth/me"): _TODOS,
@@ -102,6 +103,12 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # 008 D-3: despacho y cambio de estado sin Superadmin.
     ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _ESCRITURA_STOCK,
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
+    # Feature 009 (D-3/AC-13/AC-14): el dashboard consolidado es una lectura para
+    # los cuatro roles. La actividad de movimientos dentro de su respuesta se
+    # gobierna en el servicio (Solicitante sin actividad); esta operacion NO
+    # amplia el permiso de `GET /inventario/movimientos`, que sigue reservado a
+    # `_INVENTARIO_Y_TICKETS` (Solicitante excluido).
+    ("GET", "/api/v1/dashboard/"): _TODOS,
 }
 
 
