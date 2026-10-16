@@ -2,27 +2,31 @@
 Memoria entre sesiones. Máximo ~50 líneas: resume lo útil y elimina lo que ya no aporte.
 
 ## Estado actual
-- Features 000…009 implementadas; **008 y 009 CERRADAS** (veredicto APROBADO del reviewer). Backend `pytest`: **540 passed, 5 skipped, 0 failed** (SQLite; los 5 gated pasan con `POSTGRES_TEST_URL`). Frontend `ng test`: **172 SUCCESS, 0 failed**; `ng build` limpio. Matriz de permisos: **21 operaciones**.
-- 009 entregó: `GET /api/v1/dashboard/` consolidado (`DashboardAnaliticoRespuesta`); `dashboard_service.obtener_dashboard_analitico`; router delgado + operación `_TODOS` en la matriz; frontend `DashboardService` + interfaces espejo; dashboard con datos reales. Recorrido 4200 con los 4 roles (Admin 626/5/7/3, Superadmin 646/5/10/3, Bodeguero 626/5/7/3, Solicitante 626/0/7/3 sin actividad y 403 en historial); humo 8080 sobre imagen reconstruida `sha256:11a287959b12…` (008: `cfdd5de4…`).
-- 008 entregó: `institucion_id` en catálogo e inventario/ticket/detalle; claves compuestas en `01_esquema.sql`; migración `98_…` fail-closed idempotente aplicada a la base real; semilla multiinstitución con homónimos; filtros de ámbito; `/auth/me` con institución efectiva (quedó en 20 operaciones; 009 la llevó a 21).
-- 007: roles sin alias, autorización cliente+servidor, matriz central, `ambito_service`, `RolGuard` + `/acceso-denegado`, retiro de `usuario.password`. 006: Clerk. 005: despacho transaccional. 003/004: catálogos/kanban.
+- Features 000…009 implementadas y **cerradas** (008 y 009 con veredicto APROBADO). Backend `pytest`: **540 passed, 5 skipped** (los 5 gated pasan con `POSTGRES_TEST_URL`). Frontend `ng test`: **172 SUCCESS**. Matriz de permisos: **21 operaciones**.
+- 009: `GET /api/v1/dashboard/` consolidado (KPIs + alertas por fila + actividad limitada a 10). 008: `institucion_id` en catálogo/inventario/ticket/detalle, claves compuestas y migración `98_` idempotente. 007: autorización por rol (matriz central + `RolGuard`). 006: Clerk. 005: despacho transaccional.
+- No queda ninguna fila `[ ]` en el índice de features; el roadmap apunta al **Hito 2** (despliegue + entrega).
 
-## Decisiones de la 009
-- D-3: un único endpoint consolidado; autorización por operación `_TODOS` en la matriz; el filtrado por rol vive en el servicio y no concede permisos nuevos sobre otros endpoints.
-- D-1/D-4: criticidad por **fila** de inventario (`stock_actual <= stock_minimo` por departamento-producto), no por agregado; `total_alertas == len(alertas)`.
-- D-2/D-6: log de alertas **derivado**; sin tabla/columna/migración nueva; `movimiento_inventario` sigue siendo la auditoría inmutable.
-- D-5: actividad = movimientos reales, orden `fecha DESC, id DESC`, límite fijo **10**; `actividad_disponible` es presentación (Solicitante `false`) y **no** amplía el 403 vigente del historial.
-- D-4/D-7: Superadmin tiene `unidades_en_stock` como **escalar global único**, pero cada fila de alerta/actividad lleva atribución institucional (sin comparar/rankear instituciones); la futura Sede no se anticipó.
-- Retiro del placeholder «Estado de Sedes Descentralizadas» y de las cifras de muestra; la institución por fila es parte del contrato.
+## Sprint 5 (en análisis, sin spec todavía)
+- Matriz de acciones compartidas por rol **aprobada** por el usuario: **18 casos de uso en 4 módulos** (A administración, C catálogo e inventario, T tickets, R informes y avisos).
+- Cobertura por actor: Superadmin 11 · Administrador 17 · Bodeguero 11 · Solicitante 6.
+- Candidatas a feature: 010 gestión admin real · 011 instituciones y **entidad `sede`** · 012 ciclo de vida del catálogo · 013 ciclo de vida del ticket (asignado + SLA + historial) · 014 informes PDF/Excel · 015 notificaciones in-app · Hito 2 despliegue.
+- **Decisión descartada**: base de datos por institución. Se mantiene la base compartida + `institucion_id` (008); el aislamiento por fila con FK compuestas se argumenta como suficiente.
+- Decisiones abiertas para las specs: `sede` como 13ª entidad (¿inventario por sede o por departamento? ¿alcance del Bodeguero?) y SLA del ticket.
+
+## Entregable: diagramas de casos de uso
+- `docs/diagramas/`: `casos-uso-general` + `casos-uso-{superadmin,administrador,bodeguero,solicitante}`, en **HTML y PNG** (UML clásico compuesto con el skill).
+- Los **5 PNG** se copiaron además a `../Evidencias Grupales/diagramas/` (fuera del proyecto, pedido explícito del usuario) para la entrega grupal; el folder es `Evidencias Grupales` (plural).
+- Skill **`diagram-design`** (cathrynlavery) instalado en `.agents/skills/diagram-design/`.
 
 ## Aprendizajes y errores a evitar
-- Read model consolidado: una consulta por sección (agregados en SQL) evita N+1; `from_attributes` no aplica a proyecciones multi-tabla/agregadas.
-- Al añadir una operación a la matriz hay que actualizar también las **transcripciones independientes** de 007/008 (`test_permisos.py`, `test_permisos_008.py`) que asertan igualdad exacta.
-- Al pasar un spec de rojo a verde, limpiar el docstring de «Fase ROJA»: quedó obsoleto y el reviewer lo marcó.
-- Cierre = verificación (AGENTS §8.5): hacen falta los dos puertos; 8080 exige `docker compose build frontend` + `up -d`; el backend recarga solo.
-- Tests PostgreSQL **gated** (`POSTGRES_TEST_URL`); SQLite no valida FK compuestas ni el `NOT NULL` del DDL.
-- Edge: fijar `CHROME_BIN` y usar `--watch=false --browsers=ChromeHeadless` (nunca `npm test` a secas).
+- `diagram-design` **no tiene tipo "caso de uso"** entre sus 45: se compone a mano con su sistema de diseño, y ahí se relaja la regla de conectores ortogonales (las asociaciones actor→caso son rectas, como en UML real).
+- Se editó `references/style-guide.md` del skill con la **paleta CompuStock** (slate + blue); `npx skills update` la revierte.
+- `skills-lock.json` **no quedó actualizado** con `diagram-design`: el hash del CLI no es sha256 simple y el comando se interrumpió dos veces. No se inventó un hash.
+- PNG sin Playwright: se capturó el elemento `<svg>` con `chrome-devtools` (`take_screenshot` con `uid` + `filePath`), que da un PNG solo-diagrama.
+- Cierre = verificación (AGENTS §8.5): hacen falta los dos puertos; 8080 exige `docker compose build frontend`; el backend recarga solo.
+- Tests PostgreSQL **gated** (`POSTGRES_TEST_URL`); SQLite no valida FK compuestas.
+- Edge: fijar `CHROME_BIN` y usar `--watch=false --browsers=ChromeHeadless`.
 
 ## Próximos pasos
-- Roadmap tras la 009: **Hito 2** — despliegue en producción y entrega del proyecto de título. No quedan features `[ ]` en el índice de especificaciones.
-- La rama `dev` con todo el trabajo de la 009 **no se ha commiteado** (decisión del usuario).
+- Cerrar el inventario de casos de uso y abrir `docs/spec/features/010-…` (spec → plan → tasks).
+- La rama `dev` con el trabajo de la 009 y estos diagramas **no se ha commiteado** (decisión del usuario).

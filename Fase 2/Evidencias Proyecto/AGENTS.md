@@ -31,6 +31,7 @@ Compustock ERP es un sistema web para la administración centralizada, trazabili
 ## 4. Estructura del Espacio de Trabajo
 Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive este archivo). Arquitectura definida en `docs/spec/stack.md`:
 - `docs/spec/` — Documentación viva de Spec-Driven Development (única fuente de verdad): `constitucion.md`, `roadmap.md`, `stack.md`.
+- `docs/diagramas/` — Diagramas en **HTML + PNG** generados con el skill `diagram-design`: casos de uso por actor y vista general del sistema.
 - `docs/spec/features/` — Especificaciones por incremento (`spec.md`, `plan.md`, `tasks.md`).
 - `backend/` — API REST FastAPI: `app/main.py`, `app/core/` (`config.py`, `security.py`), `app/db/database.py`, `app/models/` (por entidad), `app/schemas/` (DTOs), `app/services/` (lógica ACID), `app/api/dependencies.py`, `app/api/v1/api.py`, `app/api/v1/endpoints/` (auth, usuarios, inventario, tickets) y `tests/` (pytest).
 - `frontend/` — Aplicación web Angular: `src/app/core/` (guards, interceptors, services), `src/app/shared/` (components, interfaces, pipes), `src/app/features/` (dashboard, inventario, tickets — cada una con `routes.ts` y `services/`) y `src/assets/`.
@@ -127,6 +128,7 @@ Las convenciones de §6 y el flujo de §8 están codificados como skills en `.ag
 | `web-design-guidelines` | al auditar UI existente (accesibilidad, responsive) |
 | `grill-me` | antes de aprobar un plan o spec que quieres estresar con preguntas duras |
 | `systematic-debugging` | al depurar un bug o test rojo difícil (reproducir → aislar → hipótesis → verificar) |
+| `diagram-design` | al crear o rediseñar diagramas (casos de uso, arquitectura, ER, despliegue) para las evidencias; su salida vive en `docs/diagramas/` |
 
 ### Agentes SDD (`.opencode/agents/`)
 
