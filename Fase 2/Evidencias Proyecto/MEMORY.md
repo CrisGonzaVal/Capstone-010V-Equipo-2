@@ -29,4 +29,4 @@ Memoria entre sesiones. Máximo ~50 líneas: resume lo útil y elimina lo que ya
 
 ## Próximos pasos
 - Cerrar el inventario de casos de uso y abrir `docs/spec/features/010-…` (spec → plan → tasks).
-- La rama `dev` con el trabajo de la 009 y estos diagramas **no se ha commiteado** (decisión del usuario).
+- La rama `dev` ya está fusionada en `main` (Feature 009). Los diagramas, el skill y las notas se commitearon y subieron a `origin/main` en `955280a`.
