@@ -34,6 +34,8 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from fastapi import HTTPException, status
+
 from app.core import permisos
 from app.models import (
     Departamento,
@@ -52,9 +54,9 @@ from app.schemas.dashboard_schema import (
     MovimientoDashboardRespuesta,
 )
 from app.services import ambito_service
+from app.services import global_service
 from app.services.auth_service import IdentidadAutenticada
 from app.services.inventario_service import es_stock_critico
-
 #: Nombre literal del unico estado de ticket que NO cuenta como activo. La
 #: comparacion es sensible a mayusculas y sin normalizacion (D-4 #2, AC-2): solo
 #: el nombre exacto "Cerrado" se excluye; "cerrado" o "CERRADO" si cuentan.
@@ -234,6 +236,91 @@ def _listar_actividad(
     ]
 
 
+def _es_postgres(db: Session) -> bool:
+    """`True` si la sesion corre sobre PostgreSQL (namespaces reales)."""
+    return db.get_bind().dialect.name == "postgresql"
+
+
+def _dashboard_global(
+    db: Session, identidad: IdentidadAutenticada | None, tenants: list
+) -> DashboardAnaliticoRespuesta:
+    """Consolida el dashboard del Superadmin sobre TODOS los tenants (D-9/AC-14).
+
+    Recorre los tenants registrados en control **dentro de una unica transaccion
+    de lectura** (`global_service.lectura_global`, `REPEATABLE READ`) y reutiliza
+    las mismas reglas por tenant (`_listar_alertas`, `_sumar_unidades_en_stock`,
+    `_contar_tickets_activos`, `_contar_departamentos`, `_listar_actividad`), de
+    modo que los KPI son la suma de cada tenant y cada fila conserva su
+    atribucion institucional (`institucion_id`/`institucion_nombre`).
+
+    La actividad se acota por tenant y luego se reordena globalmente
+    (`fecha DESC, movimiento_id DESC`) y se limita a `LIMITE_ACTIVIDAD`, para
+    respetar el contrato de 10 filas mas recientes del agregado (un movimiento
+    del top-10 global siempre pertenece al top-10 de su tenant).
+
+    Un tenant no versionado o inaccesible levanta `ErrorLecturaGlobal`, que se
+    normaliza a **503** revirtiendo la transaccion: nunca se entrega un agregado
+    parcial (AC-12/AC-14). No agrega escrituras de negocio al Superadmin.
+    """
+    total_unidades = 0
+    total_tickets = 0
+    total_departamentos = 0
+    alertas: list[AlertaStockRespuesta] = []
+    actividad: list[MovimientoDashboardRespuesta] = []
+    puede_ver_actividad = not _es_solicitante(identidad)
+
+    try:
+        with global_service.lectura_global(db) as lector:
+            for tenant in tenants:
+                with lector.sesion(tenant) as sesion:
+                    alertas.extend(
+                        _listar_alertas(sesion, tenant.institucion_id)
+                    )
+                    total_unidades += _sumar_unidades_en_stock(
+                        sesion, tenant.institucion_id
+                    )
+                    total_tickets += _contar_tickets_activos(
+                        sesion, identidad, tenant.institucion_id
+                    )
+                    total_departamentos += _contar_departamentos(
+                        sesion, tenant.institucion_id
+                    )
+                    if puede_ver_actividad:
+                        actividad.extend(
+                            _listar_actividad(sesion, tenant.institucion_id)
+                        )
+    except global_service.ErrorLecturaGlobal as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "No fue posible completar la lectura global: un tenant requerido "
+                "no esta disponible o no esta en la version objetivo."
+            ),
+        ) from exc
+
+    if puede_ver_actividad:
+        actividad = sorted(
+            actividad,
+            key=lambda movimiento: (
+                movimiento.fecha_movimiento,
+                movimiento.movimiento_id,
+            ),
+            reverse=True,
+        )[:LIMITE_ACTIVIDAD]
+
+    return DashboardAnaliticoRespuesta(
+        kpi=DashboardKpiRespuesta(
+            unidades_en_stock=total_unidades,
+            tickets_activos=total_tickets,
+            total_departamentos=total_departamentos,
+            total_alertas=len(alertas),
+        ),
+        alertas=alertas,
+        actividad_disponible=puede_ver_actividad,
+        actividad_movimientos=actividad,
+    )
+
+
 def obtener_dashboard_analitico(
     db: Session, identidad: IdentidadAutenticada | None = None
 ) -> DashboardAnaliticoRespuesta:
@@ -244,8 +331,18 @@ def obtener_dashboard_analitico(
     consulta solo para los roles autorizados: el Solicitante recibe
     `actividad_disponible=False` y lista vacia **sin** consultar movimientos ni
     ampliar su permiso denegado sobre `GET /inventario/movimientos`.
+
+    Feature 010 (D-9/AC-14): el Superadmin global sobre PostgreSQL agrega sobre
+    los tenants registrados en una sola transaccion de lectura; si no hay tenants
+    registrados (instalacion limpia) o el motor es SQLite, opera sobre la sesion
+    recibida, preservando el contrato previo.
     """
     institucion_id = ambito_service.alcance_institucional(db, identidad)
+
+    if institucion_id is None and _es_postgres(db):
+        tenants = global_service.tenants_registrados(db)
+        if tenants:
+            return _dashboard_global(db, identidad, tenants)
 
     alertas = _listar_alertas(db, institucion_id)
     kpi = DashboardKpiRespuesta(

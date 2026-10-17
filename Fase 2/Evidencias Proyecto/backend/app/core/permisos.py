@@ -69,11 +69,11 @@ _ESCRITURA_TICKETS: frozenset[str] = frozenset(
 #: Matriz explicita operacion -> roles permitidos (D-3, AC-9).
 #:
 #: La clave es (metodo HTTP en mayusculas, ruta completa tal como la publica el
-#: contrato, con los parametros de path en su forma `{param}`). Los 21 endpoints
+#: contrato, con los parametros de path en su forma `{param}`). Los 22 endpoints
 #: de negocio quedan cubiertos (las 18 operaciones de 007, los dos `GET` por
-#: objeto de catalogo que exige la Feature 008 y el `GET` consolidado del
-#: dashboard de la Feature 009); una operacion ausente de esta matriz no concede
-#: permiso a ningun rol.
+#: objeto de catalogo que exige la Feature 008, el `GET` consolidado del
+#: dashboard de la Feature 009 y el `POST` de aprovisionamiento de la Feature
+#: 010); una operacion ausente de esta matriz no concede permiso a ningun rol.
 MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # Autenticacion: identidad autenticada, cualquier rol.
     ("GET", "/api/v1/auth/me"): _TODOS,
@@ -109,6 +109,9 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # amplia el permiso de `GET /inventario/movimientos`, que sigue reservado a
     # `_INVENTARIO_Y_TICKETS` (Solicitante excluido).
     ("GET", "/api/v1/dashboard/"): _TODOS,
+    # Feature 010 (D-7/AC-7…AC-9/AC-17): aprovisionamiento de instituciones.
+    # Es la unica incorporacion de la 010: solo Superadmin.
+    ("POST", "/api/v1/control/instituciones/"): frozenset({_SUPERADMIN}),
 }
 
 

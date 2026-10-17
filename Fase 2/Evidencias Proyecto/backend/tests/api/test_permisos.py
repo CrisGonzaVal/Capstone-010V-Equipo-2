@@ -34,11 +34,13 @@ _INVENTARIO_Y_TICKETS = {"Superadmin", "Administrador", "Bodeguero"}
 _ESCRITURA_CATALOGO = {"Administrador"}
 _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
+#: Alta de institucion (Feature 010, D-7): solo Superadmin.
+_ALTA_INSTITUCION = {"Superadmin"}
 
-#: Las 21 operaciones de negocio -> roles permitidos (matriz vigente tras el
-#: ajuste puntual de la Feature 008 y la operacion `GET /dashboard/` de la 009;
-#: el resto de la matriz D-3 de 007 no cambia, salvo los dos GET por objeto de
-#: catalogo que exige AC-9/AC-16 de la 008).
+#: Las 22 operaciones de negocio -> roles permitidos (matriz vigente tras el
+#: ajuste puntual de la Feature 008, la operacion `GET /dashboard/` de la 009 y
+#: el alta de institucion de la 010; el resto de la matriz D-3 de 007 no cambia,
+#: salvo los dos GET por objeto de catalogo que exige AC-9/AC-16 de la 008).
 MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
     ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
@@ -62,6 +64,8 @@ MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
     # Feature 009 (D-3/AC-13/AC-14): lectura consolidada para los cuatro roles.
     ("GET", "/api/v1/dashboard/"): _TODOS,
+    # Feature 010 (D-7/AC-7…AC-9): alta de institucion, solo Superadmin.
+    ("POST", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -139,14 +143,15 @@ def test_cuatro_roles_exactos_sin_alias_admin():
 
 
 # ---------------------------------------------------------------------------
-# AC-9: la matriz central es exactamente la de D-3 (21 operaciones vigentes
-# tras las Features 008 y 009: las 18 de 007 mas los dos GET por objeto de
-# catalogo de la 008 y el GET consolidado del dashboard de la 009)
+# AC-9: la matriz central es exactamente la de D-3 (22 operaciones vigentes
+# tras las Features 008, 009 y 010: las 18 de 007 mas los dos GET por objeto de
+# catalogo de la 008, el GET consolidado del dashboard de la 009 y el alta de
+# institucion de la 010)
 # ---------------------------------------------------------------------------
 
 
 def test_matriz_cubre_exactamente_las_operaciones_de_d3():
-    assert len(MATRIZ_ESPERADA) == 21
+    assert len(MATRIZ_ESPERADA) == 22
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_ESPERADA

@@ -20,10 +20,39 @@
 -- arranque abortaria. Ver la cabecera de `02_datos_semilla.sql`.
 
 -- =====================================================
+-- 0. ESQUEMA DE CONTROL (Feature 010)
+-- =====================================================
+-- Las doce tablas canonicas viven en el esquema `control` (justificacion
+-- aprobada en docs/spec/stack.md seccion "Multi-tenant por esquemas PostgreSQL:
+-- control y tenants"). Para que toda referencia SIN prefijo resuelva al esquema
+-- de control y no a `public`, este script fija el `search_path` por defecto de
+-- la base en `control, public`:
+--   * la semilla (`02_`), las migraciones `98_`/`99_` y la sesion de control de
+--     la aplicacion usan nombres sin prefijo y por tanto resuelven a `control`;
+--   * `public` queda como ultimo recurso, de modo que una base legada (donde
+--     `control` aun no existe) sigue resolviendo a `public` sin cambios.
+-- El DDL de las doce entidades no cambia: solo cambia el esquema que las aloja.
+-- Los `REFERENCES` internos de cada tabla (todos locales al mismo esquema) se
+-- resuelven dentro de `control` gracias a ese `search_path`.
+
+CREATE SCHEMA IF NOT EXISTS control;
+
+DO $search_path$
+BEGIN
+    EXECUTE format(
+        'ALTER DATABASE %I SET search_path TO control, public',
+        current_database()
+    );
+END;
+$search_path$;
+
+SET search_path TO control, public;
+
+-- =====================================================
 -- 1. INSTITUCION
 -- =====================================================
 
-CREATE TABLE institucion (
+CREATE TABLE control.institucion (
     institucion_id VARCHAR(20) PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL,
     rut VARCHAR(20),
@@ -34,7 +63,7 @@ CREATE TABLE institucion (
 -- 2. DEPARTAMENTO
 -- =====================================================
 
-CREATE TABLE departamento (
+CREATE TABLE control.departamento (
     departamento_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre_dep VARCHAR(100) NOT NULL,
     descripcion VARCHAR(200),
@@ -53,7 +82,7 @@ CREATE TABLE departamento (
 -- 3. ROL
 -- =====================================================
 
-CREATE TABLE rol (
+CREATE TABLE control.rol (
     rol_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre_rol VARCHAR(50) NOT NULL,
     descripcion VARCHAR(150)
@@ -63,7 +92,7 @@ CREATE TABLE rol (
 -- 4. USUARIO
 -- =====================================================
 
-CREATE TABLE usuario (
+CREATE TABLE control.usuario (
     usuario_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     apellido VARCHAR(100) NOT NULL,
@@ -84,7 +113,7 @@ CREATE TABLE usuario (
 -- 5. CATEGORIA
 -- =====================================================
 
-CREATE TABLE categoria (
+CREATE TABLE control.categoria (
     categoria_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre_cat VARCHAR(100) NOT NULL,
     descripcion_cat VARCHAR(200),
@@ -104,7 +133,7 @@ CREATE TABLE categoria (
 -- 6. PRODUCTO
 -- =====================================================
 
-CREATE TABLE producto (
+CREATE TABLE control.producto (
     producto_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL,
     descripcion VARCHAR(250),
@@ -137,7 +166,7 @@ CREATE TABLE producto (
 -- 7. INVENTARIO
 -- =====================================================
 
-CREATE TABLE inventario (
+CREATE TABLE control.inventario (
     inventario_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     stock_actual INTEGER NOT NULL DEFAULT 0,
     ubicacion VARCHAR(100),
@@ -172,7 +201,7 @@ CREATE TABLE inventario (
 -- 8. MOVIMIENTO_INVENTARIO
 -- =====================================================
 
-CREATE TABLE movimiento_inventario (
+CREATE TABLE control.movimiento_inventario (
     movimiento_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tipo_movimiento VARCHAR(20) NOT NULL,
     cantidad INTEGER NOT NULL,
@@ -192,7 +221,7 @@ CREATE TABLE movimiento_inventario (
 -- 9. PRIORIDAD
 -- =====================================================
 
-CREATE TABLE prioridad (
+CREATE TABLE control.prioridad (
     prioridad_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre VARCHAR(30) NOT NULL,
     descripcion VARCHAR(100)
@@ -202,7 +231,7 @@ CREATE TABLE prioridad (
 -- 10. ESTADO_TICKET
 -- =====================================================
 
-CREATE TABLE estado_ticket (
+CREATE TABLE control.estado_ticket (
     estado_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre VARCHAR(30) NOT NULL,
     descripcion VARCHAR(100)
@@ -212,7 +241,7 @@ CREATE TABLE estado_ticket (
 -- 11. TICKET
 -- =====================================================
 
-CREATE TABLE ticket (
+CREATE TABLE control.ticket (
     ticket_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     usuario_id INTEGER NOT NULL,
     prioridad_id INTEGER NOT NULL,
@@ -250,7 +279,7 @@ CREATE TABLE ticket (
 -- 12. DETALLE_TICKET
 -- =====================================================
 
-CREATE TABLE detalle_ticket (
+CREATE TABLE control.detalle_ticket (
     detalle_ticket_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     ticket_id INTEGER NOT NULL,
     producto_id INTEGER NOT NULL,
@@ -279,4 +308,48 @@ CREATE TABLE detalle_ticket (
 
     CONSTRAINT detalle_cantidad_entregada_ck
         CHECK (cantidad_entregada >= 0)
+);
+
+-- =====================================================
+-- FEATURE 010: CONTEXTO DE CONTROL Y VERSIONADO POR TENANT
+-- =====================================================
+--
+-- Esta seccion es **aditiva** respecto del DDL de las doce tablas definido
+-- arriba (que ahora se crea en el esquema `control`, ver seccion 0). Agrega las
+-- estructuras auxiliares del esquema global de control y la tabla de version que
+-- cada esquema tenant materializa. Justificacion aprobada en docs/spec/stack.md
+-- §"Multi-tenant por esquemas PostgreSQL: control y tenants (Feature 010)".
+--
+-- o `mapa_usuario_esquema` vive en el esquema de control y traduce el correo
+--   primario verificado a un esquema tenant (no es una de las doce entidades
+--   3NF). `institucion_id` mantiene una FK **local** al registro de
+--   `institucion` del mismo esquema (control); nunca hay FK cross-schema.
+-- o `version_esquema` es la marca de version del DDL por esquema: exactamente
+--   una fila vigente. En la instalacion limpia se materializa en `control` (el
+--   esquema canonico de este script); cada tenant tiene la suya, creada por el
+--   aprovisionamiento y por la migracion.
+
+CREATE TABLE control.mapa_usuario_esquema (
+    -- Correo primario verificado; clave de la identidad local: un correo no
+    -- puede apuntar a mas de un esquema.
+    correo VARCHAR(150) PRIMARY KEY,
+    -- Registro de institucion del mismo esquema (control). FK local, sin
+    -- cross-schema.
+    institucion_id VARCHAR(20) NOT NULL,
+    -- Nombre PostgreSQL del esquema tenant, generado/validado en servidor.
+    nombre_esquema VARCHAR(63) NOT NULL,
+    -- Solo las asociaciones activas resuelven solicitudes.
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+
+    CONSTRAINT mapa_usuario_esquema_institucion_fk
+        FOREIGN KEY (institucion_id)
+        REFERENCES control.institucion (institucion_id)
+);
+
+CREATE TABLE control.version_esquema (
+    version_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    -- Token de version objetivo del DDL (VERSION_ESQUEMA_OBJETIVO). No nulo.
+    version VARCHAR(20) NOT NULL,
+    -- Instante del ultimo registro exitoso.
+    actualizada_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

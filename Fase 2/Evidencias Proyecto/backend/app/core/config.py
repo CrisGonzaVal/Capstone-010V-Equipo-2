@@ -1,5 +1,11 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: Version objetivo del DDL de tenant (Feature 010, stack §5). Es la constante
+#: de despliegue compartida por el codigo que resuelve el tenant y por el
+#: procedimiento de migracion: el enrutamiento exige **igualdad exacta** contra
+#: este token y se incrementa con cada cambio posterior de DDL/migracion.
+VERSION_ESQUEMA_OBJETIVO = "010.1"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

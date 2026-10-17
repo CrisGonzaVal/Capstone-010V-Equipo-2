@@ -21,6 +21,13 @@ export const ROLES_TODOS = [
 export const ROLES_ADMINISTRATIVOS = ['Superadmin', 'Administrador'] as const;
 
 /**
+ * Roles con acceso al portal de control (Feature 010, AC-7/AC-15): **solo**
+ * Superadmin puede aprovisionar instituciones. A diferencia de la administración
+ * institucional, el alta de tenants es una capacidad global, no delegable.
+ */
+export const ROLES_CONTROL = ['Superadmin'] as const;
+
+/**
  * Roles que operan el Kanban: avanzar/retroceder estado y despachar. El
  * Solicitante consulta y crea tickets, pero no opera (AC-3, AC-6, AC-7).
  */

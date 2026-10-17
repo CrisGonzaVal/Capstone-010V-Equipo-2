@@ -20,23 +20,34 @@
 --   Corre antes que `98_migracion_particionamiento_institucional.sql` y
 --   `99_migracion_retiro_password.sql`, que son no-op sobre una base nueva.
 --
+-- ESQUEMA (Feature 010)
+--   Las doce tablas canonicas viven en el esquema `control` (ver `01_esquema.sql`
+--   seccion 0). Este script las referencia sin prefijo: el `search_path` de la
+--   base apunta a `control, public`, de modo que resuelven a `control`; en una
+--   base legada sin `control` seguirian resolviendo a `public`.
+--
 -- USO
 --   Automatica: al crear el volumen por primera vez (`docker compose up -d db`
 --   con el volumen vacio). No hay que correrla a mano en una maquina nueva.
 --
---   Manual, para resetear el entorno de QA con la base ya creada. Desde la raiz
---   del proyecto, en cmd.exe (NO en PowerShell):
---     docker exec -i compustock_db psql -U postgres -d apt_erp -v ON_ERROR_STOP=1 < database\02_datos_semilla.sql
+--   RESET DEL ENTORNO DE QA: se hace RECREANDO EL VOLUMEN, no reejecutando esta
+--   semilla. Desde la raiz del proyecto:
+--     docker compose -f docker-compose.yml down -v
+--     docker compose -f docker-compose.yml up -d db
+--   No existe un script de reset. Motivo: la GUARDIA FAIL-CLOSED de abajo
+--   (seccion 0a) aborta si la base ya tiene filas, de modo que esta semilla
+--   destructiva solo corre sobre una base genuinamente limpia. Recrear el
+--   volumen es la unica forma inherentemente segura de volver a sembrar.
 --
 --   En PowerShell el pipe (`Get-Content -Raw | docker exec -i ...`) mete el
 --   contenido por la codificacion de la consola y destruye los acentos: se
 --   guardan como "??". Usa `cmd /c` con la redireccion, que copia bytes crudos.
 --   Este archivo es ASCII puro justamente para que el problema no aparezca.
 --
---   Es idempotente: se puede correr las veces que quieras para resetear
---   el entorno de QA. El TRUNCATE inicial limpia las 12 tablas y reinicia
---   las secuencias GENERATED ALWAYS AS IDENTITY, de modo que los ids siempre
---   son los mismos y los datos son reproducibles.
+--   El TRUNCATE inicial limpia las 12 tablas y reinicia las secuencias
+--   GENERATED ALWAYS AS IDENTITY, de modo que los ids siempre son los mismos y
+--   los datos son reproducibles. No es idempotente sobre una base ya sembrada:
+--   la guardia aborta (ver seccion 0a).
 --
 -- FEATURE 008 - PARTICIONAMIENTO POR INSTITUCION
 --   La semilla deja la base en estado "ya particionada", de modo que `98_` sea
@@ -77,6 +88,68 @@
 --   ubica en un departamento distinto dentro de su institucion.
 --
 -- =====================================================
+
+-- =====================================================
+-- 0a. GUARDIA FAIL-CLOSED (Feature 010, T10)
+-- =====================================================
+-- Esta semilla es destructiva (TRUNCATE + INSERT). Para no confundir una base
+-- real o ya sembrada con un entorno descartable, ABORTA antes del primer
+-- TRUNCATE si detecta cualquier fila en las doce tablas canonicas, en
+-- `mapa_usuario_esquema` o en `version_esquema` (criterio aprobado en
+-- T8a-hallazgos-docker-initdb.md section 5). La condicion es una propiedad de
+-- la base calculada en el servidor: no la aporta el cliente ni un parametro, y
+-- ante duda cierra (aborta). El reset de QA de una base existente NO se hace
+-- con esta semilla, sino recreando el volumen (`docker compose down -v`).
+
+SET search_path TO control, public;
+
+DO $guardia$
+DECLARE
+    v_total  bigint;
+    v_conteo bigint;
+    v_registro regclass;
+BEGIN
+    -- Doce tablas canonicas: se cuentan sin prefijo (resuelven a `control` o, en
+    -- una base legada, a `public`). Si alguna no existiera, la consulta falla y
+    -- el arranque aborta: tambien cierra.
+    SELECT
+        (SELECT count(*) FROM detalle_ticket)
+      + (SELECT count(*) FROM movimiento_inventario)
+      + (SELECT count(*) FROM ticket)
+      + (SELECT count(*) FROM inventario)
+      + (SELECT count(*) FROM producto)
+      + (SELECT count(*) FROM categoria)
+      + (SELECT count(*) FROM usuario)
+      + (SELECT count(*) FROM rol)
+      + (SELECT count(*) FROM departamento)
+      + (SELECT count(*) FROM prioridad)
+      + (SELECT count(*) FROM estado_ticket)
+      + (SELECT count(*) FROM institucion)
+    INTO v_total;
+
+    -- Auxiliares: se suman solo si existen en la base (en una base legada
+    -- anterior a la Feature 010 pueden no estar).
+    v_registro := to_regclass('mapa_usuario_esquema');
+    IF v_registro IS NOT NULL THEN
+        EXECUTE format('SELECT count(*) FROM %s', v_registro) INTO v_conteo;
+        v_total := v_total + v_conteo;
+    END IF;
+
+    v_registro := to_regclass('version_esquema');
+    IF v_registro IS NOT NULL THEN
+        EXECUTE format('SELECT count(*) FROM %s', v_registro) INTO v_conteo;
+        v_total := v_total + v_conteo;
+    END IF;
+
+    IF v_total > 0 THEN
+        RAISE EXCEPTION
+            'Semilla QA abortada: la base ya contiene % fila(s) de negocio/control/version; no se ejecuta ningun TRUNCATE. Reset QA = recrear el volumen (docker compose down -v).',
+            v_total;
+    END IF;
+
+    RAISE NOTICE 'Semilla QA: base limpia (0 filas de negocio/control/version), se permite continuar.';
+END;
+$guardia$;
 
 -- =====================================================
 -- 0. LIMPIEZA (orden inverso de dependencias)

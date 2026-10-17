@@ -209,6 +209,12 @@ modelos, DDL o el esquema de datos.
   `usuario`, `categoria`, `producto`, `inventario`, `movimiento_inventario`, `ticket` y
   `detalle_ticket` quedan aislados directa o transitivamente (`movimiento_inventario` lo
   hereda por su `inventario_id`, sin columna nueva; es auditoría inmutable).
+  **⚠ Superado por la Feature 010:** la globalidad de `rol`, `prioridad` y `estado_ticket`
+  (D-5) queda **invertida** —desde la Feature 010 se replican por esquema— y el aislamiento
+  deja de ser particionamiento lógico sobre tablas compartidas para pasar a esquemas
+  PostgreSQL separados. El particionamiento por institución de las nueve entidades restantes
+  se conserva como **defensa en profundidad**. Ver
+  §"Multi-tenant por esquemas PostgreSQL: control y tenants (Feature 010)".
 
 **Claves simples conservadas y claves compuestas como destinos**
 
@@ -264,6 +270,173 @@ PK, porque rompería la integridad y la compatibilidad de identificadores.
   registros de instituciones distintas (AC-8).
 - La suite SQLite funciona pero no acredita claves/restricciones compuestas ni la migración;
   esas semánticas se verifican contra PostgreSQL 16 (AC-18).
+
+#### Multi-tenant por esquemas PostgreSQL: control y tenants (Feature 010)
+
+La Feature 008 particionó por institución **sobre tablas compartidas** con `institucion_id`
+y claves compuestas. La Feature 010 mueve la frontera: cada institución pasa a un **esquema
+PostgreSQL propio** dentro de la misma base `apt_erp`, y aparece un **esquema global de
+control** que resuelve la identidad antes de abrir cualquier sesión de negocio. Esta sección
+es la justificación que exige `AGENTS.md` §7 ("no alterar el modelo de 12 entidades 3NF sin
+justificación aprobada en `stack.md`") y se redacta **antes** de tocar modelos, DDL o base,
+conforme al prerrequisito de la Feature 010. La aprobación explícita de este cambio es la
+que desbloquea las tareas T2…T10 de esa feature.
+
+**Qué no cambia (modelo de dominio invariante)**
+
+- Se conservan las **mismas doce entidades 3NF** del DDL canónico `database/01_esquema.sql`:
+  mismas tablas, columnas, PK, claves únicas compuestas, FK, `CHECK`s y valores por defecto.
+  Ninguna entidad de dominio se elimina, se fusiona ni se reasigna.
+- Se conservan las **nulabilidades** acordadas: `usuario.departamento_id NOT NULL` y
+  `departamento.institucion_id NOT NULL` siguen siendo `NOT NULL`. La identidad global del
+  Superadmin no introduce excepciones de nulabilidad (ver más abajo).
+- Se conserva `institucion_id` y las claves compuestas de la Feature 008 dentro de cada
+  tenant como **defensa en profundidad** (D-3): el aislamiento de esquema es la primera
+  frontera y las restricciones locales la segunda.
+
+**1. Esquemas por institución y esquema de control**
+
+- Cada institución habita un **esquema tenant** distinto dentro de una única base física
+  `apt_erp`; se mantiene **una sola conexión y un solo pool** (D-1). No se crea una base,
+  instancia ni pool por institución.
+- El **esquema de control** es global y no es el tenant de ninguna institución concreta.
+  Contiene el registro fuente de verdad de instituciones, la identidad/rol Superadmin, el
+  mapa de resolución y las estructuras auxiliares de esta sección.
+- **Por qué:** satisface el requisito de separación física por institución sin multiplicar
+  bases ni pools, y fija un punto único y global donde resolver la identidad antes de
+  cualquier operación de negocio.
+
+**2. Institución espejo en cada esquema tenant**
+
+- El DDL canónico tiene **seis FK locales hacia `institucion`**: `departamento`,
+  `categoria`, `producto`, `inventario`, `ticket` y `detalle_ticket`. Para aplicar ese DDL
+  **sin cambios** en cada esquema, cada tenant **replica una fila `institucion`** —la fila
+  espejo— de la institución registrada en control.
+- La **fuente de verdad** del registro institucional permanece en control (D-5): el espejo
+  tenant es una copia local que satisface las FK del esquema, no la autoridad del ciclo de
+  vida global. Los cambios del registro canónico se reflejan en el espejo correspondiente.
+- **No hay FK cross-schema.** Se descarta declarar en los tenants una FK hacia la
+  `institucion` de control: PostgreSQL no admite FK entre esquemas de forma portable/estable
+  y, sobre todo, acoplaría cada esquema tenant al esquema de control, contradiciendo el
+  aislamiento y la independencia de aprovisionamiento y migración de cada institución.
+- **Por qué:** replicar la fila conserva el DDL canónico idéntico por esquema y sus seis FK
+  locales, sin introducir referencias entre esquemas.
+
+**3. Catálogos replicados por tenant (inversión de la norma de Feature 008)**
+
+- **Norma anterior (Feature 008, D-5):** `rol`, `prioridad` y `estado_ticket` son catálogos
+  **globales y compartidos** por todas las instituciones; `02_datos_semilla.sql` los siembra
+  una sola vez sin `institucion_id`.
+- **Norma desde la Feature 010:** esos tres catálogos se **replican en cada esquema tenant**
+  con sus valores funcionales requeridos. El **`rol` del Superadmin vive en control**, junto
+  a la identidad global.
+- **Por qué la inversión:** con un esquema por institución, `usuario → rol`, y
+  `ticket → prioridad` / `ticket → estado_ticket`, son relaciones que deben resolverse
+  **localmente** dentro del esquema del tenant. Mantener un catálogo global obligaría a FK
+  cross-schema (descartado en el punto 2) o a referencias colgantes. Replicar catálogos
+  pequeños de cardinalidad fija es más simple, mantiene el DDL autocontenido por esquema y
+  permite que cada institución evolucione sus valores sin afectar a las demás. El orden del
+  flujo de `estado_ticket` sigue siendo parte del contrato (Feature 003, D-4).
+- **Alcance de la inversión:** es exactamente esta; el resto de la norma de la Feature 008
+  (columnas de pertenencia, claves compuestas, migración `98_`) se conserva.
+
+**4. Mapa `correo → esquema` en control**
+
+- Estructura persistente **nueva** `mapa_usuario_esquema` en el esquema de control. Es
+  **auxiliar al modelo de dominio**: no es una de las doce entidades 3NF ni participa de sus
+  relaciones; existe para la resolución previa a la sesión tenant.
+- Propiedades: `correo` como **clave primaria** (una identidad local no apunta a más de un
+  esquema; una fila por usuario), `institucion_id` con FK al registro de control,
+  `nombre_esquema` generado/validado en servidor **sin** restricción de unicidad en la base, y
+  `activo` (solo asociaciones activas resuelven). Cubre a **todos** los usuarios locales
+  migrados, no solo al Superadmin.
+- **Por qué el `nombre_esquema` no lleva unicidad de base.** El mapa tiene una fila **por
+  usuario** (clave primaria `correo`). Todos los usuarios de una misma institución comparten
+  el mismo esquema, así que `nombre_esquema` se repite legítimamente entre sus filas; una
+  restricción `UNIQUE (nombre_esquema)` impediría mapear más de un usuario por institución y
+  contradiría AC-10 (el mapa debe cubrir a **todos** los usuarios migrados — en la semilla
+  real, los 7 usuarios de `INST-001`). La unicidad estaba pensada para sostener la invariante
+  "dos instituciones no comparten esquema", pero esa invariante **no es una propiedad
+  relacional del mapa** y por tanto no se puede imponer con una restricción en esta tabla.
+- **Cómo se garantiza la invariante sin la restricción.** El nombre de esquema es
+  **determinista a partir del ID canónico de institución** (`tenant_service.
+  nombre_esquema_para_institucion`) y **nunca es input del cliente**: se genera y valida en
+  servidor. Dos instituciones con IDs distintos producen nombres distintos (el sufijo estable
+  del SHA-256 evita colisiones), y la operación de aprovisionamiento rechaza explícitamente la
+  reutilización de un esquema ya tomado (`_reservar_control`/`_mapa_por_nombre_esquema`). La
+  garantía es, por tanto, **por derivación en servidor**, no por una restricción de base que
+  no puede sostenerse con un mapa por usuario.
+- **Por qué:** el correo primario verificado de Clerk es la única entrada confiable del
+  cliente; se necesita un punto global, fuera de los tenants, que traduzca correo a esquema
+  antes de consultar datos de negocio. Mover la invariante de esquema a la clave de correo
+  permite mapear a todos los usuarios sin renunciar a la separación entre instituciones.
+
+**5. `version_esquema` por tenant**
+
+- Estructura persistente **nueva** por cada esquema tenant, con **exactamente una fila
+  vigente** (`version_id` PK, `version` texto no vacío, `actualizada_en` timestamp). Tampoco
+  es una entidad de dominio: es una marca de control de versión del DDL.
+- La versión objetivo es una constante de despliegue (`VERSION_ESQUEMA_OBJETIVO`, inicial
+  `010.1`) compartida por el código que resuelve y el procedimiento de migración. La
+  comparación es de igualdad exacta; diferente, ausente, duplicada, futura o ilegible
+  **deniega cerrado** y el tenant no se enruta.
+- **Por qué:** un valor de versión solo sirve como control de seguridad si **determina el
+  comportamiento observable de enrutamiento**. Permite distinguir un tenant completo y
+  compatible de uno parcial, y es el checkpoint de idempotencia de bootstrap, migración y
+  aprovisionamiento.
+
+**6. `schema_translate_map` como selección de esquema por ejecución**
+
+- El esquema efectivo se selecciona con **`schema_translate_map` de SQLAlchemy**, aplicado al
+  contexto/ejecución de cada sesión, con el nombre de esquema procedente **únicamente** del
+  registro de control y validado contra una allowlist de nombres generados. El modelo usa un
+  esquema lógico común traducido al esquema tenant; las operaciones de control usan un
+  contexto de control separado. El `schema_translate_map` **no** se muta en el `Engine`
+  compartido ni se comparte una `Session` entre solicitudes.
+- **Alternativa descartada: `search_path`.** Cambiar `search_path` deja **estado mutable
+  asociado a la conexión**; al devolverse la conexión al pool y reciclarse en otra petición,
+  ese estado se **filtra** entre tenants. Limpiarlo en un `finally` puede fallar ante
+  excepciones, rollback o desconexión. `schema_translate_map` mantiene la elección en la
+  ejecución ORM/Core y evita que el estado de la conexión del pool sea autoridad de tenant.
+- Al cerrar cada petición se cierra la `Session` y su transacción y la conexión vuelve al
+  pool **sin ningún `SET search_path`** ni estado de tenant persistente.
+
+**7. Identidad global del Superadmin en control, con las mismas tablas 3NF**
+
+- El esquema de control contiene el **mismo modelo 3NF** que un tenant: una institución
+  administrativa (p. ej. «CompuStock SaaS»), un departamento administrativo y sus filas
+  `usuario` y `rol`; la identidad del Superadmin vive ahí.
+- Se mantienen `usuario.departamento_id` y `departamento.institucion_id` como `NOT NULL`: la
+  identidad global se representa con las **mismas relaciones 3NF**, sin crear entidades
+  paralelas ni excepciones de nulabilidad.
+- El `rol` del Superadmin reside en el `rol` de control y se consulta en control; **nunca se
+  enruta como usuario tenant**.
+
+**8. Convivencia con Docker, semilla destructiva y migración explícita**
+
+- `database/01_esquema.sql` sigue siendo el **DDL canónico** de doce tablas, base para
+  bootstrap/control y para construir cada tenant. `database/02_datos_semilla.sql` **conserva
+  su carácter destructivo** (`TRUNCATE … RESTART IDENTITY`) únicamente como **semilla QA de
+  instalación limpia o reset expresamente autorizado**; debe abortar antes del primer
+  truncado si detecta datos, mapeos o versión que indiquen base existente.
+- El montaje de `./database` en `/docker-entrypoint-initdb.d` **solo se ejecuta al crear un
+  volumen vacío**; en un volumen existente initdb no vuelve a correr. Por eso la migración de
+  la base real **no puede** depender del initdb.
+- La **migración** de la base `apt_erp` existente es un **script operacional explícito**,
+  ejecutado con `psql` y `ON_ERROR_STOP=1` sobre respaldo/ventana de mantenimiento, **fuera
+  del montaje automático de initdb**, que **nunca ejecuta la semilla destructiva**. Es
+  transaccional por fase, idempotente por comparación de versión y **no renombra ni reordena**
+  `98_migracion_particionamiento_institucional.sql` ni `99_migracion_retiro_password.sql`.
+- **Por qué:** separa tres situaciones que no comparten flujo —instalación limpia, volumen ya
+  inicializado y migración en sitio— y garantiza que la semilla no pueda truncar datos
+  operativos, mapeos o tenants aprovisionados.
+
+**Estructuras auxiliares frente al modelo de dominio**
+
+`mapa_usuario_esquema` y `version_esquema` son **estructuras auxiliares** de control y de
+tenant respectivamente: viven fuera del modelo de 12 entidades 3NF y no alteran sus
+relaciones ni nulabilidades. La aprobación de esta sección cubre su creación en DDL y en
+modelos, conforme al prerrequisito de la Feature 010.
 
 ### 3. Estructura del Frontend (Angular 18 Standalone)
 En Angular moderno (sin NgModules), la clave es el agrupamiento por Características (Features). Esto facilita el Lazy Loading (carga perezosa) y hace que la aplicación escale sin que el código se enrede.

@@ -303,3 +303,41 @@ export interface Institucion {
   rut: string;
   direccion: string | null;
 }
+
+// --- Control (Feature 010) ---
+
+/**
+ * Entrada de `POST /api/v1/control/instituciones/` (Feature 010, D-7).
+ *
+ * Refleja 1:1 el `InstitucionAltaControlCrear` de `backend/app/schemas/control_schema.py`.
+ * El cliente **nunca** envía el nombre de esquema, la versión, el rol ni el estado:
+ * los deriva y valida el servidor (`extra="forbid"`). `rut` y `direccion` son
+ * opcionales y viajan como `null` cuando no se informan.
+ */
+export interface InstitucionAltaControlCrear {
+  institucion_id: string;
+  nombre: string;
+  rut: string | null;
+  direccion: string | null;
+  correo_administrador: string;
+  nombre_administrador: string;
+  apellido_administrador: string;
+  departamento_nombre_administrativo: string;
+}
+
+/**
+ * Respuesta de `POST /api/v1/control/instituciones/` (201).
+ *
+ * Refleja 1:1 el `InstitucionAltaControlRespuesta`: el tenant quedó registrado y
+ * operativo. `nombre_esquema` es el nombre determinista derivado en servidor y
+ * `version_esquema` la versión objetivo con la que quedó marcado.
+ */
+export interface InstitucionAltaControlRespuesta {
+  institucion_id: string;
+  nombre: string;
+  correo_administrador: string;
+  nombre_esquema: string;
+  version_esquema: string;
+  estado: string;
+  mensaje: string;
+}

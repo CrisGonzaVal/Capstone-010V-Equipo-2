@@ -16,6 +16,7 @@ from app.schemas.producto_schema import (
     ProductoRespuesta,
 )
 from app.services import inventario_service
+from app.services import global_service
 from app.services.auth_service import IdentidadAutenticada
 
 router = APIRouter(prefix="/inventario", tags=["Inventario y Productos"])
@@ -35,9 +36,13 @@ def listar_categorias(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("GET", "/api/v1/inventario/categorias")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
-    return inventario_service.listar_categorias(db, identidad)
+    return global_service.agregar_lista_global(
+        db,
+        identidad,
+        lambda sesion: inventario_service.listar_categorias(sesion, identidad),
+    )
 
 
 @router.get(
@@ -61,9 +66,16 @@ def obtener_categoria(
             "GET", "/api/v1/inventario/categorias/{categoria_id}"
         )
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
-    return inventario_service.obtener_categoria(db, categoria_id, identidad)
+    return global_service.leer_global_unico(
+        db,
+        identidad,
+        lambda sesion: inventario_service.obtener_categoria(
+            sesion, categoria_id, identidad
+        ),
+        no_encontrado="Categoria no encontrada",
+    )
 
 
 @router.get(
@@ -80,9 +92,13 @@ def listar_productos(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("GET", "/api/v1/inventario/productos")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
-    return inventario_service.listar_productos(db, identidad)
+    return global_service.agregar_lista_global(
+        db,
+        identidad,
+        lambda sesion: inventario_service.listar_productos(sesion, identidad),
+    )
 
 
 @router.get(
@@ -106,9 +122,16 @@ def obtener_producto(
             "GET", "/api/v1/inventario/productos/{producto_id}"
         )
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
-    return inventario_service.obtener_producto(db, producto_id, identidad)
+    return global_service.leer_global_unico(
+        db,
+        identidad,
+        lambda sesion: inventario_service.obtener_producto(
+            sesion, producto_id, identidad
+        ),
+        no_encontrado="Producto no encontrado",
+    )
 
 
 @router.post(
@@ -129,7 +152,7 @@ def crear_producto(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("POST", "/api/v1/inventario/productos")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
     return inventario_service.crear_producto(db, datos, identidad)
 
@@ -163,15 +186,19 @@ def listar_existencias(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("GET", "/api/v1/inventario/existencias")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
-    return inventario_service.listar_existencias(
+    return global_service.agregar_lista_global(
         db,
-        q=q,
-        categoria_id=categoria_id,
-        departamento_id=departamento_id,
-        solo_criticos=solo_criticos,
-        identidad=identidad,
+        identidad,
+        lambda sesion: inventario_service.listar_existencias(
+            sesion,
+            q=q,
+            categoria_id=categoria_id,
+            departamento_id=departamento_id,
+            solo_criticos=solo_criticos,
+            identidad=identidad,
+        ),
     )
 
 
@@ -187,9 +214,15 @@ def listar_inventario(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("GET", "/api/v1/inventario/stock")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
-    return inventario_service.listar_inventario(db, departamento_id, identidad)
+    return global_service.agregar_lista_global(
+        db,
+        identidad,
+        lambda sesion: inventario_service.listar_inventario(
+            sesion, departamento_id, identidad
+        ),
+    )
 
 
 @router.get(
@@ -213,9 +246,13 @@ def listar_movimientos(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("GET", "/api/v1/inventario/movimientos")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
-    return inventario_service.listar_movimientos(db, identidad)
+    return global_service.agregar_lista_global(
+        db,
+        identidad,
+        lambda sesion: inventario_service.listar_movimientos(sesion, identidad),
+    )
 
 
 @router.post(
@@ -232,7 +269,7 @@ def registrar_movimiento(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("POST", "/api/v1/inventario/movimientos")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
     inventario = inventario_service.registrar_movimiento(db, datos, identidad)
     return {

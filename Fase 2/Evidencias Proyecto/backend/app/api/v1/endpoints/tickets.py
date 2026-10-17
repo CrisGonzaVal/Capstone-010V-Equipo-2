@@ -12,6 +12,7 @@ from app.schemas.ticket_schema import (
     TicketRespuesta,
 )
 from app.services import ticket_service
+from app.services import global_service
 from app.services.auth_service import IdentidadAutenticada
 
 router = APIRouter(prefix="/tickets", tags=["Tickets y Solicitudes"])
@@ -45,7 +46,7 @@ def obtener_catalogos(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("GET", "/api/v1/tickets/catalogos")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
     return ticket_service.obtener_catalogos(db, identidad)
 
@@ -70,9 +71,13 @@ def listar_tickets(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("GET", "/api/v1/tickets/")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
-    return ticket_service.listar_tickets(db, estado_id, identidad)
+    return global_service.agregar_lista_global(
+        db,
+        identidad,
+        lambda sesion: ticket_service.listar_tickets(sesion, estado_id, identidad),
+    )
 
 
 @router.post(
@@ -107,7 +112,7 @@ def crear_ticket(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("POST", "/api/v1/tickets/")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
     return ticket_service.crear_ticket(db, datos, identidad)
 
@@ -147,7 +152,7 @@ def despachar_ticket(
             "POST", "/api/v1/tickets/{ticket_id}/despacho"
         )
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
     return ticket_service.despachar_ticket(db, ticket_id, datos, identidad)
 
@@ -192,7 +197,7 @@ def actualizar_estado_ticket(
             "PATCH", "/api/v1/tickets/{ticket_id}/estado"
         )
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ):
     return ticket_service.actualizar_estado_ticket(
         db, ticket_id, datos.estado_id, identidad

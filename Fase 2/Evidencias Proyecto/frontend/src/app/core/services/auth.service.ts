@@ -218,9 +218,16 @@ export class AutenticacionService {
     this.limpiarIdentidad();
   }
 
-  /** Monta la UI prebuilt de inicio de sesión sobre el nodo indicado. */
-  montarInicioSesion(nodo: HTMLDivElement): void {
-    this.clerk?.mountSignIn(nodo);
+  /**
+   * Monta la UI prebuilt de inicio de sesión sobre el nodo indicado.
+   *
+   * `props` se reenvía tal cual al componente `SignIn` de Clerk. Es la costura
+   * para fijar el destino tras reconocer una sesión (p. ej. `forceRedirectUrl`);
+   * sin ella, Clerk usa su destino por defecto (`/`) y el portal de control
+   * nunca aterriza en el alta.
+   */
+  montarInicioSesion(nodo: HTMLDivElement, props?: unknown): void {
+    this.clerk?.mountSignIn(nodo, props);
   }
 
   /** Desmonta la UI prebuilt de inicio de sesión. */

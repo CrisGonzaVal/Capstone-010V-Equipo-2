@@ -53,6 +53,6 @@ def obtener_dashboard_analitico(
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("GET", "/api/v1/dashboard/")
     ),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ) -> DashboardAnaliticoRespuesta:
     return dashboard_service.obtener_dashboard_analitico(db, identidad)

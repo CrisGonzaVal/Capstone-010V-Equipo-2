@@ -166,6 +166,48 @@ def obtener_correo_primario_verificado(
         raise ErrorAutenticacion("respuesta de Clerk inesperada") from exc
 
 
+def correo_existe_en_clerk(
+    correo: str, secret_key: str, transport: httpx.BaseTransport
+) -> bool:
+    """True si Clerk tiene una identidad con ese correo primario verificado.
+
+    Frontera externa del aprovisionamiento (Feature 010, D-7): el alta del primer
+    Administrador exige que su correo exista previamente en Clerk antes de crear
+    el tenant, para no crear un usuario local imposible de autenticar con la
+    autoridad de identidad vigente. No se crean cuentas ni credenciales.
+
+    Un fallo de red o una respuesta no `200` se normalizan a `ErrorAutenticacion`
+    (el alta responde **503**); un correo inexistente devuelve `False` (el alta
+    responde **422**).
+    """
+    try:
+        with httpx.Client(base_url=URL_BACKEND_CLERK, transport=transport) as cliente:
+            respuesta = cliente.get(
+                "/v1/users",
+                params={"email_address": [correo]},
+                headers={"Authorization": f"Bearer {secret_key}"},
+            )
+    except httpx.HTTPError as exc:
+        raise ErrorAutenticacion("fallo de red contra Clerk") from exc
+
+    if respuesta.status_code != 200:
+        raise ErrorAutenticacion("Clerk no respondio correctamente")
+
+    try:
+        datos = respuesta.json()
+    except ValueError as exc:
+        raise ErrorAutenticacion("respuesta de Clerk ilegible") from exc
+
+    if not isinstance(datos, list):
+        raise ErrorAutenticacion("respuesta de Clerk inesperada")
+
+    for usuario in datos:
+        for direccion in usuario.get("email_addresses") or []:
+            if direccion.get("email_address") == correo:
+                return True
+    return False
+
+
 def _extraer_correo_primario_verificado(datos: dict) -> str:
     identificador_primario = datos.get("primary_email_address_id")
     if not identificador_primario:

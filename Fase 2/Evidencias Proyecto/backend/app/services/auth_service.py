@@ -42,6 +42,58 @@ def vincular_usuario_por_correo(db: Session, correo: str) -> Usuario | None:
     ).scalar_one_or_none()
 
 
+def _usuario_con_rol(db: Session, correo: str) -> Usuario | None:
+    """Usuario por correo con su `rol` cargado eager y desligado de la sesion.
+
+    Feature 010 (T11): la identidad de negocio vive en el esquema de su
+    institucion (no en control), de modo que la sesion temporal que la lee se
+    cierra de inmediato. Cargar `rol` con `joinedload` y expulsar el objeto deja
+    la identidad utilizable fuera de esa sesion (la autorizacion lee
+    `usuario.rol.nombre_rol`).
+    """
+    usuario = db.execute(
+        select(Usuario)
+        .options(joinedload(Usuario.rol))
+        .where(Usuario.correo == correo)
+    ).scalar_one_or_none()
+    if usuario is not None:
+        db.expunge(usuario)
+    return usuario
+
+
+def resolver_usuario_local(db: Session, correo: str) -> Usuario | None:
+    """Resuelve el usuario local del correo: identidad global o usuario de tenant.
+
+    La identidad Superadmin vive en control; las identidades de negocio viven en
+    el esquema de su institucion (spec D-2). Se busca primero en control y, si no
+    aparece, se traduce el correo a su esquema con el mapa de control
+    (`tenant_service`) y se busca alli. Un correo sin fila activa en el mapa no
+    concede identidad (la capa HTTP responde 401). En SQLite (contexto logico
+    unico, AC-16) la busqueda directa ya resuelve ambos casos.
+    """
+    usuario = vincular_usuario_por_correo(db, correo)
+    if usuario is not None:
+        return usuario
+
+    motor = db.get_bind()
+    if motor.dialect.name != "postgresql":
+        return None
+
+    # Import local: `tenant_service` y `database` no dependen de este modulo,
+    # pero se evita cualquier ciclo de importacion a nivel de modulo.
+    from app.db.database import ESQUEMA_CONTROL, crear_sesion_esquema
+    from app.services import tenant_service
+
+    nombre_esquema = tenant_service.esquema_para_correo(db, correo)
+    if nombre_esquema is None or nombre_esquema == ESQUEMA_CONTROL:
+        return None
+    sesion = crear_sesion_esquema(nombre_esquema, motor=motor)
+    try:
+        return _usuario_con_rol(sesion, correo)
+    finally:
+        sesion.close()
+
+
 def resolver_identidad(
     *,
     token: str,
@@ -59,7 +111,7 @@ def resolver_identidad(
     claims = security.validar_token(token, issuer, fuente_jwks)
     sub = claims["sub"]
     correo = security.obtener_correo_primario_verificado(sub, secret_key, transport)
-    usuario = vincular_usuario_por_correo(db, correo)
+    usuario = resolver_usuario_local(db, correo)
     if usuario is None:
         raise ErrorAutenticacion("sin coincidencia local para el correo verificado")
     return IdentidadAutenticada(usuario=usuario, sub=sub)

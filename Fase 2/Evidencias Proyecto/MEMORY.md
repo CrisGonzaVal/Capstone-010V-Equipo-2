@@ -2,31 +2,31 @@
 Memoria entre sesiones. Máximo ~50 líneas: resume lo útil y elimina lo que ya no aporte.
 
 ## Estado actual
-- Features 000…009 implementadas y **cerradas** (008 y 009 con veredicto APROBADO). Backend `pytest`: **540 passed, 5 skipped** (los 5 gated pasan con `POSTGRES_TEST_URL`). Frontend `ng test`: **172 SUCCESS**. Matriz de permisos: **21 operaciones**.
-- 009: `GET /api/v1/dashboard/` consolidado (KPIs + alertas por fila + actividad limitada a 10). 008: `institucion_id` en catálogo/inventario/ticket/detalle, claves compuestas y migración `98_` idempotente. 007: autorización por rol (matriz central + `RolGuard`). 006: Clerk. 005: despacho transaccional.
-- No queda ninguna fila `[ ]` en el índice de features; el roadmap apunta al **Hito 2** (despliegue + entrega).
+- Features 000…**010 cerradas**. **010 (multi-tenant por esquemas)** cerró con T18 (confirmación de cierre SDD) y el roadmap la marca `[x]`. Próxima: **011** modelo organizacional.
+- Suites 010 (tras cierre post-validación): `pytest` SQLite **601 passed, 33 skipped**; gated `POSTGRES_TEST_URL` **634 passed, 0 skipped**; `ng test` **198 SUCCESS**; `ng build` limpio. Matriz de permisos: **22 operaciones** (21 previas + `POST /api/v1/control/instituciones/`, solo Superadmin).
+- 010: cada institución en un **esquema** PostgreSQL propio dentro de `apt_erp`; esquema **control** global con las 12 tablas 3NF + `mapa_usuario_esquema` + identidad Superadmin; `version_esquema` por tenant (`010.1`). Selección de esquema por `schema_translate_map` **por ejecución** (nunca `search_path`). Base real `apt_erp` migrada con script `database/migraciones/001_migracion_multitenant_esquemas.sql` (fuera del glob de initdb).
+- 009: dashboard consolidado; 008: `institucion_id` + claves compuestas (conservadas dentro de cada tenant como defensa en profundidad, D-3); 007: matriz + `RolGuard`; 006: Clerk; 005: despacho transaccional.
 
-## Sprint 5 (en análisis, sin spec todavía)
-- Matriz de acciones compartidas por rol **aprobada** por el usuario: **18 casos de uso en 4 módulos** (A administración, C catálogo e inventario, T tickets, R informes y avisos).
-- Cobertura por actor: Superadmin 11 · Administrador 17 · Bodeguero 11 · Solicitante 6.
-- Candidatas a feature: 010 gestión admin real · 011 instituciones y **entidad `sede`** · 012 ciclo de vida del catálogo · 013 ciclo de vida del ticket (asignado + SLA + historial) · 014 informes PDF/Excel · 015 notificaciones in-app · Hito 2 despliegue.
-- **Decisión descartada**: base de datos por institución. Se mantiene la base compartida + `institucion_id` (008); el aislamiento por fila con FK compuestas se argumenta como suficiente.
-- Decisiones abiertas para las specs: `sede` como 13ª entidad (¿inventario por sede o por departamento? ¿alcance del Bodeguero?) y SLA del ticket.
+## Feature 010 — decisiones clave
+- `01_esquema.sql` crea las 12 tablas en `control` y fija su `search_path` por defecto; `02_datos_semilla.sql` pasa a seed QA con **guardia fail-closed** antes del primer `TRUNCATE`. Reset QA = recrear el volumen (`docker compose down -v`).
+- Catálogos `rol`/`prioridad`/`estado_ticket` ahora **replicados por tenant** (invierten la norma global de 008); justificado en `stack.md` §"Multi-tenant por esquemas PostgreSQL".
+- Aprovisionamiento solo Superadmin; el correo del Administrador debe existir en Clerk (422 si no, 503 si la frontera cae, 409 duplicado/colisión). Portal `/control` standalone (login Clerk prebuilt + alta); `ControlSuperadminGuard`.
+- El alta replicaba el catálogo `Administrador` (`_ROLES_TENANT`) y **además** creaba otro `Administrador` para el usuario inicial: el tenant quedaba con el rol **duplicado**. Corregido en `control_service._rol_administrador` (reutiliza el del catálogo); test gated `test_aprovisionamiento_postgres_010.py`. La migración **no** duplicaba.
+- Durante T15, `crise.gonzalez@duocuc.cl` fue **ascendida a Superadmin a mano** en `control` (fila de tenant inerte) para poder recorrer la 010; el usuario decidió dejarlo así (mutación out-of-band, registrada en `tasks.md` T15). No la produce el bootstrap ni la migración.
+- Limpieza post-validación: eliminados `INST-TEST-010`, su esquema `tenant_inst_test_010_e4b81830` y su mapa en `apt_erp` (una transacción con verificación). Quedan **4 tenants** (INST-001..004) y 14 filas de mapa.
 
 ## Entregable: diagramas de casos de uso
-- `docs/diagramas/`: `casos-uso-general` + `casos-uso-{superadmin,administrador,bodeguero,solicitante}`, en **HTML y PNG** (UML clásico compuesto con el skill).
-- Los **5 PNG** se copiaron además a `../Evidencias Grupales/diagramas/` (fuera del proyecto, pedido explícito del usuario) para la entrega grupal; el folder es `Evidencias Grupales` (plural).
-- Skill **`diagram-design`** (cathrynlavery) instalado en `.agents/skills/diagram-design/`.
+- `docs/diagramas/`: `casos-uso-general` + `casos-uso-{superadmin,administrador,bodeguero,solicitante}`, en **HTML y PNG**.
+- Los 5 PNG también en `../Evidencias Grupales/diagramas/` (fuera del proyecto, pedido explícito del usuario).
+- Skill **`diagram-design`** en `.agents/skills/`; su `style-guide.md` lleva la paleta CompuStock (slate + blue); `npx skills update` la revierte.
 
 ## Aprendizajes y errores a evitar
-- `diagram-design` **no tiene tipo "caso de uso"** entre sus 45: se compone a mano con su sistema de diseño, y ahí se relaja la regla de conectores ortogonales (las asociaciones actor→caso son rectas, como en UML real).
-- Se editó `references/style-guide.md` del skill con la **paleta CompuStock** (slate + blue); `npx skills update` la revierte.
-- `skills-lock.json` **no quedó actualizado** con `diagram-design`: el hash del CLI no es sha256 simple y el comando se interrumpió dos veces. No se inventó un hash.
-- PNG sin Playwright: se capturó el elemento `<svg>` con `chrome-devtools` (`take_screenshot` con `uid` + `filePath`), que da un PNG solo-diagrama.
-- Cierre = verificación (AGENTS §8.5): hacen falta los dos puertos; 8080 exige `docker compose build frontend`; el backend recarga solo.
-- Tests PostgreSQL **gated** (`POSTGRES_TEST_URL`); SQLite no valida FK compuestas.
-- Edge: fijar `CHROME_BIN` y usar `--watch=false --browsers=ChromeHeadless`.
+- Cierre = verificación (AGENTS §8.5–§8.7): hacen falta los dos puertos; 8080 exige `docker compose build frontend`; el backend recarga solo.
+- Tests PostgreSQL **gated** (`POSTGRES_TEST_URL`); SQLite no valida esquemas/namespaces ni FK compuestas.
+- Edge: fijar `CHROME_BIN` y usar `--watch=false --browsers=ChromeHeadless` (nunca `npm test`).
+- Clerk `SignIn` prebuilt (6.39): al reconocer una sesión activa redirige solo; pasar `forceRedirectUrl` (o `fallbackRedirectUrl`); `afterSignInUrl` ya no es prop. Sin esto `/control` caía a `/dashboard` (defecto AC-15, corregido).
+- Semilla destructiva: el `TRUNCATE ... CASCADE` de `02_` alcanza `control.mapa_usuario_esquema`; por eso la guardia fail-closed.
 
 ## Próximos pasos
-- Cerrar el inventario de casos de uso y abrir `docs/spec/features/010-…` (spec → plan → tasks).
-- La rama `dev` ya está fusionada en `main` (Feature 009). Los diagramas, el skill y las notas se commitearon y subieron a `origin/main` en `955280a`.
+- Empezar **011** modelo organizacional (sede, stock por sede, `departamento.encargado_id`), luego 012 CRUD administrativo, 013/014 ciclos de ticket/catálogo, 015 informes, 016 notificaciones, Hito 2.
+- Rama `dev` fusionada en `main`; diagramas/skill/notas en `origin/main` (`955280a`).

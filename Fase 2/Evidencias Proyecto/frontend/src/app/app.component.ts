@@ -64,6 +64,15 @@ export class AppComponent {
     rolPuedeAdministrar(this.autenticacion.identidad()?.rol ?? null),
   );
 
+  /**
+   * `true` si el rol es Superadmin, único con acceso al portal `/control`
+   * (Feature 010, AC-15). Solo oculta el enlace de la navegación: la ruta sigue
+   * protegida por `ControlSuperadminGuard` y el backend por la matriz central.
+   */
+  readonly puedeControl = computed(
+    () => this.autenticacion.identidad()?.rol === 'Superadmin',
+  );
+
   /** Inicial del nombre normalizada a mayúscula; `null` sin identidad resuelta. */
   readonly inicialNombre = computed(() => {
     const nombre = this.autenticacion.identidad()?.nombre?.trim();

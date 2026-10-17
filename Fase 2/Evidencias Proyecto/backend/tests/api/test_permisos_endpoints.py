@@ -2,8 +2,9 @@
 
 Seam bajo prueba: la **interfaz HTTP del `app` real** (`TestClient`), no una app
 sonda. T1 verifico la dependencia y la matriz aisladas; aqui se comprueba que
-esas operaciones (hoy **21**: las 20 de 007/008 mas el `GET` consolidado del
-dashboard de la Feature 009) estan efectivamente cableadas en los endpoints.
+esas operaciones (hoy **22**: las 20 de 007/008 mas el `GET` consolidado del
+dashboard de la Feature 009 y el `POST` de aprovisionamiento de la Feature 010)
+estan efectivamente cableadas en los endpoints.
 
 Estrategia anti-tautologica: la matriz de referencia se escribe a mano (no se lee
 de `permisos.MATRIZ_PERMISOS`) y se contrasta contra las rutas que publica el
@@ -33,9 +34,9 @@ from app.models import DetalleTicket, EstadoTicket, Rol, Ticket, Usuario
 from app.services.auth_service import IdentidadAutenticada
 
 # ---------------------------------------------------------------------------
-# Fuente de verdad independiente: la matriz D-3 transcrita a mano (21 filas:
+# Fuente de verdad independiente: la matriz D-3 transcrita a mano (22 filas:
 # las 20 de 007/008 mas el GET consolidado del dashboard que exige AC-13/AC-14
-# de la 009)
+# de la 009 y el alta de institucion de la 010)
 # ---------------------------------------------------------------------------
 
 _TODOS = {"Superadmin", "Administrador", "Bodeguero", "Solicitante"}
@@ -46,6 +47,8 @@ _INVENTARIO_Y_TICKETS = {"Superadmin", "Administrador", "Bodeguero"}
 _ESCRITURA_CATALOGO = {"Administrador"}
 _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
+#: Alta de institucion (Feature 010, D-7): solo Superadmin.
+_ALTA_INSTITUCION = {"Superadmin"}
 
 MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
@@ -72,6 +75,8 @@ MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     # cuatro roles. No altera la entrada de `GET /inventario/movimientos`, que
     # sigue reservada a `_INVENTARIO_Y_TICKETS` (Solicitante excluido).
     ("GET", "/api/v1/dashboard/"): _TODOS,
+    # Feature 010 (D-7/AC-7…AC-9): alta de institucion, solo Superadmin.
+    ("POST", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -86,6 +91,7 @@ _CODIGOS_201 = {
     ("POST", "/api/v1/inventario/productos"),
     ("POST", "/api/v1/inventario/movimientos"),
     ("POST", "/api/v1/tickets/"),
+    ("POST", "/api/v1/control/instituciones/"),
 }
 
 #: Rol representativo permitido por operacion (el primero de la matriz D-3 en el
@@ -147,6 +153,11 @@ def _cliente(motor, rol: str | None = None, *, usuario_id: int = 1):
             db.close()
 
     app.dependency_overrides[dependencies.get_db] = _db_de_prueba
+    # Feature 010: el alta verifica el correo contra Clerk. La costura se
+    # overridea para no invocar Clerk real (plan §3); ninguna otra operacion la usa.
+    app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
+        lambda: (lambda _correo: True)
+    )
     if rol is not _SIN_AUTENTICAR:
         app.dependency_overrides[dependencies.get_current_user] = (
             lambda: _identidad_con_rol(rol, usuario_id)
@@ -220,6 +231,15 @@ def _cuerpo(metodo: str, ruta: str, datos: dict):
         return {"usuario_id": datos["usuario_id"]}
     if (metodo, ruta) == ("PATCH", "/api/v1/tickets/{ticket_id}/estado"):
         return {"estado_id": datos["estado_en_curso_id"]}
+    if (metodo, ruta) == ("POST", "/api/v1/control/instituciones/"):
+        return {
+            "institucion_id": "INSTCTRL",
+            "nombre": "Institucion Control",
+            "correo_administrador": "admin.control@compustock.cl",
+            "nombre_administrador": "Ada",
+            "apellido_administrador": "Control",
+            "departamento_nombre_administrativo": "Administracion",
+        }
     raise AssertionError(f"sin payload definido para {metodo} {ruta}")
 
 
@@ -491,6 +511,7 @@ REFERENCIAS_ESPERADAS = {
     ("POST", "/api/v1/tickets/{ticket_id}/despacho"): "TicketRespuesta",
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): "TicketRespuesta",
     ("GET", "/api/v1/dashboard/"): "DashboardAnaliticoRespuesta",
+    ("POST", "/api/v1/control/instituciones/"): "InstitucionAltaControlRespuesta",
 }
 
 

@@ -64,6 +64,14 @@ export const routes: Routes = [
       ),
   },
   {
+    // Portal de control (Feature 010, AC-15): segmento lazy con su propio login
+    // público y su alta protegida por `ControlSuperadminGuard`. No lleva guard
+    // en el segmento porque el login debe ser alcanzable sin sesión.
+    path: 'control',
+    loadChildren: () =>
+      import('./features/control/control.routes').then((m) => m.controlRoutes),
+  },
+  {
     path: 'acceso-denegado',
     loadComponent: () =>
       import('./features/acceso-denegado/acceso-denegado.component').then(

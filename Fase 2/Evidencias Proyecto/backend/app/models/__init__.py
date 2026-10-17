@@ -6,6 +6,7 @@ garantiza que SQLAlchemy los registre todos antes de configurar los mappers.
 """
 
 from app.db.database import Base
+from app.models.control import MapaUsuarioEsquema, VersionEsquema
 from app.models.institucion import Departamento, Institucion
 from app.models.inventario import Inventario, MovimientoInventario
 from app.models.producto import Categoria, Producto
@@ -21,10 +22,12 @@ __all__ = [
     "EstadoTicket",
     "Institucion",
     "Inventario",
+    "MapaUsuarioEsquema",
     "MovimientoInventario",
     "Prioridad",
     "Producto",
     "Rol",
     "Ticket",
     "Usuario",
+    "VersionEsquema",
 ]

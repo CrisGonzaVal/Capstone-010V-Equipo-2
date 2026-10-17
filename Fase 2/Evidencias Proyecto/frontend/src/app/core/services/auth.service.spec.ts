@@ -126,8 +126,18 @@ describe('AutenticacionService', () => {
     servicio.montarInicioSesion(contenedor);
     servicio.desmontarInicioSesion(contenedor);
 
-    expect(clerk.mountSignIn).toHaveBeenCalledWith(contenedor);
+    expect(clerk.mountSignIn).toHaveBeenCalledWith(contenedor, undefined);
     expect(clerk.unmountSignIn).toHaveBeenCalledWith(contenedor);
+  });
+
+  it('reenvía las props del SignIn al montar la UI prebuilt', async () => {
+    await servicio.inicializar();
+    const contenedor = document.createElement('div');
+    const props = { forceRedirectUrl: '/control/alta' };
+
+    servicio.montarInicioSesion(contenedor, props);
+
+    expect(clerk.mountSignIn).toHaveBeenCalledWith(contenedor, props);
   });
 
   it('no lee ni escribe localStorage', async () => {

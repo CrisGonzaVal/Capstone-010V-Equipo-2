@@ -37,11 +37,13 @@ _INVENTARIO_Y_TICKETS = {"Superadmin", "Administrador", "Bodeguero"}
 _ESCRITURA_CATALOGO = {"Administrador"}
 _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
+#: Alta de institucion (Feature 010, D-7): solo Superadmin.
+_ALTA_INSTITUCION = {"Superadmin"}
 
-#: Matriz completa vigente tras el ajuste de la 008 y la operacion `GET
-#: /dashboard/` de la 009 (21 operaciones: las 18 de 007, los dos GET por objeto
-#: de catalogo que exige AC-9/AC-16 de la 008 y el dashboard consolidado de la
-#: 009).
+#: Matriz completa vigente tras el ajuste de la 008, la operacion `GET
+#: /dashboard/` de la 009 y el alta de institucion de la 010 (22 operaciones: las
+#: 18 de 007, los dos GET por objeto de catalogo que exige AC-9/AC-16 de la 008,
+#: el dashboard consolidado de la 009 y el aprovisionamiento de la 010).
 MATRIZ_008: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
     ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
@@ -65,6 +67,8 @@ MATRIZ_008: dict[tuple[str, str], set[str]] = {
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
     # Feature 009 (D-3/AC-13/AC-14): lectura consolidada para los cuatro roles.
     ("GET", "/api/v1/dashboard/"): _TODOS,
+    # Feature 010 (D-7/AC-7…AC-9): alta de institucion, solo Superadmin.
+    ("POST", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
 }
 
 #: Las 5 operaciones exactamente afectadas por el ajuste 008.
@@ -154,7 +158,7 @@ def test_matriz_central_es_la_esperada_para_008():
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_008
-    assert len(MATRIZ_008) == 21
+    assert len(MATRIZ_008) == 22
 
 
 def test_ajuste_008_es_minimo_y_acotado():
