@@ -60,7 +60,10 @@ pytestmark = pytest.mark.skipif(
     ),
 )
 
-#: Tablas del DDL canonical (12 entidades 3NF) que todo tenant reproduce.
+#: Tablas del DDL canonical que todo tenant reproduce. La Feature 011 agrega
+#: `sede`, `stock_sede` y `departamento_encargado` (14 entidades de dominio mas
+#: la auxiliar); `departamento` referencia `sede`, asi que la copia por esquema
+#: debe incluirla o la FK no resuelve.
 TABLAS_DOMINIO = (
     "institucion",
     "departamento",
@@ -74,6 +77,9 @@ TABLAS_DOMINIO = (
     "estado_ticket",
     "ticket",
     "detalle_ticket",
+    "sede",
+    "stock_sede",
+    "departamento_encargado",
 )
 
 #: Las seis FK locales hacia `institucion` que el DDL canonical declara (stack §2).

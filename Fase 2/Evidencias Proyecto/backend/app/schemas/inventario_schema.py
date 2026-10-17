@@ -3,29 +3,44 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.schemas.producto_schema import ProductoRespuesta
 
+class StockSedeRespuesta(BaseModel):
+    """Read model de `GET /inventario/stock` (Feature 011, T8/B1).
 
-class InventarioRespuesta(BaseModel):
+    Serie **plana** del saldo vigente por sede (`stock_sede`): la unica fuente de
+    stock operativo (spec D-2). Expone la referencia de escritura
+    (`stock_sede_id`) y la sede resuelta (`sede_id`/`sede_nombre`), que
+    `GET /inventario/existencias` no entrega al agrupar por producto: sirve para
+    localizar el destino de `POST /inventario/movimientos` y filtrar por sede.
+
+    Nunca lee ni proyecta las filas legadas de `inventario` como saldo
+    (spec §7); por eso no lleva `inventario_id`, `departamento_id` ni `ubicacion`.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
-    inventario_id: int
-    stock_actual: int
-    ubicacion: Optional[str] = None
-    departamento_id: int
+    stock_sede_id: int
+    sede_id: int
+    sede_nombre: str
     producto_id: int
-    # Feature 008 (AC-8): institucion del inventario, derivada del departamento.
+    stock_actual: int
+    # Feature 008 (AC-8): institucion de la fila de stock, para la atribucion de
+    # las lecturas globales del Superadmin.
     institucion_id: Optional[str] = None
-    producto: Optional[ProductoRespuesta] = None
 
 
 class MovimientoInventarioRespuesta(BaseModel):
     """Read model de `GET /inventario/movimientos`.
 
-    NO lleva `model_config = ConfigDict(from_attributes=True)`: la consulta
-    cruza `movimiento_inventario`, `inventario`, `producto` y `departamento`
-    con joins, asi que lo arma el service a partir de un mapping de columnas
-    (plan §3.4). Sus campos son exactamente los del contrato de `spec.md` §5.
+    NO lleva `model_config = ConfigDict(from_attributes=True)`: la consulta cruza
+    `movimiento_inventario` con su origen de auditoria (legado o nuevo) y lo arma
+    el service a partir de un mapping de columnas (plan §3.4).
+
+    Feature 011 (spec D-2/AC-11): la proyeccion es **unica y compatible** para las
+    dos poblaciones. Un movimiento **legado** enlaza `inventario_id` y expone
+    `departamento_id`/`departamento_nombre`/`ubicacion`; un movimiento **nuevo**
+    enlaza `stock_sede_id` y expone `sede_id`/`sede_nombre`. El conjunto ajeno al
+    origen queda `null`, y en ningun caso se expone un saldo departamental legado.
     """
 
     movimiento_id: int
@@ -33,37 +48,54 @@ class MovimientoInventarioRespuesta(BaseModel):
     cantidad: int
     fecha_movimiento: datetime
     observacion: Optional[str] = None
-    inventario_id: int
+    inventario_id: Optional[int] = None
+    #: Destino nuevo: la fila de `stock_sede` del movimiento (Feature 011).
+    stock_sede_id: Optional[int] = None
     producto_id: int
     producto_nombre: str
-    departamento_id: int
-    departamento_nombre: str
+    departamento_id: Optional[int] = None
+    departamento_nombre: Optional[str] = None
+    #: Atribucion de sede de un movimiento nuevo (Feature 011).
+    sede_id: Optional[int] = None
+    sede_nombre: Optional[str] = None
     ubicacion: Optional[str] = None
-    # Feature 008 (AC-8): institucion del inventario del movimiento, para que las
-    # lecturas globales del Superadmin atribuyan cada fila de auditoria.
+    # Feature 008 (AC-8): institucion del movimiento, para que las lecturas
+    # globales del Superadmin atribuyan cada fila de auditoria.
     institucion_id: Optional[str] = None
 
 
 class MovimientoCrear(BaseModel):
+    """Alta de un movimiento de stock (Feature 002; adaptada por la 011, T8).
+
+    La Feature 011 sustituye el saldo operativo departamental: los movimientos
+    **nuevos** referencian la fila de stock por sede (`stock_sede_id`) y dejan
+    `inventario_id` nulo (spec D-2 y §7). `inventario_id` se conserva opcional
+    para no romper el flujo historico mientras la migracion lo retire; el
+    servicio exige exactamente una de las dos referencias.
+    """
+
     tipo_movimiento: str  # 'ENTRADA' o 'SALIDA'
     cantidad: int
     observacion: Optional[str] = None
-    inventario_id: int
+    #: Destino nuevo: la fila de `stock_sede` (una por sede/producto).
+    stock_sede_id: Optional[int] = None
+    #: Destino legado: la fila departamental de `inventario`.
+    inventario_id: Optional[int] = None
 
 
 class SedeExistenciaRespuesta(BaseModel):
-    """Fila de `inventario` con el nombre del departamento resuelto.
+    """Existencia de un producto en una sede (Feature 011, spec D-6/AC-11).
 
-    El nombre viaja desde el backend para que la vista no tenga que cruzar ids
-    contra `/usuarios/departamentos`, que vive en otra feature
-    (`docs/spec/features/002-catalogo-insumos/spec.md`, D-3).
+    `GET /inventario/existencias` expone obligatoriamente la **sede** y su
+    **saldo**: la granularidad vigente es `(sede, producto)` y el nombre viaja
+    resuelto para que la vista no tenga que cruzar ids contra
+    `/organizacion/sedes`. El total institucional se deriva como la suma de las
+    sedes de la respuesta, no de un saldo departamental paralelo.
     """
 
-    inventario_id: int
-    departamento_id: int
-    departamento_nombre: str
+    sede_id: int
+    sede_nombre: str
     stock_actual: int
-    ubicacion: Optional[str] = None
 
 
 class ProductoExistenciaRespuesta(BaseModel):

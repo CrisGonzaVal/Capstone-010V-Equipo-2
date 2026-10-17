@@ -68,6 +68,10 @@ class TicketRespuesta(BaseModel):
     descripcion: Optional[str] = None
     fecha_creacion: datetime
     fecha_cierre: Optional[datetime] = None
+    #: Instantanea de la sede del departamento al crearse el ticket (Feature 011,
+    #: spec D-5/AC-9). La expone el alta y el despacho; los tickets legados sin
+    #: migrar la conservan en `None`.
+    sede_id: Optional[int] = None
     detalles: List[DetalleTicketRespuesta] = []
 
 
@@ -99,6 +103,10 @@ class ProductoCatalogoRespuesta(BaseModel):
     Feature 008 (AC-8): `institucion_id` atribuye cada producto a su institucion,
     de modo que la lectura global de Superadmin no mezcle registros homonimos de
     instituciones distintas. Para un rol limitado coincide con su institucion.
+
+    Feature 011 (D-2/D-6): `stock_total` es la suma de los saldos por sede del
+    tenant (nunca del inventario departamental legado) y `es_critico` se evalua
+    **por sede**: alguna sede en o bajo el minimo marca el producto.
     """
 
     producto_id: int

@@ -66,6 +66,14 @@ _ESCRITURA_TICKETS: frozenset[str] = frozenset(
     {_ADMINISTRADOR, _BODEGUERO, _SOLICITANTE}
 )
 
+# --- Ajuste puntual de la Feature 011 (spec D-4/D-5, AC-5) ------------------
+# Las asignaciones organizacionales (sede de departamento, sede de Bodeguero y
+# gestion de encargados) son administracion institucional: solo el Administrador.
+# Superadmin no escribe datos de negocio en tenants; los roles operativos no
+# gestionan la organizacion. Tambien la consulta de sedes queda reservada al
+# Administrador en esta feature (la lectura operativa de existencias llega en T8).
+_ORGANIZACION: frozenset[str] = frozenset({_ADMINISTRADOR})
+
 #: Matriz explicita operacion -> roles permitidos (D-3, AC-9).
 #:
 #: La clave es (metodo HTTP en mayusculas, ruta completa tal como la publica el
@@ -112,6 +120,24 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # Feature 010 (D-7/AC-7…AC-9/AC-17): aprovisionamiento de instituciones.
     # Es la unica incorporacion de la 010: solo Superadmin.
     ("POST", "/api/v1/control/instituciones/"): frozenset({_SUPERADMIN}),
+    # Feature 011 (D-4/D-5, AC-5): gestion organizacional minima. Las seis
+    # operaciones las autoriza solo el Administrador institucional; no hay permiso
+    # implicito para el resto de roles ni escritura de Superadmin en tenants.
+    ("GET", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}/sede"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/usuarios/{usuario_id}/sede"): _ORGANIZACION,
+    (
+        "GET",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "POST",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "DELETE",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
+    ): _ORGANIZACION,
 }
 
 

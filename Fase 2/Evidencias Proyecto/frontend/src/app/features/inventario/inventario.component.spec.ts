@@ -20,11 +20,9 @@ function crearCategoria(sobrescribir: Partial<Categoria> = {}): Categoria {
 
 function crearSede(sobrescribir: Partial<SedeExistencia> = {}): SedeExistencia {
   return {
-    inventario_id: 1,
-    departamento_id: 1,
-    departamento_nombre: 'Operaciones',
+    sede_id: 1,
+    sede_nombre: 'Sede Central',
     stock_actual: 50,
-    ubicacion: 'Bodega central',
     ...sobrescribir,
   };
 }
@@ -60,14 +58,8 @@ const INSUMOS: ProductoExistencia[] = [
     stock_minimo: 20,
     stock_total: 150,
     sedes: [
-      crearSede({ inventario_id: 2, stock_actual: 120 }),
-      crearSede({
-        inventario_id: 3,
-        departamento_id: 2,
-        departamento_nombre: 'Bodega',
-        stock_actual: 30,
-        ubicacion: 'Bodega central - A2',
-      }),
+      crearSede({ sede_id: 2, sede_nombre: 'Sede Central', stock_actual: 120 }),
+      crearSede({ sede_id: 3, sede_nombre: 'Sede Norte', stock_actual: 30 }),
     ],
   }),
   crearInsumo({
@@ -80,13 +72,7 @@ const INSUMOS: ProductoExistencia[] = [
     stock_total: 3,
     es_critico: true,
     sedes: [
-      crearSede({
-        inventario_id: 4,
-        departamento_id: 2,
-        departamento_nombre: 'Bodega',
-        stock_actual: 3,
-        ubicacion: 'Bodega central - B1',
-      }),
+      crearSede({ sede_id: 4, sede_nombre: 'Sede Norte', stock_actual: 3 }),
     ],
   }),
 ];
@@ -162,9 +148,9 @@ describe('InventarioComponent', () => {
     const texto = textoDeLaTabla();
     expect(texto).toContain('Resma Carta 75g');
     expect(texto).toContain('Papeleria');
-    // La celda de sedes une departamento, ubicacion y cantidad.
-    expect(texto).toContain('Operaciones · Bodega central');
-    expect(texto).toContain('Bodega · Bodega central - A2');
+    // La celda de sedes une el nombre de la sede y su saldo.
+    expect(texto).toContain('Sede Central');
+    expect(texto).toContain('Sede Norte');
 
     // El estado se distingue por texto, no solo por color.
     expect(texto).toContain('Disponible');
@@ -270,7 +256,7 @@ describe('InventarioComponent', () => {
         nombre: 'Resma Carta 75g',
         stock_total: 120,
         stock_minimo: 20,
-        sedes: [crearSede({ inventario_id: 55, stock_actual: 120 })],
+        sedes: [crearSede({ sede_id: 55, stock_actual: 120 })],
       }),
     ];
 

@@ -6,8 +6,9 @@ inventario, catalogo y movimientos propios, y se observa, por rol, que:
 
   * Administrador/Bodeguero/Solicitante solo ven y operan datos de su institucion
     (derivada de `usuario.departamento_id -> departamento.institucion_id`, D-4).
-  * `departamento_id` de otra institucion en `/inventario/existencias` y `/stock`
-    responde 403 (no se filtra en silencio).
+  * `departamento_id` de otra institucion en `/inventario/existencias` responde
+    403 (no se filtra en silencio); un `sede_id` ajeno o distinto en
+    `/inventario/stock` responde 404 (Feature 011, AC-3/AC-7).
   * Una identidad limitada sin institucion resoluble responde 403; nunca obtiene
     alcance global.
   * Superadmin conserva alcance global.
@@ -37,6 +38,8 @@ from app.models import (
     MovimientoInventario,
     Producto,
     Rol,
+    Sede,
+    StockSede,
     Usuario,
 )
 from app.services.auth_service import IdentidadAutenticada
@@ -143,6 +146,34 @@ def ambito(motor, datos_base):
             inventario_id=datos_base["inventario_id"],
         )
         db.add(movimiento_propio)
+
+        # Feature 011 (T8): el saldo vigente vive por sede (`stock_sede`), no en
+        # `inventario`. Se siembra una sede por institucion con el saldo del
+        # producto, y se asigna cada departamento a su sede para resolver el
+        # ambito operativo (Solicitante/Bodeguero).
+        sede_propia = Sede(nombre="Operaciones", institucion_id="INST01")
+        sede_ajena = Sede(nombre="Bodega Sur", institucion_id="INST02")
+        db.add_all([sede_propia, sede_ajena])
+        db.flush()
+        departamento_propio = db.get(Departamento, datos_base["departamento_id"])
+        departamento_propio.sede_id = sede_propia.sede_id
+        departamento_ajeno.sede_id = sede_ajena.sede_id
+        db.add_all(
+            [
+                StockSede(
+                    sede_id=sede_propia.sede_id,
+                    producto_id=datos_base["producto_id"],
+                    stock_actual=50,
+                    institucion_id="INST01",
+                ),
+                StockSede(
+                    sede_id=sede_ajena.sede_id,
+                    producto_id=producto_ajeno.producto_id,
+                    stock_actual=7,
+                    institucion_id="INST02",
+                ),
+            ]
+        )
         db.commit()
 
         return {
@@ -156,6 +187,8 @@ def ambito(motor, datos_base):
             "movimiento_propio_id": movimiento_propio.movimiento_id,
             "categoria_ajena_id": categoria_ajena.categoria_id,
             "producto_ajeno_id": producto_ajeno.producto_id,
+            "sede_propia_id": sede_propia.sede_id,
+            "sede_ajena_id": sede_ajena.sede_id,
         }
     finally:
         db.close()
@@ -170,12 +203,13 @@ def ambito(motor, datos_base):
 _SIN_DEPARTAMENTO = object()
 
 
-def _identidad(rol: str, departamento_id) -> IdentidadAutenticada:
+def _identidad(rol: str, departamento_id, sede_id=None) -> IdentidadAutenticada:
     """Identidad autenticada con el rol y el departamento dados.
 
     El usuario no se persiste: la derivacion institucional lee
     `usuario.departamento_id` y resuelve el `departamento` por ORM; la
-    autorizacion solo lee `usuario.rol.nombre_rol`.
+    autorizacion solo lee `usuario.rol.nombre_rol`. Feature 011 (T8): `sede_id`
+    puebla `usuario.sede_id` para resolver el ambito del Bodeguero.
     """
     usuario = Usuario(
         usuario_id=9999,
@@ -186,11 +220,13 @@ def _identidad(rol: str, departamento_id) -> IdentidadAutenticada:
         rol_id=1,
     )
     usuario.rol = Rol(nombre_rol=rol)
+    if sede_id is not None:
+        usuario.sede_id = sede_id
     return IdentidadAutenticada(usuario=usuario, sub="sub-ambito")
 
 
 @contextmanager
-def _cliente(motor, rol: str, departamento_id):
+def _cliente(motor, rol: str, departamento_id, sede_id=None):
     Fabrica = sessionmaker(autocommit=False, autoflush=False, bind=motor)
 
     def _db_de_prueba():
@@ -202,7 +238,9 @@ def _cliente(motor, rol: str, departamento_id):
 
     dep = None if departamento_id is _SIN_DEPARTAMENTO else departamento_id
     app.dependency_overrides[dependencies.get_db] = _db_de_prueba
-    app.dependency_overrides[dependencies.get_current_user] = lambda: _identidad(rol, dep)
+    app.dependency_overrides[dependencies.get_current_user] = (
+        lambda: _identidad(rol, dep, sede_id)
+    )
     try:
         with TestClient(app) as cliente:
             yield cliente
@@ -214,31 +252,46 @@ def _existencia(existencias, producto_id):
     return next(e for e in existencias if e["producto_id"] == producto_id)
 
 
+def _stock_inventario_legado(motor, inventario_id: int) -> int:
+    """Saldo de una fila legada de `inventario`, leido por ORM.
+
+    Feature 011 (B1): `GET /inventario/stock` ya no expone el inventario
+    departamental legado; los casos de movimiento legado observan su fila directa.
+    """
+    with sessionmaker(bind=motor)() as db:
+        return db.get(Inventario, inventario_id).stock_actual
+
+
 # ---------------------------------------------------------------------------
 # Existencias: existencias/stock propios, catalogo global
 # ---------------------------------------------------------------------------
 
 
 def test_administrador_existencias_acota_a_su_institucion(motor, ambito):
-    """El Administrador solo ve el stock de su institucion, no el de INST02."""
+    """El Administrador solo ve el stock de su institucion, no el de INST02.
+
+    Feature 011 (T8): el saldo sale de `stock_sede` y la respuesta expone la sede.
+    """
     with _cliente(motor, "Administrador", ambito["departamento_id"]) as cliente:
         respuesta = cliente.get(RUTA_EXISTENCIAS)
     assert respuesta.status_code == 200, respuesta.text
 
     cuaderno = _existencia(respuesta.json(), ambito["producto_id"])
     assert cuaderno["stock_total"] == 50
-    assert [s["departamento_nombre"] for s in cuaderno["sedes"]] == ["Operaciones"]
+    assert [s["sede_nombre"] for s in cuaderno["sedes"]] == ["Operaciones"]
 
 
 def test_bodeguero_ajeno_existencias_solo_su_institucion(motor, ambito):
     """Un Bodeguero de INST02 ve su stock (7), no el de INST01 (50)."""
-    with _cliente(motor, "Bodeguero", ambito["dep_ajeno_id"]) as cliente:
+    with _cliente(
+        motor, "Bodeguero", ambito["dep_ajeno_id"], ambito["sede_ajena_id"]
+    ) as cliente:
         respuesta = cliente.get(RUTA_EXISTENCIAS)
     assert respuesta.status_code == 200, respuesta.text
 
     ajeno = _existencia(respuesta.json(), ambito["producto_ajeno_id"])
     assert ajeno["stock_total"] == 7
-    assert [s["departamento_nombre"] for s in ajeno["sedes"]] == ["Bodega Sur"]
+    assert [s["sede_nombre"] for s in ajeno["sedes"]] == ["Bodega Sur"]
     # El producto de INST01 no aparece en el catalogo de INST02 (D-1/AC-5).
     assert ambito["producto_id"] not in {
         e["producto_id"] for e in respuesta.json()
@@ -263,12 +316,12 @@ def test_superadmin_existencias_es_global_y_atribuye_institucion(motor, ambito):
 
     cuaderno = _existencia(respuesta.json(), ambito["producto_id"])
     assert cuaderno["stock_total"] == 50
-    assert [s["departamento_nombre"] for s in cuaderno["sedes"]] == ["Operaciones"]
+    assert [s["sede_nombre"] for s in cuaderno["sedes"]] == ["Operaciones"]
     assert cuaderno["institucion_id"] == "INST01"
 
     ajeno = _existencia(respuesta.json(), ambito["producto_ajeno_id"])
     assert ajeno["stock_total"] == 7
-    assert [s["departamento_nombre"] for s in ajeno["sedes"]] == ["Bodega Sur"]
+    assert [s["sede_nombre"] for s in ajeno["sedes"]] == ["Bodega Sur"]
     assert ajeno["institucion_id"] == "INST02"
 
 
@@ -296,7 +349,9 @@ def test_existencias_departamento_ajeno_responde_403(motor, ambito):
 
 
 def test_existencias_departamento_propio_responde_200(motor, ambito):
-    with _cliente(motor, "Bodeguero", ambito["departamento_id"]) as cliente:
+    with _cliente(
+        motor, "Bodeguero", ambito["departamento_id"], ambito["sede_propia_id"]
+    ) as cliente:
         respuesta = cliente.get(
             RUTA_EXISTENCIAS, params={"departamento_id": ambito["departamento_id"]}
         )
@@ -313,18 +368,19 @@ def test_superadmin_existencias_departamento_ajeno_responde_200(motor, ambito):
 
 
 # ---------------------------------------------------------------------------
-# Stock: acotado por institucion y `departamento_id` ajeno
+# Stock: saldo por sede acotado por institucion y `sede_id` ajeno
 # ---------------------------------------------------------------------------
 
 
 def test_stock_administrador_solo_su_institucion(motor, ambito):
+    """Feature 011 (B1): `/stock` expone el saldo por sede de su institucion."""
     with _cliente(motor, "Administrador", ambito["departamento_id"]) as cliente:
         respuesta = cliente.get(RUTA_STOCK)
     assert respuesta.status_code == 200, respuesta.text
 
-    departamentos = {fila["departamento_id"] for fila in respuesta.json()}
-    assert ambito["dep_ajeno_id"] not in departamentos
-    assert ambito["departamento_id"] in departamentos
+    sedes = {fila["sede_id"] for fila in respuesta.json()}
+    assert ambito["sede_propia_id"] in sedes
+    assert ambito["sede_ajena_id"] not in sedes, "no debe ver la sede de otro tenant"
 
 
 def test_stock_superadmin_es_global(motor, ambito):
@@ -332,19 +388,19 @@ def test_stock_superadmin_es_global(motor, ambito):
         respuesta = cliente.get(RUTA_STOCK)
     assert respuesta.status_code == 200, respuesta.text
 
-    departamentos = {fila["departamento_id"] for fila in respuesta.json()}
-    assert {
-        ambito["departamento_id"],
-        ambito["dep_ajeno_id"],
-    } <= departamentos
+    sedes = {fila["sede_id"] for fila in respuesta.json()}
+    assert {ambito["sede_propia_id"], ambito["sede_ajena_id"]} <= sedes
 
 
-def test_stock_departamento_ajeno_responde_403(motor, ambito):
-    with _cliente(motor, "Bodeguero", ambito["departamento_id"]) as cliente:
+def test_stock_sede_ajena_responde_404(motor, ambito):
+    """Feature 011 (AC-3/AC-7): un `sede_id` ajeno se oculta con 404."""
+    with _cliente(
+        motor, "Bodeguero", ambito["departamento_id"], ambito["sede_propia_id"]
+    ) as cliente:
         respuesta = cliente.get(
-            RUTA_STOCK, params={"departamento_id": ambito["dep_ajeno_id"]}
+            RUTA_STOCK, params={"sede_id": ambito["sede_ajena_id"]}
         )
-    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.status_code == 404, respuesta.text
 
 
 # ---------------------------------------------------------------------------
@@ -372,9 +428,13 @@ def test_movimientos_superadmin_es_global(motor, ambito):
 
 
 def test_registrar_movimiento_en_inventario_ajeno_responde_403_sin_mutar(motor, ambito):
-    """Un Bodeguero no puede mover stock de otra institucion ni cambia filas."""
+    """Un Bodeguero no puede mover stock de otra institucion ni cambia filas.
+
+    La fila legada se observa por ORM: desde la Feature 011 (B1)
+    `GET /inventario/stock` no expone el inventario departamental.
+    """
+    antes = _stock_inventario_legado(motor, ambito["inventario_ajeno_id"])
     with _cliente(motor, "Bodeguero", ambito["departamento_id"]) as cliente:
-        antes = cliente.get(RUTA_STOCK).json()
         respuesta = cliente.post(
             RUTA_MOVIMIENTOS,
             json={
@@ -384,7 +444,7 @@ def test_registrar_movimiento_en_inventario_ajeno_responde_403_sin_mutar(motor, 
                 "inventario_id": ambito["inventario_ajeno_id"],
             },
         )
-        despues = cliente.get(RUTA_STOCK).json()
+    despues = _stock_inventario_legado(motor, ambito["inventario_ajeno_id"])
 
     assert respuesta.status_code == 403, respuesta.text
     assert despues == antes

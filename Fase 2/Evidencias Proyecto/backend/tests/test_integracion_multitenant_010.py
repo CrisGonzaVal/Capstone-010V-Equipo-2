@@ -375,6 +375,20 @@ def _sembrar_tenant(
         )
         sesion.add(inv)
         sesion.flush()
+        # Feature 011 (spec D-6/AC-11): el saldo vigente vive por sede. El
+        # dashboard / inventario leen `stock_sede`, no el inventario legado; la
+        # fila de `Inventario` se conserva para el movimiento historico.
+        sede = modelos.Sede(nombre="Sede Central", institucion_id=institucion_id)
+        sesion.add(sede)
+        sesion.flush()
+        stock_sede = modelos.StockSede(
+            stock_actual=stock,
+            sede_id=sede.sede_id,
+            producto_id=prod.producto_id,
+            institucion_id=institucion_id,
+        )
+        sesion.add(stock_sede)
+        sesion.flush()
         sesion.add(
             modelos.MovimientoInventario(
                 tipo_movimiento="ENTRADA",

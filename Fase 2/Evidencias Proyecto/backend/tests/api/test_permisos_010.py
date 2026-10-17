@@ -45,9 +45,30 @@ _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 #: Alta de institución (Feature 010, D-7): solo Superadmin.
 _ALTA_INSTITUCION = {"Superadmin"}
+#: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
+_ORGANIZACION = {"Administrador"}
 
 #: Operación contractual del alta de institución (plan §1).
 OPERACION_ALTA: tuple[str, str] = ("POST", "/api/v1/control/instituciones/")
+
+#: Operaciones que la Feature 011 agrega despues de la 010 a la matriz central.
+OPERACIONES_011: dict[tuple[str, str], set[str]] = {
+    ("GET", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}/sede"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/usuarios/{usuario_id}/sede"): _ORGANIZACION,
+    (
+        "GET",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "POST",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "DELETE",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
+    ): _ORGANIZACION,
+}
 
 #: Matriz vigente tras las Features 008/009, SIN el alta de la 010 (21 operaciones).
 MATRIZ_009: dict[tuple[str, str], set[str]] = {
@@ -74,10 +95,12 @@ MATRIZ_009: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/dashboard/"): _TODOS,
 }
 
-#: Matriz vigente tras añadir el alta de institución (22 operaciones).
+#: Matriz vigente tras añadir el alta de institución y las seis asignaciones
+#: organizacionales de la 011 (28 operaciones).
 MATRIZ_010: dict[tuple[str, str], set[str]] = {
     **MATRIZ_009,
     OPERACION_ALTA: _ALTA_INSTITUCION,
+    **OPERACIONES_011,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -155,8 +178,8 @@ def _cliente(app_sonda: FastAPI, motor, rol: str | None = None, *, autenticar=Fa
 # ---------------------------------------------------------------------------
 
 
-def test_matriz_010_transcrita_tiene_22_operaciones():
-    assert len(MATRIZ_010) == 22
+def test_matriz_010_transcrita_tiene_28_operaciones():
+    assert len(MATRIZ_010) == 28
     assert len(MATRIZ_009) == 21
 
 
@@ -167,7 +190,7 @@ def test_matriz_central_es_la_esperada_para_010():
 
 
 def test_alta_institucion_es_la_unica_operacion_agregada_por_010():
-    assert set(MATRIZ_010) - set(MATRIZ_009) == {OPERACION_ALTA}
+    assert set(MATRIZ_010) - set(MATRIZ_009) - set(OPERACIONES_011) == {OPERACION_ALTA}
     assert MATRIZ_010[OPERACION_ALTA] == _ALTA_INSTITUCION
 
 

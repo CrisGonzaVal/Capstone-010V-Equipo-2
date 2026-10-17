@@ -28,6 +28,7 @@ from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.api import dependencies
@@ -41,6 +42,8 @@ from app.models import (
     Inventario,
     Producto,
     Rol,
+    Sede,
+    StockSede,
     Ticket,
     Usuario,
 )
@@ -48,7 +51,6 @@ from app.services.auth_service import IdentidadAutenticada
 
 RUTA_TICKETS = "/api/v1/tickets/"
 RUTA_CATALOGOS = "/api/v1/tickets/catalogos"
-RUTA_STOCK = "/api/v1/inventario/stock"
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +92,25 @@ def ambito_tickets(motor, datos_base):
             rol_id=datos_base["rol_id"],
         )
         db.add(solicitante)
+        db.flush()
+
+        # Feature 011 (T9): el departamento de INST01 y sus tickets necesitan sede;
+        # el despacho rebaja `stock_sede` (no el inventario departamental legado).
+        sede_propia = Sede(
+            nombre="Sede Operaciones", institucion_id=datos_base["institucion_id"]
+        )
+        db.add(sede_propia)
+        db.flush()
+        departamento_propio = db.get(Departamento, datos_base["departamento_id"])
+        departamento_propio.sede_id = sede_propia.sede_id
+        db.add(
+            StockSede(
+                sede_id=sede_propia.sede_id,
+                producto_id=datos_base["producto_id"],
+                stock_actual=50,
+                institucion_id=datos_base["institucion_id"],
+            )
+        )
         db.flush()
 
         # Institucion ajena INST02.
@@ -152,6 +173,16 @@ def ambito_tickets(motor, datos_base):
                 institucion_id=datos_base["institucion_id"],
             )
         )
+        # Feature 011 (M2): el catalogo agrega el saldo por sede, no el inventario
+        # departamental legado.
+        db.add(
+            StockSede(
+                sede_id=sede_propia.sede_id,
+                producto_id=producto_institucional.producto_id,
+                stock_actual=40,
+                institucion_id=datos_base["institucion_id"],
+            )
+        )
 
         producto_homonimo_ajeno = Producto(
             nombre="Insumo Compartido",
@@ -180,11 +211,13 @@ def ambito_tickets(motor, datos_base):
             asunto: str,
             producto_id: int,
             institucion_id: str,
+            sede_id: int | None = None,
         ) -> int:
             # Feature 008 (T9): token institucional coherente. El detalle referencia
             # un producto de la misma institucion que el ticket, de modo que se
             # satisfacen las claves compuestas (detalle -> ticket y detalle ->
             # producto) y el esquema endurecido a NOT NULL (AC-4).
+            # Feature 011 (T9): los tickets de INST01 llevan la instantanea de sede.
             ticket = Ticket(
                 usuario_id=usuario_id,
                 prioridad_id=datos_base["prioridad_id"],
@@ -192,6 +225,7 @@ def ambito_tickets(motor, datos_base):
                 asunto=asunto,
                 descripcion="Sembrado para pruebas de alcance.",
                 institucion_id=institucion_id,
+                sede_id=sede_id,
             )
             db.add(ticket)
             db.flush()
@@ -215,6 +249,7 @@ def ambito_tickets(motor, datos_base):
             "usuario_ajeno_id": usuario_ajeno.usuario_id,
             "producto_institucional_id": producto_institucional.producto_id,
             "producto_homonimo_ajeno_id": producto_homonimo_ajeno.producto_id,
+            "sede_id": sede_propia.sede_id,
             "estado_pendiente_id": estados["Pendiente"],
             "estado_en_revision_id": estados["EnRevision"],
             "estado_en_curso_id": estados["EnCurso"],
@@ -225,6 +260,7 @@ def ambito_tickets(motor, datos_base):
                 "Propio Pendiente",
                 datos_base["producto_id"],
                 datos_base["institucion_id"],
+                sede_propia.sede_id,
             ),
             "ticket_ajeno_id": nuevo_ticket(
                 usuario_ajeno.usuario_id,
@@ -239,6 +275,7 @@ def ambito_tickets(motor, datos_base):
                 "Propio EnRevision",
                 datos_base["producto_id"],
                 datos_base["institucion_id"],
+                sede_propia.sede_id,
             ),
             "ticket_estado_ajeno_id": nuevo_ticket(
                 usuario_ajeno.usuario_id,
@@ -253,6 +290,7 @@ def ambito_tickets(motor, datos_base):
                 "Propio EnCurso",
                 datos_base["producto_id"],
                 datos_base["institucion_id"],
+                sede_propia.sede_id,
             ),
             "ticket_despacho_ajeno_id": nuevo_ticket(
                 usuario_ajeno.usuario_id,
@@ -321,12 +359,16 @@ def _ids(coleccion) -> set[int]:
     return {t["ticket_id"] for t in coleccion}
 
 
-def _stock(cliente, inventario_id: int) -> int:
-    respuesta = cliente.get(RUTA_STOCK)
-    assert respuesta.status_code == 200, respuesta.text
-    return next(
-        i for i in respuesta.json() if i["inventario_id"] == inventario_id
-    )["stock_actual"]
+def _stock_sede(motor, sede_id: int, producto_id: int) -> int:
+    """Saldo persistido de un producto en una sede (Feature 011)."""
+    with sessionmaker(bind=motor)() as db:
+        fila = db.execute(
+            select(StockSede).where(
+                StockSede.sede_id == sede_id,
+                StockSede.producto_id == producto_id,
+            )
+        ).scalar_one()
+        return fila.stock_actual
 
 
 def _payload(datos: dict, usuario_id: int) -> dict:
@@ -528,12 +570,20 @@ def test_bodeguero_despacho_ticket_inexistente_404(motor, ambito_tickets):
 def test_bodeguero_despacho_propio_200_sigue_transaccional(motor, ambito_tickets):
     """El despacho del ticket propio no se rompe y sigue rebajando stock."""
     with _cliente(motor, "Bodeguero", ambito_tickets["departamento_id"]) as cliente:
-        stock_antes = _stock(cliente, ambito_tickets["inventario_id"])
+        stock_antes = _stock_sede(
+            motor,
+            ambito_tickets["sede_id"],
+            ambito_tickets["producto_id"],
+        )
         respuesta = cliente.post(
             f"{RUTA_TICKETS}{ambito_tickets['ticket_despacho_propio_id']}/despacho",
             json={"usuario_id": ambito_tickets["usuario_id"]},
         )
-        stock_despues = _stock(cliente, ambito_tickets["inventario_id"])
+        stock_despues = _stock_sede(
+            motor,
+            ambito_tickets["sede_id"],
+            ambito_tickets["producto_id"],
+        )
         ticket = _ticket(
             cliente.get(RUTA_TICKETS).json(), ambito_tickets["ticket_despacho_propio_id"]
         )

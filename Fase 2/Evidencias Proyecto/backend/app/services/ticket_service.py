@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
@@ -10,10 +10,10 @@ from app.models import (
     Departamento,
     DetalleTicket,
     EstadoTicket,
-    Inventario,
     MovimientoInventario,
     Prioridad,
     Producto,
+    StockSede,
     Ticket,
     Usuario,
 )
@@ -166,9 +166,15 @@ def obtener_catalogos(
 
     Feature 008 (D-1/AC-6): el catalogo deja de ser global. Un rol limitado solo
     recibe los productos de su institucion y su `stock_total` suma unicamente las
-    existencias de los departamentos de esa misma institucion; el stock de otra
+    existencias de las sedes de esa misma institucion; el stock de otra
     institucion no influye. Superadmin (alcance global) ve el catalogo completo,
     cada producto atribuido con su `institucion_id` (AC-8).
+
+    Feature 011 (spec D-2/D-6, M2): el agregado sale **exclusivamente** de
+    `StockSede` (nunca del `inventario` departamental legado). `stock_total` es la
+    suma de los saldos de las sedes del tenant y `es_critico` se evalua **por
+    sede** -coherente con `/inventario/existencias`-: un producto es critico si
+    alguna sede esta en o bajo el minimo.
     """
     institucion_id = _institucion_efectiva(db, identidad)
 
@@ -179,23 +185,21 @@ def obtener_catalogos(
         select(EstadoTicket).order_by(EstadoTicket.estado_id)
     ).scalars().all()
 
-    # Read model de producto + categoria + stock agregado. El `group_by` lista
-    # TODAS las columnas del `SELECT` porque PostgreSQL 16 lo exige y SQLite es
-    # mas laxo: un `group_by` incompleto passaria la suite en memoria y
+    # Read model de producto + categoria + stock agregado por sede. El `group_by`
+    # lista TODAS las columnas del `SELECT` porque PostgreSQL 16 lo exige y SQLite
+    # es mas laxo: un `group_by` incompleto passaria la suite en memoria y
     # reventaria en el contenedor.
     #
-    # `outerjoin` + `coalesce`: un producto sin filas en `inventario` tiene que
+    # `outerjoin` + `coalesce`: un producto sin filas en `stock_sede` tiene que
     # salir en 0 y no en `None`, porque `stock_total` es `NOT NULL` en el DTO.
-    condicion_inventario = Inventario.producto_id == Producto.producto_id
+    # `sedes_criticas`/`sedes_total` soportan la criticidad por sede (D-6): la
+    # marca sale de la sede, no del promedio institucional.
+    condicion_stock = StockSede.producto_id == Producto.producto_id
     if institucion_id is not None:
-        # El `outerjoin` de inventario solo acepta existencias de departamentos
-        # de la institucion del actor; el stock ajeno no entra al agregado.
-        departamentos_propios = select(Departamento.departamento_id).where(
-            Departamento.institucion_id == institucion_id
-        )
-        condicion_inventario = and_(
-            condicion_inventario,
-            Inventario.departamento_id.in_(departamentos_propios),
+        # El `outerjoin` de stock solo acepta existencias de la institucion del
+        # actor; el stock ajeno no entra al agregado.
+        condicion_stock = and_(
+            condicion_stock, StockSede.institucion_id == institucion_id
         )
 
     consulta_productos = (
@@ -206,10 +210,20 @@ def obtener_catalogos(
             Producto.stock_minimo,
             Producto.institucion_id,
             Categoria.nombre_cat.label("categoria_nombre"),
-            func.coalesce(func.sum(Inventario.stock_actual), 0).label("stock_total"),
+            func.coalesce(func.sum(StockSede.stock_actual), 0).label("stock_total"),
+            func.count(StockSede.stock_sede_id).label("sedes_total"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (StockSede.stock_actual <= Producto.stock_minimo, 1),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("sedes_criticas"),
         )
         .join(Categoria, Producto.categoria_id == Categoria.categoria_id)
-        .outerjoin(Inventario, condicion_inventario)
+        .outerjoin(StockSede, condicion_stock)
         .group_by(
             Producto.producto_id,
             Producto.nombre,
@@ -252,7 +266,14 @@ def obtener_catalogos(
                 unidad_medida=fila.unidad_medida,
                 categoria_nombre=fila.categoria_nombre,
                 stock_total=fila.stock_total,
-                es_critico=es_stock_critico(fila.stock_total, fila.stock_minimo),
+                # Criticidad por sede (D-6): alguna sede en o bajo el minimo. Un
+                # producto sin ninguna sede conserva la semantica de "sin
+                # existencia" (`0 <= stock_minimo`) del catalogo.
+                es_critico=(
+                    fila.sedes_criticas > 0
+                    if fila.sedes_total > 0
+                    else es_stock_critico(0, fila.stock_minimo)
+                ),
                 institucion_id=fila.institucion_id,
             )
             for fila in db.execute(consulta_productos).all()
@@ -276,10 +297,16 @@ def listar_tickets(
     `CURRENT_TIMESTAMP` no tiene subsegundo, asi que sin el desempate el orden
     de las altas de un mismo segundo seria el que quisiera el motor (AC-27).
 
-    `selectinload` en cadena resuelve `detalles` y el `producto` anidado que
-    `DetalleTicketRespuesta` serializa en un numero FIJO de consultas, en vez de
-    una por ticket y otra por detalle. Se descarta `joinedload` en la coleccion
-    porque multiplicaria las filas del ticket por cada detalle.
+    `selectinload` en cadena resuelve `detalles`, el `producto` anidado y su
+    `categoria` -los tres niveles que `DetalleTicketRespuesta` serializa- en un
+    numero FIJO de consultas, en vez de una por ticket y otra por detalle.
+    `categoria` se carga eager de forma explicita porque la lectura global del
+    Superadmin (`global_service._LectorPostgres`) cierra la sesion de cada
+    tenant **antes** de que FastAPI serialice la respuesta: sin precargarla, el
+    `lazy="select"` de `Producto.categoria` revienta con `DetachedInstanceError`
+    sobre el objeto ya desasociado (500 en `GET /tickets/`). Se descarta
+    `joinedload` en la coleccion porque multiplicaria las filas del ticket por
+    cada detalle.
 
     El filtro por `estado_id` se comprueba con `is not None`: un `0` o un id
     valido nunca deben confundirse con "sin filtro".
@@ -290,7 +317,9 @@ def listar_tickets(
     consulta = (
         select(Ticket)
         .options(
-            selectinload(Ticket.detalles).selectinload(DetalleTicket.producto)
+            selectinload(Ticket.detalles)
+            .selectinload(DetalleTicket.producto)
+            .selectinload(Producto.categoria)
         )
         .order_by(Ticket.fecha_creacion.desc(), Ticket.ticket_id.desc())
     )
@@ -342,6 +371,29 @@ def _verificar_productos(
             institucion_id,
             detalle=f"No existe producto indicado: {producto_id}",
         )
+
+
+def _sede_vigente_de_solicitante(db: Session, usuario: Usuario | None) -> int:
+    """Sede vigente del departamento del solicitante, o **409** sin fallback.
+
+    Feature 011 (spec D-5/AC-9): al crear un ticket se copia a `ticket.sede_id` la
+    sede del departamento del solicitante. Un departamento sin sede asignada
+    -o inexistente- impide el alta con **409**, sin usar una sede por defecto
+    (regla 3/8 de la spec). La validacion no escribe, de modo que un rechazo no
+    deja ticket parcial.
+    """
+    if usuario is None or usuario.departamento_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El departamento del solicitante no tiene una sede asignada",
+        )
+    departamento = db.get(Departamento, usuario.departamento_id)
+    if departamento is None or departamento.sede_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El departamento del solicitante no tiene una sede asignada",
+        )
+    return departamento.sede_id
 
 
 def crear_ticket(
@@ -425,6 +477,10 @@ def crear_ticket(
     _verificar_referencia(db, EstadoTicket, datos.estado_id, "estado")
     _verificar_productos(db, datos.detalles, institucion_ticket)
 
+    # Feature 011 (spec D-5/AC-9): instantanea de la sede vigente del departamento
+    # del solicitante. Se resuelve **antes** de escribir; sin sede el alta es 409.
+    sede_ticket = _sede_vigente_de_solicitante(db, solicitante)
+
     # Determinar si el estado destino es "Cerrado" (case-insensitive)
     estados = db.execute(
         select(EstadoTicket).order_by(EstadoTicket.estado_id)
@@ -440,6 +496,7 @@ def crear_ticket(
         nuevo_ticket = Ticket(
             **datos.model_dump(exclude={"detalles"}),
             institucion_id=institucion_ticket,
+            sede_id=sede_ticket,
         )
         db.add(nuevo_ticket)
         db.flush()  # asigna ticket_id sin cerrar la transaccion
@@ -619,11 +676,19 @@ def despachar_ticket(
     que la denegacion no muta la transaccion de despacho.
 
     Feature 008 (D-2/D-4/AC-12): el ticket se ancla a la institucion de su
-    solicitante y tanto el producto de cada detalle como el inventario que se
-    rebaja deben pertenecer a esa misma institucion. Una referencia cruzada es
-    una inconsistencia que impide resolver el despacho: responde **409**, se
-    evalua antes de cualquier escritura y, como el resto de rechazos, no deja
-    stock, entrega, estado ni auditoria parciales en la unica transaccion.
+    solicitante y tanto el producto de cada detalle como el stock que se rebaja
+    deben pertenecer a esa misma institucion. Una referencia cruzada es una
+    inconsistencia que impide resolver el despacho: responde **409**, se evalua
+    antes de cualquier escritura y, como el resto de rechazos, no deja stock,
+    entrega, estado ni auditoria parciales en la unica transaccion.
+
+    Feature 011 (spec D-5/AC-9): el despacho usa **exclusivamente** la instantanea
+    `ticket.sede_id`, nunca la asignacion vigente del departamento; rebaja solo el
+    `StockSede` de esa sede y enlaza el movimiento nuevo por `stock_sede_id`,
+    dejando `inventario_id` nulo. Un ticket sin instantanea (legado sin migrar)
+    responde 409. La sede se bloquea con `FOR UPDATE` junto al ticket para
+    serializar despachos concurrentes; SQLite ignora el bloqueo y la garantia real
+    se verifica en PostgreSQL.
     """
     ticket = db.execute(
         select(Ticket).where(Ticket.ticket_id == ticket_id).with_for_update()
@@ -633,8 +698,8 @@ def despachar_ticket(
 
     _verificar_alcance_de_ticket(db, ticket, identidad)
 
-    # Institucion del ticket (la de su solicitante): todo detalle y el inventario
-    # que se rebaje debe pertenecer a ella (D-2, AC-12).
+    # Institucion del ticket (la de su solicitante): todo detalle y el stock que
+    # se rebaje debe pertenecer a ella (D-2, AC-12).
     institucion_ticket = _institucion_de_ticket(db, ticket)
 
     if db.get(Usuario, datos.usuario_id) is None:
@@ -677,14 +742,36 @@ def despachar_ticket(
             detail="El ticket no tiene detalles que despachar",
         )
 
+    # Feature 011 (spec D-5/AC-9): el despacho usa **exclusivamente** la sede
+    # almacenada en el ticket, nunca la asignacion vigente del departamento. Un
+    # ticket legado sin instantanea (migracion no aplicada) no se despacha.
+    sede_ticket = ticket.sede_id
+    if sede_ticket is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El ticket no tiene una sede asignada (instantanea); la migracion "
+                "debe resolverla antes de despacharlo"
+            ),
+        )
+
     ids_producto = sorted({detalle.producto_id for detalle in detalles})
 
-    filas_inventario = db.execute(
-        select(Inventario).where(Inventario.producto_id.in_(ids_producto))
+    # El saldo vigente se lee de `stock_sede` y se bloquea con `FOR UPDATE` en la
+    # misma transaccion (patron de la Feature 005): dos despachos concurrentes del
+    # mismo ticket o de la misma sede se serializan. SQLite ignora `FOR UPDATE`;
+    # la concurrencia real se verifica en PostgreSQL.
+    filas_stock = db.execute(
+        select(StockSede)
+        .where(
+            StockSede.sede_id == sede_ticket,
+            StockSede.producto_id.in_(ids_producto),
+        )
+        .with_for_update()
     ).scalars().all()
-    inventario_por_producto: dict[int, list[Inventario]] = {}
-    for fila in filas_inventario:
-        inventario_por_producto.setdefault(fila.producto_id, []).append(fila)
+    stock_por_producto: dict[int, StockSede] = {
+        fila.producto_id: fila for fila in filas_stock
+    }
 
     cantidad_requerida: dict[int, int] = {}
     for detalle in detalles:
@@ -693,7 +780,8 @@ def despachar_ticket(
             + detalle.cantidad_solicitada
         )
 
-    inventario_unico: dict[int, Inventario] = {}
+    # Validacion total antes de escribir: ninguna comprobacion de negocio muta, de
+    # modo que un rechazo no deja stock, entrega, estado ni auditoria parciales.
     for producto_id in ids_producto:
         producto = db.get(Producto, producto_id)
         if producto is None:
@@ -715,33 +803,20 @@ def despachar_ticket(
                     "del ticket"
                 ),
             )
-        filas = inventario_por_producto.get(producto_id, [])
-        if len(filas) != 1:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"El producto {producto_id} requiere exactamente una fila de "
-                    f"inventario para despachar y tiene {len(filas)}"
-                ),
-            )
-        inventario = filas[0]
-        # AC-12: el inventario que se rebaja debe ser de la institucion del
-        # ticket (su institucion se deriva del departamento).
-        if not ambito_service.pertenece_al_alcance(
-            ambito_service.institucion_de_inventario(db, inventario),
-            institucion_ticket,
+        fila = stock_por_producto.get(producto_id)
+        # AC-12: el stock que se rebaja debe ser de la institucion del ticket.
+        if fila is not None and not ambito_service.pertenece_al_alcance(
+            fila.institucion_id, institucion_ticket
         ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"El inventario {inventario.inventario_id} del producto "
+                    f"El stock de la sede {sede_ticket} del producto "
                     f"{producto_id} no pertenece a la institucion del ticket"
                 ),
             )
-        inventario_unico[producto_id] = inventario
-
-    for producto_id, requerido in cantidad_requerida.items():
-        disponible = inventario_unico[producto_id].stock_actual
+        disponible = 0 if fila is None else fila.stock_actual
+        requerido = cantidad_requerida[producto_id]
         if disponible < requerido:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -753,8 +828,8 @@ def despachar_ticket(
 
     try:
         for detalle in detalles:
-            inventario = inventario_unico[detalle.producto_id]
-            inventario.stock_actual -= detalle.cantidad_solicitada
+            fila = stock_por_producto[detalle.producto_id]
+            fila.stock_actual -= detalle.cantidad_solicitada
             detalle.cantidad_entregada = detalle.cantidad_solicitada
             db.add(
                 MovimientoInventario(
@@ -765,7 +840,9 @@ def despachar_ticket(
                         detalle_ticket_id=detalle.detalle_ticket_id,
                         producto_id=detalle.producto_id,
                     ),
-                    inventario_id=inventario.inventario_id,
+                    # Movimiento nuevo: se enlaza por `stock_sede_id` y deja
+                    # `inventario_id` nulo (spec D-2 y §7).
+                    stock_sede_id=fila.stock_sede_id,
                 )
             )
 

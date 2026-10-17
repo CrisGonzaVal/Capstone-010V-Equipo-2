@@ -30,13 +30,24 @@ from sqlalchemy.orm import sessionmaker
 from app.api import dependencies
 from app.core import permisos
 from app.main import app
-from app.models import DetalleTicket, EstadoTicket, Rol, Ticket, Usuario
+from app.models import (
+    Departamento,
+    DepartamentoEncargado,
+    DetalleTicket,
+    EstadoTicket,
+    Rol,
+    Sede,
+    StockSede,
+    Ticket,
+    Usuario,
+)
 from app.services.auth_service import IdentidadAutenticada
 
 # ---------------------------------------------------------------------------
-# Fuente de verdad independiente: la matriz D-3 transcrita a mano (22 filas:
+# Fuente de verdad independiente: la matriz D-3 transcrita a mano (28 filas:
 # las 20 de 007/008 mas el GET consolidado del dashboard que exige AC-13/AC-14
-# de la 009 y el alta de institucion de la 010)
+# de la 009, el alta de institucion de la 010 y las seis asignaciones
+# organizacionales de la 011)
 # ---------------------------------------------------------------------------
 
 _TODOS = {"Superadmin", "Administrador", "Bodeguero", "Solicitante"}
@@ -49,6 +60,8 @@ _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 #: Alta de institucion (Feature 010, D-7): solo Superadmin.
 _ALTA_INSTITUCION = {"Superadmin"}
+#: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
+_ORGANIZACION = {"Administrador"}
 
 MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
@@ -77,6 +90,22 @@ MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/dashboard/"): _TODOS,
     # Feature 010 (D-7/AC-7…AC-9): alta de institucion, solo Superadmin.
     ("POST", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
+    # Feature 011 (D-4/D-5/AC-5): asignaciones organizacionales, solo Administrador.
+    ("GET", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}/sede"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/usuarios/{usuario_id}/sede"): _ORGANIZACION,
+    (
+        "GET",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "POST",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "DELETE",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
+    ): _ORGANIZACION,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -85,14 +114,25 @@ _METODOS_HTTP = frozenset(
     {"get", "post", "put", "patch", "delete", "options", "head", "trace"}
 )
 
-#: Operaciones cuyo exito contractual es `201 Created` (el resto son `200`).
-_CODIGOS_201 = {
-    ("POST", "/api/v1/usuarios/"),
-    ("POST", "/api/v1/inventario/productos"),
-    ("POST", "/api/v1/inventario/movimientos"),
-    ("POST", "/api/v1/tickets/"),
-    ("POST", "/api/v1/control/instituciones/"),
+#: Operaciones cuyo exito contractual no es `200 OK`: alta `201` y retiro `204`.
+_CODIGOS_EXITO: dict[tuple[str, str], int] = {
+    ("POST", "/api/v1/usuarios/"): 201,
+    ("POST", "/api/v1/inventario/productos"): 201,
+    ("POST", "/api/v1/inventario/movimientos"): 201,
+    ("POST", "/api/v1/tickets/"): 201,
+    ("POST", "/api/v1/control/instituciones/"): 201,
+    # Feature 011 (D-4/AC-4/AC-5): el alta de encargado responde 201 y el retiro 204.
+    ("POST", "/api/v1/organizacion/departamentos/{departamento_id}/encargados"): 201,
+    (
+        "DELETE",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
+    ): 204,
 }
+
+
+def _codigo_exito(metodo: str, ruta: str) -> int:
+    """Codigo de exito contractual de una operacion (200 salvo alta/retiro)."""
+    return _CODIGOS_EXITO.get((metodo, ruta), 200)
 
 #: Rol representativo permitido por operacion (el primero de la matriz D-3 en el
 #: orden de `_ROLES`), para la prueba de aceptacion de al menos un rol valido.
@@ -116,12 +156,18 @@ CASOS_PERMITIDOS = [
 # ---------------------------------------------------------------------------
 
 
-def _identidad_con_rol(rol: str | None, usuario_id: int = 1) -> IdentidadAutenticada:
+def _identidad_con_rol(
+    rol: str | None, usuario_id: int = 1, sede_id: int | None = None
+) -> IdentidadAutenticada:
     """Identidad autenticada con el rol dado; `None` simula rol ausente.
 
     El usuario no se persiste: la autorizacion solo lee `usuario.rol.nombre_rol`.
     Para `GET /auth/me` el endpoint relee el usuario por `usuario_id` en la base,
     de modo que la identidad se construye con el id de un usuario persistido.
+
+    Feature 011 (T8): la lectura de existencias acota al Bodeguero por su
+    `usuario.sede_id`; `sede_id` puebla esa columna para que la operacion siga
+    siendo un 200 autorizado y no un 409 por precondicion organizacional ausente.
     """
     usuario = Usuario(
         usuario_id=usuario_id,
@@ -133,11 +179,15 @@ def _identidad_con_rol(rol: str | None, usuario_id: int = 1) -> IdentidadAutenti
     )
     if rol is not None:
         usuario.rol = Rol(nombre_rol=rol)
+    if sede_id is not None:
+        usuario.sede_id = sede_id
     return IdentidadAutenticada(usuario=usuario, sub="sub-sonda")
 
 
 @contextmanager
-def _cliente(motor, rol: str | None = None, *, usuario_id: int = 1):
+def _cliente(
+    motor, rol: str | None = None, *, usuario_id: int = 1, sede_id: int | None = None
+):
     """`TestClient` del `app` real con `get_db` en SQLite y la identidad por rol.
 
     Con `rol=None` y `autenticar=False` no se overridea `get_current_user`, de
@@ -160,7 +210,7 @@ def _cliente(motor, rol: str | None = None, *, usuario_id: int = 1):
     )
     if rol is not _SIN_AUTENTICAR:
         app.dependency_overrides[dependencies.get_current_user] = (
-            lambda: _identidad_con_rol(rol, usuario_id)
+            lambda: _identidad_con_rol(rol, usuario_id, sede_id)
         )
     try:
         with TestClient(app) as cliente:
@@ -183,6 +233,21 @@ def _ruta_concreta(metodo: str, ruta: str, datos: dict) -> str:
         return ruta.replace("{producto_id}", str(datos["producto_id"]))
     if ruta == "/api/v1/inventario/categorias/{categoria_id}":
         return ruta.replace("{categoria_id}", str(datos["categoria_id"]))
+    # Feature 011 (T7): recursos sembrados de la gestion organizacional.
+    if ruta == "/api/v1/organizacion/departamentos/{departamento_id}/sede":
+        return ruta.replace("{departamento_id}", str(datos["departamento_id"]))
+    if ruta == "/api/v1/organizacion/usuarios/{usuario_id}/sede":
+        return ruta.replace("{usuario_id}", str(datos["usuario_bodeguero_id"]))
+    if ruta == "/api/v1/organizacion/departamentos/{departamento_id}/encargados":
+        return ruta.replace("{departamento_id}", str(datos["departamento_id"]))
+    if (
+        ruta
+        == "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}"
+    ):
+        return (
+            ruta.replace("{departamento_id}", str(datos["departamento_id"]))
+            .replace("{usuario_id}", str(datos["usuario_solicitante_id"]))
+        )
     return ruta
 
 
@@ -231,6 +296,19 @@ def _cuerpo(metodo: str, ruta: str, datos: dict):
         return {"usuario_id": datos["usuario_id"]}
     if (metodo, ruta) == ("PATCH", "/api/v1/tickets/{ticket_id}/estado"):
         return {"estado_id": datos["estado_en_curso_id"]}
+    # Feature 011 (T7): payloads de la gestion organizacional.
+    if ruta in (
+        "/api/v1/organizacion/departamentos/{departamento_id}/sede",
+        "/api/v1/organizacion/usuarios/{usuario_id}/sede",
+    ):
+        return {"sede_id": datos["sede_id"]}
+    if (metodo, ruta) == (
+        "POST",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ):
+        return {"usuario_id": datos["usuario_encargable_id"]}
+    if metodo == "DELETE":
+        return None
     if (metodo, ruta) == ("POST", "/api/v1/control/instituciones/"):
         return {
             "institucion_id": "INSTCTRL",
@@ -277,6 +355,23 @@ def datos_autorizacion(motor, datos_base):
         db.add(rol_bodeguero)
         db.flush()
 
+        # Feature 011 (T9): el despacho usa la instantanea de sede del ticket y
+        # rebaja `stock_sede`; se siembra una sede de INST01 con stock para el
+        # producto de los tickets de trabajo.
+        sede = Sede(
+            nombre="Sede Autorizacion", institucion_id=datos_base["institucion_id"]
+        )
+        db.add(sede)
+        db.flush()
+        db.add(
+            StockSede(
+                sede_id=sede.sede_id,
+                producto_id=datos_base["producto_id"],
+                stock_actual=50,
+                institucion_id=datos_base["institucion_id"],
+            )
+        )
+
         def _ticket(estado_id: int, asunto: str) -> Ticket:
             ticket = Ticket(
                 usuario_id=datos_base["usuario_id"],
@@ -285,6 +380,7 @@ def datos_autorizacion(motor, datos_base):
                 asunto=asunto,
                 descripcion="Sembrado para pruebas de autorizacion.",
                 institucion_id=datos_base["institucion_id"],
+                sede_id=sede.sede_id,
             )
             db.add(ticket)
             db.flush()
@@ -301,6 +397,55 @@ def datos_autorizacion(motor, datos_base):
 
         ticket_estado = _ticket(ids["EnRevision"], "Cambio de estado autorizado")
         ticket_despacho = _ticket(ids["EnCurso"], "Despacho autorizado")
+
+        # Feature 011 (T7): recursos para medir la autorizacion organizacional.
+        # Una sede de INST01 (200 en las asignaciones), un Bodeguero (destino
+        # valido de sede) y un Solicitante ya asociado como encargado (200 en el
+        # listado y 204 al retirarlo). El rol Solicitante es el rol asignable de
+        # prueba, analogo a `rol_bodeguero`.
+        rol_solicitante = Rol(
+            nombre_rol="Solicitante", descripcion="Rol encargable de prueba"
+        )
+        db.add(rol_solicitante)
+        db.flush()
+
+        # Feature 011 (T8): la lectura de existencias del Solicitante usa la sede
+        # de su departamento; se le asigna la sede sembrada para que la operacion
+        # autorizada siga siendo un 200 y no un 409 por precondicion ausente.
+        departamento_base = db.get(Departamento, datos_base["departamento_id"])
+        departamento_base.sede_id = sede.sede_id
+
+        usuario_bodeguero = Usuario(
+            nombre="Bodega",
+            apellido="Autorizacion",
+            correo="bodega.autorizacion@compustock.cl",
+            departamento_id=datos_base["departamento_id"],
+            rol_id=rol_bodeguero.rol_id,
+        )
+        usuario_solicitante = Usuario(
+            nombre="Encargado",
+            apellido="Autorizacion",
+            correo="encargado.autorizacion@compustock.cl",
+            departamento_id=datos_base["departamento_id"],
+            rol_id=rol_solicitante.rol_id,
+        )
+        #: Solicitante del mismo departamento aun **sin** asociar: candidato limpio
+        #: para medir el alta (201) sin chocar con la asociacion ya sembrada.
+        usuario_encargable = Usuario(
+            nombre="Encargable",
+            apellido="Autorizacion",
+            correo="encargable.autorizacion@compustock.cl",
+            departamento_id=datos_base["departamento_id"],
+            rol_id=rol_solicitante.rol_id,
+        )
+        db.add_all([usuario_bodeguero, usuario_solicitante, usuario_encargable])
+        db.flush()
+        db.add(
+            DepartamentoEncargado(
+                departamento_id=datos_base["departamento_id"],
+                usuario_id=usuario_solicitante.usuario_id,
+            )
+        )
         db.commit()
 
         return {
@@ -312,6 +457,11 @@ def datos_autorizacion(motor, datos_base):
             "ticket_estado_id": ticket_estado.ticket_id,
             "ticket_despacho_id": ticket_despacho.ticket_id,
             "rol_bodeguero_id": rol_bodeguero.rol_id,
+            "rol_solicitante_id": rol_solicitante.rol_id,
+            "sede_id": sede.sede_id,
+            "usuario_bodeguero_id": usuario_bodeguero.usuario_id,
+            "usuario_solicitante_id": usuario_solicitante.usuario_id,
+            "usuario_encargable_id": usuario_encargable.usuario_id,
         }
     finally:
         db.close()
@@ -323,7 +473,7 @@ def datos_autorizacion(motor, datos_base):
 
 
 def test_inventario_de_rutas_igual_a_la_matriz_d3():
-    """El `app` publica exactamente las 21 operaciones de negocio de la matriz.
+    """El `app` publica exactamente las 28 operaciones de negocio de la matriz.
 
     Falla si una ruta de negocio queda sin autorizacion declarada o si la matriz
     inventa una operacion que el contrato no expone.
@@ -374,8 +524,13 @@ def test_rol_con_permiso_recibe_exito(
     motor, datos_autorizacion, metodo, ruta, rol
 ):
     """Un rol permitido obtiene el 2xx contractual con un payload valido."""
-    esperado = 201 if (metodo, ruta) in _CODIGOS_201 else 200
-    with _cliente(motor, rol, usuario_id=datos_autorizacion["usuario_id"]) as cliente:
+    esperado = _codigo_exito(metodo, ruta)
+    with _cliente(
+        motor,
+        rol,
+        usuario_id=datos_autorizacion["usuario_id"],
+        sede_id=datos_autorizacion["sede_id"],
+    ) as cliente:
         respuesta = cliente.request(
             metodo,
             _ruta_concreta(metodo, ruta, datos_autorizacion),
@@ -488,7 +643,7 @@ def test_openapi_declara_el_codigo_de_exito_de_cada_operacion():
     for metodo, ruta in MATRIZ_D3:
         assert ruta in esquema["paths"], (metodo, ruta, "ruta no publicada")
         operacion = esquema["paths"][ruta][metodo.lower()]
-        codigo = "201" if (metodo, ruta) in _CODIGOS_201 else "200"
+        codigo = str(_codigo_exito(metodo, ruta))
         assert codigo in operacion["responses"], (metodo, ruta)
 
 
@@ -503,7 +658,7 @@ REFERENCIAS_ESPERADAS = {
     ("GET", "/api/v1/inventario/productos/{producto_id}"): "ProductoRespuesta",
     ("POST", "/api/v1/inventario/productos"): "ProductoRespuesta",
     ("GET", "/api/v1/inventario/existencias"): "ProductoExistenciaRespuesta",
-    ("GET", "/api/v1/inventario/stock"): "InventarioRespuesta",
+    ("GET", "/api/v1/inventario/stock"): "StockSedeRespuesta",
     ("GET", "/api/v1/inventario/movimientos"): "MovimientoInventarioRespuesta",
     ("GET", "/api/v1/tickets/catalogos"): "CatalogosTicketRespuesta",
     ("GET", "/api/v1/tickets/"): "TicketRespuesta",
@@ -512,6 +667,21 @@ REFERENCIAS_ESPERADAS = {
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): "TicketRespuesta",
     ("GET", "/api/v1/dashboard/"): "DashboardAnaliticoRespuesta",
     ("POST", "/api/v1/control/instituciones/"): "InstitucionAltaControlRespuesta",
+    # Feature 011 (T7): DTOs de la gestion organizacional.
+    ("GET", "/api/v1/organizacion/sedes"): "SedeRespuesta",
+    (
+        "PUT",
+        "/api/v1/organizacion/departamentos/{departamento_id}/sede",
+    ): "AsignacionSedeDepartamentoRespuesta",
+    ("PUT", "/api/v1/organizacion/usuarios/{usuario_id}/sede"): "AsignacionSedeUsuarioRespuesta",
+    (
+        "GET",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): "EncargadoRespuesta",
+    (
+        "POST",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): "EncargadoRespuesta",
 }
 
 
@@ -521,5 +691,5 @@ def test_openapi_conserva_los_contratos_de_exito():
     for (metodo, ruta), nombre in REFERENCIAS_ESPERADAS.items():
         assert ruta in esquema["paths"], (metodo, ruta, "ruta no publicada")
         operacion = esquema["paths"][ruta][metodo.lower()]
-        codigo = "201" if (metodo, ruta) in _CODIGOS_201 else "200"
+        codigo = str(_codigo_exito(metodo, ruta))
         assert _ref_de_respuesta(operacion, codigo) == nombre, (metodo, ruta)

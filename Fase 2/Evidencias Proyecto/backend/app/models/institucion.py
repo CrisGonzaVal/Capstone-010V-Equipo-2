@@ -1,5 +1,5 @@
 from sqlalchemy import Column, ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 
@@ -30,7 +30,19 @@ class Departamento(Base):
     nombre_dep = Column(String(100), nullable=False)
     descripcion = Column(String(200))
     institucion_id = Column(String(20), ForeignKey("institucion.institucion_id"), nullable=False)
+    #: Sede del departamento (Feature 011, spec D-5). Nullable: la obligatoriedad
+    #: es operativa (sin sede se rechazan las operaciones dependientes), no una
+    #: restriccion de base; asi se puede desplegar por fases y migrar los datos
+    #: legados sin romper las filas existentes.
+    sede_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("sede.sede_id"), nullable=True
+    )
 
     institucion = relationship("Institucion", back_populates="departamentos")
     usuarios = relationship("Usuario", back_populates="departamento")
     inventarios = relationship("Inventario", back_populates="departamento")
+    sede = relationship(
+        "Sede",
+        primaryjoin="Departamento.sede_id == Sede.sede_id",
+        foreign_keys="Departamento.sede_id",
+    )

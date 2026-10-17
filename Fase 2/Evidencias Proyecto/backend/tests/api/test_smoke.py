@@ -9,6 +9,18 @@ solo se prueban los casos felices.
 
 import pytest
 
+from ._soporte_sede_011 import asegurar_sede_de_departamento
+
+
+@pytest.fixture(autouse=True)
+def _sede_del_departamento(motor, datos_base):
+    """Feature 011 (T9): el alta de ticket exige sede en el departamento.
+
+    El smoke crea tickets sobre `datos_base`; desde T9 el departamento debe tener
+    una sede asignada, asi que se siembra la precondicion para toda la suite.
+    """
+    asegurar_sede_de_departamento(motor, datos_base)
+
 
 def _crear_usuario(datos_base):
     return {

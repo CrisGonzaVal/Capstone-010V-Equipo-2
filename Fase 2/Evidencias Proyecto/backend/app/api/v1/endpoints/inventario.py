@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.api import dependencies
 from app.schemas.inventario_schema import (
-    InventarioRespuesta,
     MovimientoCrear,
     MovimientoInventarioRespuesta,
     ProductoExistenciaRespuesta,
+    StockSedeRespuesta,
 )
 from app.schemas.producto_schema import (
     CategoriaRespuesta,
@@ -204,13 +204,30 @@ def listar_existencias(
 
 @router.get(
     "/stock",
-    response_model=List[InventarioRespuesta],
+    response_model=List[StockSedeRespuesta],
     status_code=status.HTTP_200_OK,
-    summary="Listar existencias, opcionalmente por departamento",
-    responses=dependencies.respuestas_de_autorizacion(),
+    summary="Listar el saldo vigente por sede",
+    description=(
+        "Devuelve el stock **por sede** (`stock_sede`, spec D-2): una fila plana "
+        "por `(sede, producto)` con su `stock_sede_id`, la sede y el saldo. Es la "
+        "fuente unica de saldo operativo y **nunca** lee ni expone las filas "
+        "legadas de `inventario` (spec §7). A diferencia de "
+        "`GET /inventario/existencias`, que agrupa por producto, aqui cada fila "
+        "expone la referencia de escritura `stock_sede_id` que consume "
+        "`POST /inventario/movimientos`.\n\n"
+        "`sede_id` opcional acota a una sede: un id inexistente o ajeno al "
+        "tenant, o distinto de la sede del Bodeguero/Solicitante, se oculta con "
+        "**404** (AC-3/AC-7). Sin sede asignada, el rol acotado recibe **409**."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+    },
 )
-def listar_inventario(
-    departamento_id: int = None,
+def listar_stock_sede(
+    sede_id: Optional[int] = Query(
+        default=None, description="Acota el saldo a una sede del tenant."
+    ),
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("GET", "/api/v1/inventario/stock")
     ),
@@ -219,8 +236,8 @@ def listar_inventario(
     return global_service.agregar_lista_global(
         db,
         identidad,
-        lambda sesion: inventario_service.listar_inventario(
-            sesion, departamento_id, identidad
+        lambda sesion: inventario_service.listar_stock_sede(
+            sesion, sede_id=sede_id, identidad=identidad
         ),
     )
 

@@ -1,15 +1,25 @@
 from typing import List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, select
+from sqlalchemy import Integer, String, and_, cast, null, select, union_all
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Categoria, Departamento, Inventario, MovimientoInventario, Producto
+from app.core import permisos
+from app.models import (
+    Categoria,
+    Departamento,
+    Inventario,
+    MovimientoInventario,
+    Producto,
+    Sede,
+    StockSede,
+)
 from app.schemas.inventario_schema import (
     MovimientoCrear,
     MovimientoInventarioRespuesta,
     ProductoExistenciaRespuesta,
     SedeExistenciaRespuesta,
+    StockSedeRespuesta,
 )
 from app.schemas.producto_schema import ProductoCrear
 from app.services import ambito_service
@@ -17,6 +27,9 @@ from app.services.auth_service import IdentidadAutenticada
 
 TIPO_ENTRADA = "ENTRADA"
 TIPO_SALIDA = "SALIDA"
+
+_SOLICITANTE = permisos.RolConocido.SOLICITANTE.value
+_BODEGUERO = permisos.RolConocido.BODEGUERO.value
 
 
 def es_stock_critico(stock_actual: int, stock_minimo: int) -> bool:
@@ -141,25 +154,117 @@ def crear_producto(
     return nuevo_producto
 
 
-def listar_inventario(
+def listar_stock_sede(
     db: Session,
-    departamento_id: Optional[int] = None,
+    sede_id: Optional[int] = None,
     identidad: IdentidadAutenticada | None = None,
-) -> List[Inventario]:
-    institucion_id = ambito_service.alcance_institucional(db, identidad)
-    if departamento_id:
-        ambito_service.validar_departamento_en_alcance(
-            db, departamento_id, institucion_id
-        )
+) -> List[StockSedeRespuesta]:
+    """Serie plana del saldo vigente por sede (`stock_sede`).
 
-    consulta = db.query(Inventario)
+    Feature 011 (spec D-2/§7, AC-2/AC-3/AC-7): el read model lee **exclusivamente**
+    `StockSede`, nunca las filas legadas de `inventario` como saldo. Expone la
+    referencia de escritura (`stock_sede_id`) y la sede resuelta, que
+    `/inventario/existencias` no entrega.
+
+    Ambito:
+
+    * Se acota a la institucion del actor (lectura global solo para Superadmin).
+    * `Solicitante`/`Bodeguero` se recortan a su sede (`sede_del_alcance_por_rol`);
+      sin sede asignada, **409** (AC-6/AC-7).
+    * Un `sede_id` explicito inexistente, ajeno o distinto de la sede del rol se
+      oculta con **404** (AC-3/AC-7), sin revelar su existencia.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    sede_rol = sede_del_alcance_por_rol(db, identidad)
+
+    if sede_id is not None:
+        sede = db.get(Sede, sede_id)
+        if sede is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Sede no encontrada"
+            )
+        ambito_service.exigir_pertenencia(
+            sede.institucion_id, institucion_id, detalle="Sede no encontrada"
+        )
+        # AC-7: un Bodeguero/Solicitante solo consulta su propia sede.
+        if sede_rol is not None and sede_rol != sede_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Sede no encontrada"
+            )
+
+    consulta = select(
+        StockSede.stock_sede_id,
+        StockSede.sede_id,
+        Sede.nombre.label("sede_nombre"),
+        StockSede.producto_id,
+        StockSede.stock_actual,
+        StockSede.institucion_id,
+    ).join(Sede, StockSede.sede_id == Sede.sede_id)
     if institucion_id is not None:
-        consulta = consulta.join(
-            Departamento, Inventario.departamento_id == Departamento.departamento_id
-        ).filter(Departamento.institucion_id == institucion_id)
-    if departamento_id:
-        consulta = consulta.filter(Inventario.departamento_id == departamento_id)
-    return consulta.order_by(Inventario.inventario_id).all()
+        consulta = consulta.where(StockSede.institucion_id == institucion_id)
+    if sede_rol is not None:
+        consulta = consulta.where(StockSede.sede_id == sede_rol)
+    if sede_id is not None:
+        consulta = consulta.where(StockSede.sede_id == sede_id)
+    consulta = consulta.order_by(StockSede.stock_sede_id)
+
+    return [
+        StockSedeRespuesta(**fila)
+        for fila in db.execute(consulta).mappings()
+    ]
+
+
+def sede_del_alcance_por_rol(
+    db: Session, identidad: IdentidadAutenticada | None
+) -> int | None:
+    """Sede a la que se acota la consulta de existencias, o `None` sin recorte.
+
+    Ambito operativo de la Feature 011 (spec D-5, AC-6/AC-7/AC-8):
+
+    * **Solicitante**: la sede de su departamento (`departamento.sede_id`). Sin
+      sede asignada la consulta se deniega con **409** y sin fallback.
+    * **Bodeguero**: su `usuario.sede_id`; sin sede, **409**.
+    * **Administrador**: `None`: ve todas las sedes de su institucion (el recorte
+      institucional lo hace `alcance_institucional`).
+    * **Superadmin**: `None`: conserva la lectura global atribuida.
+    """
+    rol = permisos.nombre_rol_de(identidad)
+    usuario = getattr(identidad, "usuario", None)
+    if rol == _SOLICITANTE:
+        departamento = (
+            db.get(Departamento, usuario.departamento_id) if usuario is not None else None
+        )
+        if departamento is None or departamento.sede_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El departamento del solicitante no tiene una sede asignada",
+            )
+        return departamento.sede_id
+    if rol == _BODEGUERO:
+        sede_id = getattr(usuario, "sede_id", None)
+        if sede_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El bodeguero no tiene una sede asignada",
+            )
+        return sede_id
+    return None
+
+
+def _es_producto_critico(
+    sedes: List[SedeExistenciaRespuesta], stock_minimo: int
+) -> bool:
+    """Criticidad por saldo de sede (spec D-6, AC-11).
+
+    Un producto queda marcado como critico si **alguna** de sus sedes esta en o
+    bajo el minimo: la alerta identifica la bodega fisica que puede abastecer, no
+    un promedio institucional. Un producto sin ninguna sede sigue marcado critico
+    cuando su `stock_minimo` es positivo (`0 <= stock_minimo`): conserva la
+    semantica de "sin existencia" del catalogo (Feature 002, D-5).
+    """
+    if not sedes:
+        return es_stock_critico(0, stock_minimo)
+    return any(es_stock_critico(sede.stock_actual, stock_minimo) for sede in sedes)
 
 
 def listar_existencias(
@@ -170,37 +275,50 @@ def listar_existencias(
     solo_criticos: bool = False,
     identidad: IdentidadAutenticada | None = None,
 ) -> List[ProductoExistenciaRespuesta]:
-    """Un elemento por producto del catalogo, con su stock y el desglose por sede.
+    """Un elemento por producto del catalogo, con su stock **por sede** (Feature 011).
+
+    La fuente unica de saldo vigente es `StockSede` (spec D-2): nunca se leen las
+    filas legadas de `inventario`. La respuesta expone obligatoriamente la sede y
+    el saldo (`SedeExistenciaRespuesta`) y el `stock_total` es la suma de las
+    sedes del ambito, no un saldo departamental paralelo.
 
     Es la unica lectura que cruza varias tablas, asi que -a diferencia del resto
     del servicio- usa `select()` de SQLAlchemy 2.0 con los onclause explicitos
     (`plan.md` §3.2.2). `categoria` entra con join interno porque
-    `producto.categoria_id` es NOT NULL con FK; `inventario` y `departamento`
-    entran con `outerjoin` para que un producto sin existencias no desaparezca
-    del catalogo (spec D-4).
+    `producto.categoria_id` es NOT NULL con FK; `stock_sede` y `sede` entran con
+    `outerjoin` para que un producto sin existencias no desaparezca del catalogo.
 
-    Ambito institucional (`ambito_service`, D-1/D-4/AC-5/AC-8): el catalogo es
-    institucional, asi que un rol limitado solo ve los productos de su
-    institucion, y su `outerjoin` de inventario solo acepta las existencias de su
-    institucion (un producto propio sin existencias aparece con `sedes` vacio y
-    `stock_total` 0). Superadmin ve el catalogo global y cada elemento queda
-    atribuido por `institucion_id`. Un `departamento_id` explicito de otra
-    institucion responde 403.
+    Ambito (D-1/D-4/AC-5/AC-6/AC-7/AC-8): el catalogo es institucional y el
+    `outerjoin` de stock solo acepta las existencias del ambito. Ademas,
+    `sede_del_alcance_por_rol` recorta la lectura a la sede del Solicitante o del
+    Bodeguero; el Administrador ve todas las de su institucion y Superadmin, la
+    lectura global atribuida por `institucion_id`. Un `departamento_id` explicito
+    de otra institucion responde 403; un departamento sin sede no expone existencias.
     """
     institucion_id = ambito_service.alcance_institucional(db, identidad)
+    sede_rol = sede_del_alcance_por_rol(db, identidad)
+
+    sede_de_departamento: int | None = None
     if departamento_id is not None:
         ambito_service.validar_departamento_en_alcance(
             db, departamento_id, institucion_id
         )
+        departamento = db.get(Departamento, departamento_id)
+        sede_de_departamento = None if departamento is None else departamento.sede_id
+        if sede_de_departamento is None:
+            # Un departamento sin sede no tiene bodega que exponer (AC-6).
+            return []
 
-    condicion_inventario = Producto.producto_id == Inventario.producto_id
+    condicion_stock = Producto.producto_id == StockSede.producto_id
     if institucion_id is not None:
-        departamentos_propios = select(Departamento.departamento_id).where(
-            Departamento.institucion_id == institucion_id
+        condicion_stock = and_(
+            condicion_stock, StockSede.institucion_id == institucion_id
         )
-        condicion_inventario = and_(
-            condicion_inventario,
-            Inventario.departamento_id.in_(departamentos_propios),
+    if sede_rol is not None:
+        condicion_stock = and_(condicion_stock, StockSede.sede_id == sede_rol)
+    if sede_de_departamento is not None:
+        condicion_stock = and_(
+            condicion_stock, StockSede.sede_id == sede_de_departamento
         )
 
     consulta = (
@@ -213,15 +331,13 @@ def listar_existencias(
             Producto.institucion_id,
             Categoria.categoria_id,
             Categoria.nombre_cat,
-            Inventario.inventario_id,
-            Inventario.stock_actual,
-            Inventario.ubicacion,
-            Departamento.departamento_id,
-            Departamento.nombre_dep,
+            StockSede.stock_actual,
+            Sede.sede_id.label("sede_id"),
+            Sede.nombre.label("sede_nombre"),
         )
         .join(Categoria, Producto.categoria_id == Categoria.categoria_id)
-        .outerjoin(Inventario, condicion_inventario)
-        .outerjoin(Departamento, Inventario.departamento_id == Departamento.departamento_id)
+        .outerjoin(StockSede, condicion_stock)
+        .outerjoin(Sede, StockSede.sede_id == Sede.sede_id)
     )
 
     if institucion_id is not None:
@@ -231,19 +347,21 @@ def listar_existencias(
 
     if q:
         patron = f"%{q.strip()}%"
-        consulta = consulta.where(Producto.nombre.ilike(patron) | Producto.descripcion.ilike(patron))
+        consulta = consulta.where(
+            Producto.nombre.ilike(patron) | Producto.descripcion.ilike(patron)
+        )
     if categoria_id is not None:
         consulta = consulta.where(Categoria.categoria_id == categoria_id)
     if departamento_id is not None:
-        # Degrada el `outerjoin` de inventario a INNER: aqui solo interesan los
-        # productos que tienen existencias en esa sede.
-        consulta = consulta.where(Inventario.departamento_id == departamento_id)
+        # Degrada el `outerjoin` a INNER: solo interesan los productos con
+        # existencias en la sede del departamento pedido.
+        consulta = consulta.where(StockSede.stock_sede_id.is_not(None))
 
     consulta = consulta.order_by(
         Producto.nombre,
         Producto.producto_id,
-        Departamento.nombre_dep,
-        Departamento.departamento_id,
+        Sede.nombre,
+        Sede.sede_id,
     )
 
     # Acumulador por producto. Las claves coinciden con los campos del schema
@@ -267,16 +385,14 @@ def listar_existencias(
             }
         acumulador = acumuladores[fila.producto_id]
 
-        # `inventario_id` llega en None cuando el producto no tiene existencias.
-        if fila.inventario_id is not None:
+        # `sede_id` llega en None cuando el producto no tiene existencias.
+        if fila.sede_id is not None:
             acumulador["stock_total"] += fila.stock_actual
             acumulador["sedes"].append(
                 SedeExistenciaRespuesta(
-                    inventario_id=fila.inventario_id,
-                    departamento_id=fila.departamento_id,
-                    departamento_nombre=fila.nombre_dep,
+                    sede_id=fila.sede_id,
+                    sede_nombre=fila.sede_nombre,
                     stock_actual=fila.stock_actual,
-                    ubicacion=fila.ubicacion,
                 )
             )
 
@@ -285,12 +401,14 @@ def listar_existencias(
     existencias = [
         ProductoExistenciaRespuesta(
             **acumulador,
-            es_critico=es_stock_critico(acumulador["stock_total"], acumulador["stock_minimo"]),
+            es_critico=_es_producto_critico(
+                acumulador["sedes"], acumulador["stock_minimo"]
+            ),
         )
         for acumulador in acumuladores.values()
     ]
 
-    # `solo_criticos` no cabe en el `WHERE`: es un predicado sobre `stock_total`,
+    # `solo_criticos` no cabe en el `WHERE`: es un predicado sobre la criticidad,
     # que no existe hasta agrupar. La base ya filtro por texto, categoria y sede.
     if solo_criticos:
         existencias = [existencia for existencia in existencias if existencia.es_critico]
@@ -298,30 +416,13 @@ def listar_existencias(
     return existencias
 
 
-def listar_movimientos(
-    db: Session, identidad: IdentidadAutenticada | None = None
-) -> List[MovimientoInventarioRespuesta]:
-    """Historial de movimientos con sus datos asociados (plan §3.4, AC-17..AC-20).
+def _historial_legados():
+    """Select del historial de movimientos historicos (por `inventario_id`).
 
-    Como `listar_existencias`, cruza varias tablas, asi que usa `select()` de
-    columnas con los onclause explicitos y ejecuta con `.mappings()`: al no haber
-    entidad en el `FROM`, SQLAlchemy no puede deducir los joins por si sola. Las
-    etiquetas de las columnas que no coinciden con el nombre del campo del DTO
-    (`Producto.nombre` -> `producto_nombre`, `Departamento.nombre_dep` ->
-    `departamento_nombre`) se asignan con `.label()`, de modo que cada mapping se
-    convierte en `MovimientoInventarioRespuesta` con `**fila`.
-
-    Los joins son internos porque cada movimiento persistido resuelve su
-    inventario, producto y departamento por FK. El orden `fecha_movimiento DESC,
-    movimiento_id DESC` es determinista incluso ante empates de fecha (AC-19); no
-    hay paginacion.
-
-    Ambito institucional (D-4/AC-8): un rol limitado solo ve los movimientos cuyo
-    inventario pertenece a un departamento de su institucion.
+    Proyeccion compatible con `_historial_nuevos`: atribuye producto,
+    departamento y ubicacion desde el inventario legado y deja la sede en `null`.
     """
-    institucion_id = ambito_service.alcance_institucional(db, identidad)
-
-    consulta = (
+    return (
         select(
             MovimientoInventario.movimiento_id,
             MovimientoInventario.tipo_movimiento,
@@ -329,24 +430,103 @@ def listar_movimientos(
             MovimientoInventario.fecha_movimiento,
             MovimientoInventario.observacion,
             MovimientoInventario.inventario_id,
+            cast(null(), Integer).label("stock_sede_id"),
             Inventario.producto_id,
             Producto.nombre.label("producto_nombre"),
             Inventario.departamento_id,
             Departamento.nombre_dep.label("departamento_nombre"),
-            Departamento.institucion_id,
+            cast(null(), Integer).label("sede_id"),
+            cast(null(), String(100)).label("sede_nombre"),
             Inventario.ubicacion,
+            Departamento.institucion_id,
         )
-        .join(Inventario, MovimientoInventario.inventario_id == Inventario.inventario_id)
+        .join(
+            Inventario,
+            MovimientoInventario.inventario_id == Inventario.inventario_id,
+        )
         .join(Producto, Inventario.producto_id == Producto.producto_id)
-        .join(Departamento, Inventario.departamento_id == Departamento.departamento_id)
-        .order_by(
-            MovimientoInventario.fecha_movimiento.desc(),
-            MovimientoInventario.movimiento_id.desc(),
+        .join(
+            Departamento,
+            Inventario.departamento_id == Departamento.departamento_id,
         )
+        .where(MovimientoInventario.inventario_id.is_not(None))
     )
 
-    if institucion_id is not None:
-        consulta = consulta.where(Departamento.institucion_id == institucion_id)
+
+def _historial_nuevos():
+    """Select del historial de movimientos nuevos (por `stock_sede_id`).
+
+    Proyeccion compatible con `_historial_legados`: atribuye producto, sede e
+    institucion desde `stock_sede` y deja departamento/ubicacion en `null`. No
+    expone ningun saldo departamental legado.
+    """
+    return (
+        select(
+            MovimientoInventario.movimiento_id,
+            MovimientoInventario.tipo_movimiento,
+            MovimientoInventario.cantidad,
+            MovimientoInventario.fecha_movimiento,
+            MovimientoInventario.observacion,
+            cast(null(), Integer).label("inventario_id"),
+            MovimientoInventario.stock_sede_id,
+            StockSede.producto_id,
+            Producto.nombre.label("producto_nombre"),
+            cast(null(), Integer).label("departamento_id"),
+            cast(null(), String(200)).label("departamento_nombre"),
+            Sede.sede_id.label("sede_id"),
+            Sede.nombre.label("sede_nombre"),
+            cast(null(), String(100)).label("ubicacion"),
+            StockSede.institucion_id,
+        )
+        .join(
+            StockSede,
+            MovimientoInventario.stock_sede_id == StockSede.stock_sede_id,
+        )
+        .join(Producto, StockSede.producto_id == Producto.producto_id)
+        .outerjoin(Sede, StockSede.sede_id == Sede.sede_id)
+        .where(MovimientoInventario.stock_sede_id.is_not(None))
+    )
+
+
+def listar_movimientos(
+    db: Session, identidad: IdentidadAutenticada | None = None
+) -> List[MovimientoInventarioRespuesta]:
+    """Historial de movimientos con sus datos asociados (plan §3.4, AC-17..AC-20).
+
+    Feature 011 (spec D-2/AC-11): la lectura reune **ambas** poblaciones de
+    auditoria en una **proyeccion unica** (`union_all`): los movimientos
+    historicos enlazados a `inventario_id` y los nuevos enlazados a
+    `stock_sede_id`. Asi el despacho por sede -que deja `inventario_id` nulo- no
+    desaparece del historial. Cada fila expone `departamento`/`ubicacion` (legados)
+    o `sede` (nuevos) segun su origen, y jamas un saldo departamental legado.
+
+    Como `listar_existencias`, cruza varias tablas, asi que usa `select()` de
+    columnas con los onclause explicitos y ejecuta con `.mappings()`. Las etiquetas
+    que no coinciden con el campo del DTO (`Producto.nombre` -> `producto_nombre`,
+    `Departamento.nombre_dep` -> `departamento_nombre`) se asignan con `.label()`,
+    de modo que cada mapping se convierte en `MovimientoInventarioRespuesta` con
+    `**fila`.
+
+    El orden `fecha_movimiento DESC, movimiento_id DESC` es determinista incluso
+    ante empates de fecha (AC-19); no hay paginacion.
+
+    Ambito institucional (D-4/AC-8): un rol limitado solo ve los movimientos
+    cuya institucion -heredada del inventario legado o declarada por la fila de
+    stock por sede- coincide con la suya.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+
+    historial = union_all(
+        _historial_legados(), _historial_nuevos()
+    ).subquery("historial")
+    consulta = select(historial)
+    consulta = ambito_service.filtrar_por_institucion(
+        consulta, historial.c.institucion_id, institucion_id
+    )
+    consulta = consulta.order_by(
+        historial.c.fecha_movimiento.desc(),
+        historial.c.movimiento_id.desc(),
+    )
 
     return [
         MovimientoInventarioRespuesta(**fila)
@@ -358,17 +538,31 @@ def registrar_movimiento(
     db: Session,
     movimiento: MovimientoCrear,
     identidad: IdentidadAutenticada | None = None,
-) -> Inventario:
+):
     """Aplica un movimiento de stock y deja rastro en `movimiento_inventario`.
 
     Trazabilidad Absoluta (`constitucion.md` §2): el registro de auditoria se
     escribe en la misma transaccion que la mutacion del stock, o no se escribe.
 
-    Ambito institucional (D-4/AC-8): un rol limitado solo puede mover stock de un
-    inventario de su institucion; un inventario de otra institucion responde 403
-    sin mutar el stock.
+    La Feature 011 (spec D-2/§9, AC-7) hace de `stock_sede_id` la referencia de
+    los movimientos **nuevos**: la mutacion toca `StockSede` y la auditoria enlaza
+    esa fila dejando `inventario_id` nulo. Un `sede_id` distinto al del Bodeguero
+    -de su institucion o ajeno- se oculta con **404** sin mutar; sin sede asignada
+    la operacion se deniega con **409**. El camino legado por `inventario_id` se
+    conserva mientras la migracion lo retire, acotado a la institucion del actor.
     """
     institucion_id = ambito_service.alcance_institucional(db, identidad)
+
+    if movimiento.stock_sede_id is not None:
+        return _registrar_movimiento_por_sede(
+            db, movimiento, institucion_id, identidad
+        )
+
+    if movimiento.inventario_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Debe indicar 'stock_sede_id' o 'inventario_id'",
+        )
 
     inventario = (
         db.query(Inventario)
@@ -403,3 +597,58 @@ def registrar_movimiento(
     db.commit()
     db.refresh(inventario)
     return inventario
+
+
+def _registrar_movimiento_por_sede(
+    db: Session,
+    movimiento: MovimientoCrear,
+    institucion_id: str | None,
+    identidad: IdentidadAutenticada | None,
+) -> StockSede:
+    """Movimiento nuevo contra `stock_sede` con auditoria por `stock_sede_id`.
+
+    * Una fila inexistente o de otra institucion responde **404** (AC-3).
+    * Un Bodeguero solo opera su `usuario.sede_id`: otra sede -propia o ajena-
+      responde **404** sin mutar; sin sede asignada, **409** (AC-7).
+    * `SALIDA` por encima del saldo responde **409** y no deja auditoria (AC-7).
+    """
+    fila = db.get(StockSede, movimiento.stock_sede_id)
+    detalle = "Stock por sede no encontrado"
+    if fila is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detalle)
+    ambito_service.exigir_pertenencia(
+        fila.institucion_id, institucion_id, detalle=detalle
+    )
+
+    if permisos.nombre_rol_de(identidad) == _BODEGUERO:
+        sede_rol = sede_del_alcance_por_rol(db, identidad)
+        if fila.sede_id != sede_rol:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detalle)
+
+    tipo = movimiento.tipo_movimiento.upper()
+    if tipo == TIPO_ENTRADA:
+        fila.stock_actual += movimiento.cantidad
+    elif tipo == TIPO_SALIDA:
+        if fila.stock_actual < movimiento.cantidad:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Stock insuficiente para realizar la salida",
+            )
+        fila.stock_actual -= movimiento.cantidad
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Tipo de movimiento invalido (Use 'ENTRADA' o 'SALIDA')",
+        )
+
+    db.add(
+        MovimientoInventario(
+            tipo_movimiento=tipo,
+            cantidad=movimiento.cantidad,
+            observacion=movimiento.observacion,
+            stock_sede_id=fila.stock_sede_id,
+        )
+    )
+    db.commit()
+    db.refresh(fila)
+    return fila

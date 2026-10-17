@@ -1,10 +1,9 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import {
   Categoria,
-  Inventario,
   MovimientoCrear,
   Producto,
   ProductoCrear,
@@ -34,14 +33,6 @@ export class InventarioService {
 
   crearProducto(datos: ProductoCrear): Observable<Producto> {
     return this.http.post<Producto>(`${URL_API}/inventario/productos`, datos);
-  }
-
-  obtenerStock(departamentoId?: number): Observable<Inventario[]> {
-    let params = new HttpParams();
-    if (departamentoId !== undefined) {
-      params = params.set('departamento_id', departamentoId);
-    }
-    return this.http.get<Inventario[]>(`${URL_API}/inventario/stock`, { params });
   }
 
   /**

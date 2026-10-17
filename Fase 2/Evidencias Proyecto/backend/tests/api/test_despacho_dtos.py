@@ -25,11 +25,16 @@ CAMPOS_HISTORIAL = {
     "cantidad",
     "fecha_movimiento",
     "observacion",
+    # Referencia legada (movimientos historicos) y nueva (Feature 011: por sede).
     "inventario_id",
+    "stock_sede_id",
     "producto_id",
     "producto_nombre",
+    # Atribucion departamental (legados) y de sede (nuevos, Feature 011).
     "departamento_id",
     "departamento_nombre",
+    "sede_id",
+    "sede_nombre",
     "ubicacion",
     # Feature 008 (AC-8): atribucion institucional del movimiento.
     "institucion_id",

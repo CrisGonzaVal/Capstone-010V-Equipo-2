@@ -8,7 +8,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 
@@ -61,10 +61,22 @@ class Ticket(Base):
     institucion_id = Column(
         String(20), ForeignKey("institucion.institucion_id"), nullable=False
     )
+    #: Instantanea de la sede del departamento al **crearse** el ticket (Feature
+    #: 011, spec D-5/AC-9). El despacho rebaja esa sede aunque el departamento se
+    #: reasigne despues; los tickets legados quedan en `NULL` hasta que la
+    #: migracion les asigne sede de forma explicita.
+    sede_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("sede.sede_id"), nullable=True
+    )
 
     usuario = relationship("Usuario", back_populates="tickets")
     prioridad = relationship("Prioridad", back_populates="tickets")
     estado = relationship("EstadoTicket", back_populates="tickets")
+    sede = relationship(
+        "Sede",
+        primaryjoin="Ticket.sede_id == Sede.sede_id",
+        foreign_keys="Ticket.sede_id",
+    )
     detalles = relationship(
         "DetalleTicket",
         back_populates="ticket",

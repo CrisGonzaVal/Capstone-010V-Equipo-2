@@ -13,7 +13,7 @@ tarea fija primero el contrato rojo de:
     (dos usuarios de la misma institucion lo comparten) y su invariante se
     garantiza por derivacion en servidor (ver `test_nombre_...`);
   * `version_esquema` (AC-12/AC-13): comparacion de **igualdad exacta** con la
-    version objetivo `010.1`; ausente/diferente/ilegible deniega en cerrado;
+    version objetivo `011.1`; ausente/diferente/ilegible deniega en cerrado;
   * el **nombre determinista de esquema** (AC-7/AC-13): reproducible, con prefijo
     reservado, sin colisiones silenciosas y rechazando identificadores vacios.
 
@@ -46,8 +46,8 @@ from app.models import Departamento, Institucion, Rol, Usuario
 # Version objetivo (constante de despliegue compartida, plan §1)
 # ---------------------------------------------------------------------------
 
-#: Token de version objetivo de la Feature 010.
-VERSION_OBJETIVO = "010.1"
+#: Token de version objetivo (Feature 011: sube con el modelo organizacional).
+VERSION_OBJETIVO = "011.1"
 
 #: Prefijo reservado del nombre de esquema tenant (plan §"Nombre determinista").
 PREFIJO_TENANT = "tenant_"
@@ -118,7 +118,7 @@ def sesion(motor):
 
 
 def test_version_objetivo_es_la_constante_de_despliegue():
-    """Plan §1/stack §5: la version objetivo es `010.1`."""
+    """Plan §1/stack §5: la version objetivo es `011.1` (Feature 011)."""
     version = getattr(config, "VERSION_ESQUEMA_OBJETIVO", None)
     assert version == VERSION_OBJETIVO, (
         "capacidad ausente (T4/T5): app.core.config debe exponer "
@@ -338,14 +338,14 @@ def test_version_solo_acepta_igualdad_exacta():
     for invalida in (
         None,
         "",
-        "010",
-        "010.1.0",
-        "010.10",
-        "010.2",
-        "009.9",
-        "v010.1",
-        "010.1 ",
-        " 010.1",
+        "011",
+        "011.1.0",
+        "011.10",
+        "011.2",
+        "010.1",
+        "v011.1",
+        "011.1 ",
+        " 011.1",
     ):
         assert es_version_objetivo(invalida) is False, invalida
 

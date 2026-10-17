@@ -33,7 +33,7 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 - `docs/spec/` — Documentación viva de Spec-Driven Development (única fuente de verdad): `constitucion.md`, `roadmap.md`, `stack.md`.
 - `docs/diagramas/` — Diagramas en **HTML + PNG** generados con el skill `diagram-design`: casos de uso por actor y vista general del sistema.
 - `docs/spec/features/` — Especificaciones por incremento (`spec.md`, `plan.md`, `tasks.md`).
-- `backend/` — API REST FastAPI: `app/main.py`, `app/core/` (`config.py`, `security.py`, `permisos.py`), `app/db/database.py`, `app/models/` (por entidad), `app/schemas/` (DTOs), `app/services/` (lógica ACID), `app/api/dependencies.py`, `app/api/v1/api.py`, `app/api/v1/endpoints/` (auth, usuarios, inventario, tickets, control) y `tests/` (pytest). Desde la Feature 010 el esquema efectivo de cada petición se resuelve en el esquema de control (`schema_translate_map` por ejecución).
+- `backend/` — API REST FastAPI: `app/main.py`, `app/core/` (`config.py`, `security.py`, `permisos.py`), `app/db/database.py`, `app/models/` (por entidad), `app/schemas/` (DTOs), `app/services/` (lógica ACID), `app/api/dependencies.py`, `app/api/v1/api.py`, `app/api/v1/endpoints/` (auth, usuarios, inventario, tickets, dashboard, organizacion, control) y `tests/` (pytest). Desde la Feature 010 el esquema efectivo de cada petición se resuelve en el esquema de control (`schema_translate_map` por ejecución).
 - `frontend/` — Aplicación web Angular: `src/app/core/` (guards, interceptors, services), `src/app/shared/` (components, interfaces, pipes), `src/app/features/` (dashboard, inventario, tickets — cada una con `routes.ts` y `services/`) y `src/assets/`.
 - `database/` — Scripts SQL. El prefijo numérico **es funcional**, no decorativo: `docker-compose.yml` monta esta carpeta en `/docker-entrypoint-initdb.d` y PostgreSQL los ejecuta **en orden alfabético** al crear el volumen. `01_esquema.sql` (DDL) debe correr antes que `02_datos_semilla.sql` (TRUNCATE + INSERT), o la semilla trunca tablas inexistentes y el arranque aborta con `ON_ERROR_STOP=1`. No cambies un nombre sin revisar el orden.
 - `.agents/skills/` — Skills del proyecto (ver §9). `opencode.json` y `skills-lock.json` configuran tooling.
@@ -100,7 +100,7 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 
 ## 7. Prohibiciones Estrictas ("No hagas")
 - No escribas código en `backend/` o `frontend/` sin una especificación (`spec.md`) y plan (`plan.md`) aprobados en `docs/spec/features/`.
-- No alteres el modelo de datos de 12 entidades (3NF) sin justificación aprobada en `docs/spec/stack.md`.
+- No alteres el modelo de datos canónico (12 entidades base; desde la Feature 011, 14 de dominio + `departamento_encargado` auxiliar) sin justificación aprobada en `docs/spec/stack.md`.
 - No cambies el esquema de autenticación ni reintroduzcas JWT local HS256: Clerk es la única autoridad de autenticación desde la Feature 006. La autorización por rol (guards, permisos, redirecciones por rol) se implementó en la Feature 007; no se reabre ni se reimplementa fuera de su matriz central.
 - No instales paquetes en `package.json` o `requirements.txt` sin previo análisis de dependencias.
 - No subas secretos, credenciales ni archivos `.env` al repositorio.

@@ -7,6 +7,14 @@
 -- Esquema 3NF de 12 entidades. Solo DDL: aqui no hay TRUNCATE ni INSERT,
 -- los datos de ejemplo son responsabilidad de `02_datos_semilla.sql`.
 --
+-- Feature 011 (modelo organizacional): se agregan las entidades de dominio
+-- `sede` y `stock_sede`, la tabla puente auxiliar `departamento_encargado` y las
+-- columnas nullable `departamento.sede_id`, `usuario.sede_id`, `ticket.sede_id`
+-- y `movimiento_inventario.stock_sede_id`. `movimiento_inventario.inventario_id`
+-- deja de ser obligatoria para admitir los movimientos nuevos, que se enlazan por
+-- `stock_sede_id`. Justificacion aprobada en docs/spec/stack.md §"Evolucion del
+-- modelo organizacional e inventario por sede (Feature 011)".
+--
 -- Feature 008: pertenencia institucional explicitamente (categoria.institucion_id,
 -- producto.institucion_id) o derivada (inventario/ticket/detalle_ticket). Se
 -- conservan las PK simples y se agregan claves unicas compuestas como destino de
@@ -60,6 +68,31 @@ CREATE TABLE control.institucion (
 );
 
 -- =====================================================
+-- 1b. SEDE  (Feature 011)
+-- =====================================================
+-- Entidad de dominio nueva. Cada sede pertenece a exactamente una institucion
+-- (`institucion_id` NOT NULL) y expone la clave compuesta
+-- `(institucion_id, sede_id)`, destino de la FK compuesta de `stock_sede`.
+-- Se crea aqui, antes de `departamento`, porque `departamento.sede_id` la
+-- referencia. La direccion es el dato organizacional propio de la sede: no se
+-- infiere de `inventario.ubicacion`, que queda como dato legado.
+
+CREATE TABLE control.sede (
+    sede_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    direccion VARCHAR(200),
+    institucion_id VARCHAR(20) NOT NULL,
+
+    CONSTRAINT sede_institucion_fk
+        FOREIGN KEY (institucion_id)
+        REFERENCES institucion(institucion_id),
+
+    -- Destino de la FK compuesta stock_sede -> sede (Feature 011, AC-2).
+    CONSTRAINT sede_institucion_uk
+        UNIQUE (institucion_id, sede_id)
+);
+
+-- =====================================================
 -- 2. DEPARTAMENTO
 -- =====================================================
 
@@ -68,10 +101,18 @@ CREATE TABLE control.departamento (
     nombre_dep VARCHAR(100) NOT NULL,
     descripcion VARCHAR(200),
     institucion_id VARCHAR(20) NOT NULL,
+    -- Feature 011 (D-5): sede del departamento. Nullable a proposito: la
+    -- obligatoriedad es operativa (sin sede se rechazan las operaciones
+    -- dependientes), de modo que una base migrada puede partir sin asignaciones.
+    sede_id INTEGER,
 
     CONSTRAINT departamento_institucion_fk
         FOREIGN KEY (institucion_id)
         REFERENCES institucion(institucion_id),
+
+    CONSTRAINT departamento_sede_fk
+        FOREIGN KEY (sede_id)
+        REFERENCES sede(sede_id),
 
     -- Destino de la FK compuesta inventario -> departamento (Feature 008).
     CONSTRAINT departamento_institucion_uk
@@ -99,6 +140,9 @@ CREATE TABLE control.usuario (
     correo VARCHAR(150) NOT NULL UNIQUE,
     departamento_id INTEGER NOT NULL,
     rol_id INTEGER NOT NULL,
+    -- Feature 011 (D-5/D-7): sede asignada al Bodeguero. Nullable: la
+    -- obligatoriedad es operativa y un usuario que no es Bodeguero no la necesita.
+    sede_id INTEGER,
 
     CONSTRAINT usuario_departamento_fk
         FOREIGN KEY (departamento_id)
@@ -106,7 +150,36 @@ CREATE TABLE control.usuario (
 
     CONSTRAINT usuario_rol_fk
         FOREIGN KEY (rol_id)
-        REFERENCES rol(rol_id)
+        REFERENCES rol(rol_id),
+
+    CONSTRAINT usuario_sede_fk
+        FOREIGN KEY (sede_id)
+        REFERENCES sede(sede_id)
+);
+
+-- =====================================================
+-- 4b. DEPARTAMENTO_ENCARGADO  (Feature 011, auxiliar)
+-- =====================================================
+-- Tabla puente auxiliar (no es una entidad de dominio): un departamento admite
+-- varios encargados y un usuario puede ser encargado de su departamento. La
+-- regla de compatibilidad (usuario Solicitante, activo y del mismo departamento)
+-- la valida el servicio; aqui solo vive la asociacion y su unicidad.
+
+CREATE TABLE control.departamento_encargado (
+    departamento_encargado_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    departamento_id INTEGER NOT NULL,
+    usuario_id INTEGER NOT NULL,
+
+    CONSTRAINT departamento_encargado_departamento_fk
+        FOREIGN KEY (departamento_id)
+        REFERENCES departamento(departamento_id),
+
+    CONSTRAINT departamento_encargado_usuario_fk
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(usuario_id),
+
+    CONSTRAINT departamento_encargado_uk
+        UNIQUE (departamento_id, usuario_id)
 );
 
 -- =====================================================
@@ -198,6 +271,39 @@ CREATE TABLE control.inventario (
 );
 
 -- =====================================================
+-- 7b. STOCK_SEDE  (Feature 011)
+-- =====================================================
+-- Entidad de dominio nueva: el saldo operativo vigente es por `(sede, producto)`
+-- y sustituye al saldo departamental (que queda como registro legado). Las FKs
+-- compuestas obligan a que la sede y el producto sean de la misma institucion.
+
+CREATE TABLE control.stock_sede (
+    stock_sede_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    stock_actual INTEGER NOT NULL DEFAULT 0,
+    sede_id INTEGER NOT NULL,
+    producto_id INTEGER NOT NULL,
+    institucion_id VARCHAR(20) NOT NULL,
+
+    CONSTRAINT stock_sede_institucion_fk
+        FOREIGN KEY (institucion_id)
+        REFERENCES institucion(institucion_id),
+
+    CONSTRAINT stock_sede_sede_institucion_fk
+        FOREIGN KEY (institucion_id, sede_id)
+        REFERENCES sede(institucion_id, sede_id),
+
+    CONSTRAINT stock_sede_producto_institucion_fk
+        FOREIGN KEY (institucion_id, producto_id)
+        REFERENCES producto(institucion_id, producto_id),
+
+    CONSTRAINT stock_sede_stock_ck
+        CHECK (stock_actual >= 0),
+
+    CONSTRAINT stock_sede_sede_producto_uk
+        UNIQUE (sede_id, producto_id)
+);
+
+-- =====================================================
 -- 8. MOVIMIENTO_INVENTARIO
 -- =====================================================
 
@@ -207,11 +313,20 @@ CREATE TABLE control.movimiento_inventario (
     cantidad INTEGER NOT NULL,
     fecha_movimiento TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     observacion VARCHAR(250),
-    inventario_id INTEGER NOT NULL,
+    -- Feature 011 (D-2): referencia historica al inventario departamental. Sus
+    -- valores no se alteran, pero deja de ser obligatoria porque los movimientos
+    -- nuevos se enlazan por `stock_sede_id` y dejan esta columna nula.
+    inventario_id INTEGER,
+    -- Referencia de los movimientos nuevos (negocio y consolidacion).
+    stock_sede_id INTEGER,
 
     CONSTRAINT movimiento_inventario_fk
         FOREIGN KEY (inventario_id)
         REFERENCES inventario(inventario_id),
+
+    CONSTRAINT movimiento_stock_sede_fk
+        FOREIGN KEY (stock_sede_id)
+        REFERENCES stock_sede(stock_sede_id),
 
     CONSTRAINT movimiento_cantidad_ck
         CHECK (cantidad > 0)
@@ -253,10 +368,18 @@ CREATE TABLE control.ticket (
     -- Feature 008: derivada del solicitante (usuario -> departamento -> institucion);
     -- la puebla el servicio.
     institucion_id VARCHAR(20) NOT NULL,
+    -- Feature 011 (D-5/AC-9): instantanea de la sede del departamento al crearse
+    -- el ticket. El despacho usa esta sede aunque el departamento se reasigne
+    -- despues; los tickets legados quedan nulos hasta que la migracion los asigne.
+    sede_id INTEGER,
 
     CONSTRAINT ticket_institucion_fk
         FOREIGN KEY (institucion_id)
         REFERENCES institucion(institucion_id),
+
+    CONSTRAINT ticket_sede_fk
+        FOREIGN KEY (sede_id)
+        REFERENCES sede(sede_id),
 
     CONSTRAINT ticket_usuario_fk
         FOREIGN KEY (usuario_id)

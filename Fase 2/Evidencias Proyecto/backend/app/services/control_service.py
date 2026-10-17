@@ -29,6 +29,7 @@ from app.db.database import Base
 from app.models.control import MapaUsuarioEsquema, VersionEsquema
 from app.models.institucion import Departamento, Institucion
 from app.models.rol import Rol
+from app.models.sede import Sede
 from app.models.usuario import Usuario
 from app.schemas.control_schema import (
     ESTADO_OPERATIVA,
@@ -58,6 +59,12 @@ _ESTADOS_TICKET_TENANT: tuple[tuple[str, str], ...] = (
     ("EnCurso", "Aprobado y en preparacion de despacho"),
     ("Cerrado", "Despachado y con fecha de cierre registrada"),
 )
+
+#: Nombre de la sede inicial que recibe todo tenant recien aprovisionado (spec
+#: 011 D-5). Sin CRUD de sedes (Feature 012) un tenant sin sedes no podria
+#: operar, de modo que el alta crea "Sede Central" como semilla de arranque y
+#: deja el tenant operativo.
+NOMBRE_SEDE_CENTRAL = "Sede Central"
 
 # ---------------------------------------------------------------------------
 # Bootstrap administrativo de control (T8, AC-6)
@@ -338,6 +345,20 @@ def _crear_administrador(
     )
 
 
+def _crear_sede_inicial(sesion: Session, institucion_id: str) -> Sede:
+    """Crea la sede inicial "Sede Central" del tenant recien aprovisionado.
+
+    Es bootstrap de datos organizacionales (spec 011 D-5), **no** CRUD de sedes:
+    sin la Feature 012 un tenant sin sedes no podria operar, asi que el alta
+    siembra "Sede Central" para dejarlo operativo antes de declarar su version.
+    La sede pertenece a la institucion del tenant (`institucion_id` no nulo).
+    """
+    sede = Sede(nombre=NOMBRE_SEDE_CENTRAL, institucion_id=institucion_id)
+    sesion.add(sede)
+    sesion.flush()
+    return sede
+
+
 def _provisionar_tenant_logico(
     db: Session, datos: InstitucionAltaControlCrear
 ) -> None:
@@ -366,6 +387,7 @@ def _provisionar_tenant_logico(
     )
     db.flush()
     _crear_administrador(db, datos, institucion_id=datos.institucion_id)
+    _crear_sede_inicial(db, datos.institucion_id)
     db.add(VersionEsquema(version=VERSION_ESQUEMA_OBJETIVO))
 
 
@@ -423,6 +445,7 @@ def _provisionar_tenant_postgres(
             sesion_tenant, datos, institucion_id=datos.institucion_id
         )
         sesion_tenant.flush()
+        _crear_sede_inicial(sesion_tenant, datos.institucion_id)
         sesion_tenant.add(VersionEsquema(version=VERSION_ESQUEMA_OBJETIVO))
         sesion_tenant.commit()
     except Exception:

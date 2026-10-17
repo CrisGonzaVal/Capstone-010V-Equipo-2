@@ -438,6 +438,66 @@ tenant respectivamente: viven fuera del modelo de 12 entidades 3NF y no alteran 
 relaciones ni nulabilidades. La aprobación de esta sección cubre su creación en DDL y en
 modelos, conforme al prerrequisito de la Feature 010.
 
+#### Evolución del modelo organizacional e inventario por sede (Feature 011)
+
+La Feature 011 supera explícitamente la afirmación de la sección “Multi-tenant por esquemas
+PostgreSQL (Feature 010)” que establece que se conservan las mismas doce entidades 3NF y que
+ninguna entidad de dominio se elimina, fusiona o reasigna. La nueva granularidad operativa
+del inventario es `(sede_id, producto_id)`: el stock por sede sustituye el saldo operativo
+por departamento de `inventario`, y el total institucional se deriva exclusivamente como
+suma de los saldos por sede. No se mantienen saldos operativos departamentales o
+institucionales independientes.
+
+El modelo de dominio pasa de doce a catorce entidades: se incorporan `sede` y `stock_sede`.
+`departamento_encargado` es una tabla puente auxiliar de asociación, comparable a
+`mapa_usuario_esquema`, y no se cuenta como entidad de dominio. Se agregan
+`departamento.sede_id` y `usuario.sede_id` como referencias nullable con precondiciones
+operativas; `ticket.sede_id` nullable conserva la instantánea de sede de tickets nuevos y
+permite representar tickets legados; y `movimiento_inventario.stock_sede_id` nullable
+identifica movimientos nuevos contra stock por sede. Las columnas y restricciones compuestas
+locales deben impedir asociaciones incoherentes dentro del tenant, sin FK cross-schema.
+
+Las filas legadas de `inventario` referenciadas por `movimiento_inventario.inventario_id` se
+conservan sin modificación, al igual que sus claves y todos los movimientos históricos.
+`inventario.ubicacion` queda como dato legado y no se traslada automáticamente a
+`sede.direccion`. Los movimientos nuevos de negocio y consolidación referencian
+`stock_sede_id`; para esos movimientos `inventario_id` queda nulo, mientras los movimientos
+históricos conservan su `inventario_id`.
+
+La migración crea sedes deterministas por tenant y asigna departamentos mediante
+round-robin estable por `departamento_id`. Antes de cambiar cada tenant mide por producto la
+suma de las filas departamentales; después exige que la suma de stock por sede sea
+exactamente ese valor. Para cada `(sede, producto)`, el saldo inicial debe ser igual a la
+suma de sus movimientos nuevos de consolidación `ENTRADA`. Cualquier discrepancia aborta sin
+declarar éxito. La consolidación se audita con movimientos nuevos y nunca reescribe ni borra
+movimientos históricos.
+
+La unicidad operativa es una fila por `(sede_id, producto_id)`. `stock_minimo` y criticidad
+se evalúan por sede. Los KPI de `GET /dashboard/` conservan las fórmulas y semántica de
+Feature 009, aplicadas a la nueva granularidad por sede, sin consultar cifras departamentales
+legadas. `GET /inventario/existencias` expone sede y saldo; los endpoints de consulta no leen
+ni exponen las filas legadas de `inventario`.
+
+La asignación departamento-sede y usuario Bodeguero-sede se almacena en referencias
+nullable; la obligatoriedad es operativa, no `NOT NULL`: las operaciones que dependan de una
+asignación faltante se rechazan. Cada ticket nuevo almacena en `ticket.sede_id` una
+instantánea al crearse y el despacho usa esa sede aun si el departamento cambia luego.
+Tickets y movimientos históricos no se redirigen. Un tenant recién aprovisionado recibe
+automáticamente “Sede Central”; el CRUD administrativo de sedes permanece en Feature 012.
+
+El token objetivo de DDL pasa a `011.1`. Bootstrap/aprovisionamiento, control y cada tenant
+deben recibir estructura compatible; el routing compara igualdad exacta y deniega cerrado
+ante versión diferente, ausente, incompleta o duplicada. La migración de instalaciones
+existentes es explícita, transaccional/idempotente según sus checkpoints y no usa la semilla
+destructiva.
+
+**Por qué:** el inventario debe representar la bodega física compartida por los departamentos
+de una sede y no puede seguir fingiendo una granularidad departamental que el dominio ya no
+usa; al mismo tiempo, la auditoría histórica permanece íntegra y el saldo institucional sigue
+siendo una derivación, no una segunda fuente de verdad. Esta es la justificación que exige
+`AGENTS.md` §7 antes de tocar modelos, DDL o migraciones, y la aprobación de este apartado es
+el prerrequisito de implementación de la Feature 011.
+
 ### 3. Estructura del Frontend (Angular 18 Standalone)
 En Angular moderno (sin NgModules), la clave es el agrupamiento por Características (Features). Esto facilita el Lazy Loading (carga perezosa) y hace que la aplicación escale sin que el código se enrede.
 

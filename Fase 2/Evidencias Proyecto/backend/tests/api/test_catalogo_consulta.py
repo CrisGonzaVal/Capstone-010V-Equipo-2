@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Categoria, Departamento, Inventario, Producto
+from app.models import Categoria, Departamento, Inventario, Producto, Sede, StockSede
 
 RUTA_EXISTENCIAS = "/api/v1/inventario/existencias"
 RUTA_CATEGORIAS = "/api/v1/inventario/categorias"
@@ -55,6 +55,29 @@ def datos_catalogo(motor, datos_base):
         db.add(departamento_bodega)
         db.flush()
 
+        # Feature 011 (T8): el saldo operativo vive en `stock_sede`, no en
+        # `inventario`. Cada departamento se asigna a una sede (mismo nombre que el
+        # departamento, para conservar el vocabulario del fixture) y se siembra el
+        # saldo vigente por sede.
+        sede_operaciones = Sede(nombre="Operaciones", institucion_id="INST01")
+        sede_bodega = Sede(nombre="Bodega", institucion_id="INST01")
+        db.add_all([sede_operaciones, sede_bodega])
+        db.flush()
+        departamento_operaciones = db.get(Departamento, datos_base["departamento_id"])
+        departamento_operaciones.sede_id = sede_operaciones.sede_id
+        departamento_bodega.sede_id = sede_bodega.sede_id
+
+        def nueva_existencia_sede(producto_id, stock, sede_id):
+            fila = StockSede(
+                sede_id=sede_id,
+                producto_id=producto_id,
+                stock_actual=stock,
+                institucion_id="INST01",
+            )
+            db.add(fila)
+            db.flush()
+            return fila
+
         def nuevo_producto(nombre, descripcion, unidad, minimo, categoria_id):
             producto = Producto(
                 nombre=nombre,
@@ -90,12 +113,18 @@ def datos_catalogo(motor, datos_base):
         )
         nueva_existencia(resma.producto_id, 120, "Bodega Central - A1", datos_base["departamento_id"])
         nueva_existencia(resma.producto_id, 30, "Bodega Central - A2", departamento_bodega.departamento_id)
+        # Saldo vigente por sede (Feature 011, D-2): mismo agregado (150) que el legado.
+        nueva_existencia_sede(resma.producto_id, 120, sede_operaciones.sede_id)
+        nueva_existencia_sede(resma.producto_id, 30, sede_bodega.sede_id)
+        # El cuaderno de `datos_base`: su saldo vigente es el de la sede (50).
+        nueva_existencia_sede(datos_base["producto_id"], 50, sede_operaciones.sede_id)
 
         # Critico: 3 < 10.
         toner = nuevo_producto(
             "Toner HP 26A", "Cartucho negro HP26A", "UNIDAD", 10, categoria_toner.categoria_id
         )
         nueva_existencia(toner.producto_id, 3, "Bodega Central - B1", departamento_bodega.departamento_id)
+        nueva_existencia_sede(toner.producto_id, 3, sede_bodega.sede_id)
 
         # Sin ninguna existencia: debe seguir apareciendo en el catalogo.
         nuevo_producto(
@@ -107,6 +136,7 @@ def datos_catalogo(motor, datos_base):
             "Boligrota Bic Cristal", "Punta fina color negro", "UNIDAD", 30, datos_base["categoria_id"]
         )
         nueva_existencia(boligrota.producto_id, 30, "Bodega Central - C1", datos_base["departamento_id"])
+        nueva_existencia_sede(boligrota.producto_id, 30, sede_operaciones.sede_id)
 
         ids = {
             "categoria_toner_id": categoria_toner.categoria_id,
@@ -176,13 +206,13 @@ def test_existencia_expone_categoria_y_sedes(cliente, datos_catalogo):
     for existencia in _obtener(cliente):
         assert existencia["categoria_nombre"]
         for sede in existencia["sedes"]:
-            assert sede["departamento_nombre"] in {"Operaciones", "Bodega"}
+            assert sede["sede_nombre"] in {"Operaciones", "Bodega"}
 
     resma = _por_id(_obtener(cliente), datos_catalogo["producto_resma_id"])
     assert resma["categoria_nombre"] == "Papeleria"
-    assert {sede["ubicacion"] for sede in resma["sedes"]} == {
-        "Bodega Central - A1",
-        "Bodega Central - A2",
+    assert {sede["sede_nombre"] for sede in resma["sedes"]} == {
+        "Operaciones",
+        "Bodega",
     }
 
 
@@ -230,7 +260,7 @@ def test_filtro_por_departamento_acota_sedes_y_total(cliente, datos_catalogo):
     solo_bodega = _obtener(cliente, departamento_id=datos_catalogo["departamento_bodega_id"])
 
     resma = _por_id(solo_bodega, datos_catalogo["producto_resma_id"])
-    assert [sede["departamento_nombre"] for sede in resma["sedes"]] == ["Bodega"]
+    assert [sede["sede_nombre"] for sede in resma["sedes"]] == ["Bodega"]
     # `stock_total` deja de sumar la sede que se filtro (spec D-4).
     assert resma["stock_total"] == 30
 
@@ -275,9 +305,9 @@ def test_orden_es_determinista(cliente, datos_catalogo):
     assert nombres == sorted(nombres)
 
 
-def test_sedes_vienen_ordenadas_por_departamento(cliente, datos_catalogo):
+def test_sedes_vienen_ordenadas_por_sede(cliente, datos_catalogo):
     resma = _por_id(_obtener(cliente), datos_catalogo["producto_resma_id"])
-    nombres = [sede["departamento_nombre"] for sede in resma["sedes"]]
+    nombres = [sede["sede_nombre"] for sede in resma["sedes"]]
 
     assert nombres == sorted(nombres) == ["Bodega", "Operaciones"]
 
@@ -299,7 +329,12 @@ def test_consultar_existencias_no_altera_el_stock(cliente, datos_catalogo):
 
 
 def test_listados_existentes_conservan_su_json_con_orden_determinista(cliente, datos_catalogo):
-    """El unico cambio en estas tres rutas es que el orden deja de ser indefinido."""
+    """Las tres rutas responden 200 con orden determinista.
+
+    Feature 011 (B1): `stock` deja de exponer el inventario departamental legado y
+    pasa a la serie de saldo por sede (`stock_sede`); `categorias` y `productos`
+    conservan su contrato salvo el orden, que deja de ser indefinido.
+    """
     categorias = cliente.get(RUTA_CATEGORIAS).json()
     assert set(categorias[0]) == {
         "categoria_id",
@@ -323,16 +358,19 @@ def test_listados_existentes_conservan_su_json_con_orden_determinista(cliente, d
     assert [p["nombre"] for p in productos] == sorted(p["nombre"] for p in productos)
 
     stock = cliente.get(RUTA_STOCK).json()
+    # Feature 011 (B1): la ruta ya no expone el inventario departamental legado
+    # sino el saldo vigente por sede (`stock_sede`).
     assert set(stock[0]) == {
-        "inventario_id",
-        "stock_actual",
-        "ubicacion",
-        "departamento_id",
+        "stock_sede_id",
+        "sede_id",
+        "sede_nombre",
         "producto_id",
-        "producto",
+        "stock_actual",
         "institucion_id",
     }
-    assert [s["inventario_id"] for s in stock] == sorted(s["inventario_id"] for s in stock)
+    assert [s["stock_sede_id"] for s in stock] == sorted(
+        s["stock_sede_id"] for s in stock
+    )
 
 
 def test_listar_productos_evita_consultas_n_mas_uno(motor, cliente, datos_catalogo):

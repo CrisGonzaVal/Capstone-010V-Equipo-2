@@ -158,10 +158,9 @@
                   <td class="py-4 px-6 text-slate-600">{{ insumo.categoria_nombre }}</td>
                   <td class="py-4 px-6">
                     @if (insumo.sedes.length) {
-                      @for (sede of insumo.sedes; track sede.inventario_id) {
+                      @for (sede of insumo.sedes; track sede.sede_id) {
                         <div>
-                          <span class="font-medium text-slate-800">{{ sede.departamento_nombre }}</span>
-                          <span class="text-slate-500"> · {{ sede.ubicacion ?? 'Sin ubicación' }}</span>
+                          <span class="font-medium text-slate-800">{{ sede.sede_nombre }}</span>
                           <span class="ml-1 font-semibold">{{ sede.stock_actual }}</span>
                         </div>
                       }

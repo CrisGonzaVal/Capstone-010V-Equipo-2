@@ -199,7 +199,7 @@ antes de escribir HTTP en un endpoint.
 ## Cuando ademas aplicar otras skills
 
 - **Escribiendo tests de endpoint o servicio**: carga `tdd`. Test primero por la interfaz publica - para un router eso es un cliente HTTP (`TestClient`), no una llamada directa a la funcion del endpoint. Mockea solo fronteras de sistema, no `Session` si podés usar una base de prueba real.
-- **Cambiando el modelo de datos**: las 12 entidades en 3NF son intocables sin justificacion aprobada en `docs/spec/stack.md` (`AGENTS.md` §7). No propongas migraciones por tu cuenta.
+- **Cambiando el modelo de datos**: el modelo canónico (12 entidades base; desde la 011, 14 de dominio + `departamento_encargado` auxiliar) es intocable sin justificacion aprobada en `docs/spec/stack.md` (`AGENTS.md` §7). No propongas migraciones por tu cuenta.
 - **Tocando autenticacion**: Clerk es la unica autoridad (Feature 006). No reintroduzcas JWT local HS256 ni un login simulado; la autorizacion por rol se implemento en la Feature 007 (matriz central en `app/core/permisos.py` + `requiere_roles`/`requiere_operacion` + `app/services/ambito_service.py`).
 
 ## Nada de esto aplica a

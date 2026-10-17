@@ -41,7 +41,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.schema import CreateSchema
 
 from app.db.database import Base, ESQUEMA_CONTROL, crear_sesion_control, crear_sesion_esquema
-from app.models import Rol, Usuario
+from app.models import Rol, Sede, Usuario, VersionEsquema
 from app.schemas.control_schema import InstitucionAltaControlCrear
 from app.services import control_service, tenant_service
 
@@ -155,6 +155,50 @@ def test_tenant_aprovisionado_tiene_rol_administrador_unico():
                     "no a un duplicado"
                 )
                 assert usuario.rol.nombre_rol == "Administrador"
+            finally:
+                sesion_tenant.close()
+        finally:
+            engine.dispose()
+
+
+def test_tenant_aprovisionado_recibe_sede_central_y_version_011_1():
+    """AC-12 (T6, Feature 011): el tenant nuevo nace operativo.
+
+    El aprovisionamiento debe crear "Sede Central" (bootstrap organizacional, no
+    CRUD) y dejar una **unica** fila de version objetivo `011.1` para que el
+    tenant sea enrutable. SQLite no reproduce el namespace por tenant, asi que el
+    invariante se acredita contra PostgreSQL 16 real.
+    """
+    with _base_temporal(_POSTGRES_TEST_URL) as url:
+        engine = create_engine(_url_sqlalchemy(url), future=True)
+        try:
+            with engine.begin() as conexion:
+                conexion.execute(CreateSchema(ESQUEMA_CONTROL))
+            motor_control = engine.execution_options(
+                schema_translate_map={None: ESQUEMA_CONTROL}
+            )
+            Base.metadata.create_all(bind=motor_control)
+
+            sesion_control = crear_sesion_control(engine)
+            try:
+                control_service.aprovisionar_institucion(
+                    sesion_control, _datos(), lambda _correo: True
+                )
+            finally:
+                sesion_control.close()
+
+            nombre_esquema = tenant_service.nombre_esquema_para_institucion("INST-T010")
+            sesion_tenant = crear_sesion_esquema(nombre_esquema, motor=engine)
+            try:
+                sedes = sesion_tenant.execute(select(Sede)).scalars().all()
+                assert len(sedes) == 1, f"el tenant debe tener una sede inicial: {sedes}"
+                assert sedes[0].nombre == "Sede Central"
+                assert sedes[0].institucion_id == "INST-T010"
+
+                versiones = (
+                    sesion_tenant.execute(select(VersionEsquema.version)).scalars().all()
+                )
+                assert versiones == ["011.1"], versiones
             finally:
                 sesion_tenant.close()
         finally:

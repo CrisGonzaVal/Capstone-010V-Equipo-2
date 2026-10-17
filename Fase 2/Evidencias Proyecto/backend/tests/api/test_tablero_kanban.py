@@ -16,6 +16,18 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models import EstadoTicket
 
+from ._soporte_sede_011 import asegurar_sede_de_departamento
+
+
+@pytest.fixture(autouse=True)
+def _sede_del_departamento(motor, datos_base):
+    """Feature 011 (T9): el alta de ticket exige sede en el departamento.
+
+    Todo el tablero crea tickets sobre `datos_base`; desde T9 el departamento debe
+    tener una sede asignada, de modo que se siembra la precondicion para el modulo.
+    """
+    asegurar_sede_de_departamento(motor, datos_base)
+
 
 def _instalar_catalogo(motor, nombres):
     """Borra los estados y crea los de `nombres`, en ese orden de ids.

@@ -36,11 +36,14 @@ _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 #: Alta de institucion (Feature 010, D-7): solo Superadmin.
 _ALTA_INSTITUCION = {"Superadmin"}
+#: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
+_ORGANIZACION = {"Administrador"}
 
-#: Las 22 operaciones de negocio -> roles permitidos (matriz vigente tras el
-#: ajuste puntual de la Feature 008, la operacion `GET /dashboard/` de la 009 y
-#: el alta de institucion de la 010; el resto de la matriz D-3 de 007 no cambia,
-#: salvo los dos GET por objeto de catalogo que exige AC-9/AC-16 de la 008).
+#: Las 28 operaciones de negocio -> roles permitidos (matriz vigente tras el
+#: ajuste puntual de la Feature 008, la operacion `GET /dashboard/` de la 009, el
+#: alta de institucion de la 010 y las seis asignaciones organizacionales de la
+#: 011; el resto de la matriz D-3 de 007 no cambia, salvo los dos GET por objeto
+#: de catalogo que exige AC-9/AC-16 de la 008).
 MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
     ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
@@ -66,6 +69,22 @@ MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/dashboard/"): _TODOS,
     # Feature 010 (D-7/AC-7…AC-9): alta de institucion, solo Superadmin.
     ("POST", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
+    # Feature 011 (D-4/D-5/AC-5): asignaciones organizacionales, solo Administrador.
+    ("GET", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}/sede"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/usuarios/{usuario_id}/sede"): _ORGANIZACION,
+    (
+        "GET",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "POST",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "DELETE",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
+    ): _ORGANIZACION,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -143,15 +162,15 @@ def test_cuatro_roles_exactos_sin_alias_admin():
 
 
 # ---------------------------------------------------------------------------
-# AC-9: la matriz central es exactamente la de D-3 (22 operaciones vigentes
-# tras las Features 008, 009 y 010: las 18 de 007 mas los dos GET por objeto de
-# catalogo de la 008, el GET consolidado del dashboard de la 009 y el alta de
-# institucion de la 010)
+# AC-9: la matriz central es exactamente la de D-3 (28 operaciones vigentes
+# tras las Features 008, 009, 010 y 011: las 18 de 007 mas los dos GET por objeto
+# de catalogo de la 008, el GET consolidado del dashboard de la 009, el alta de
+# institucion de la 010 y las seis asignaciones organizacionales de la 011)
 # ---------------------------------------------------------------------------
 
 
 def test_matriz_cubre_exactamente_las_operaciones_de_d3():
-    assert len(MATRIZ_ESPERADA) == 22
+    assert len(MATRIZ_ESPERADA) == 28
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_ESPERADA

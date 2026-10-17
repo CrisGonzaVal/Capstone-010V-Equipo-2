@@ -43,6 +43,8 @@ from app.models import (
     Prioridad,
     Producto,
     Rol,
+    Sede,
+    StockSede,
     Ticket,
     Usuario,
 )
@@ -67,19 +69,19 @@ CAMPOS_KPI = {
     "total_departamentos",
     "total_alertas",
 }
-#: Campos de cada fila del log de alertas (plan §1).
+#: Campos de cada fila del log de alertas (Feature 011: la alerta es por sede).
 CAMPOS_ALERTA = {
-    "inventario_id",
+    "sede_id",
+    "sede_nombre",
     "producto_id",
     "producto_nombre",
-    "departamento_id",
-    "departamento_nombre",
     "stock_actual",
     "stock_minimo",
     "institucion_id",
     "institucion_nombre",
 }
-#: Campos de cada fila de la actividad reciente (plan §1).
+#: Campos de cada fila de la actividad reciente (Feature 011: proyeccion unica;
+#: `sede` para movimientos nuevos y `departamento`/`ubicacion` para los legados).
 CAMPOS_ACTIVIDAD = {
     "movimiento_id",
     "tipo_movimiento",
@@ -87,6 +89,8 @@ CAMPOS_ACTIVIDAD = {
     "fecha_movimiento",
     "producto_id",
     "producto_nombre",
+    "sede_id",
+    "sede_nombre",
     "departamento_id",
     "departamento_nombre",
     "ubicacion",
@@ -434,6 +438,41 @@ def escenario_kpi(motor):
         inv_cero = _inventario(cero_a, dep_op_a, 0)
         inv_papel_b = _inventario(papel_b, dep_op_b, STOCK_PAPEL_B)
 
+        # Feature 011 (spec D-6/AC-11): la fuente vigente de saldo es `stock_sede`.
+        # Se crea una sede por departamento (con su denominacion) y las filas de
+        # stock equivalentes a las de `inventario`; esas filas legadas quedan para
+        # los movimientos historicos de la actividad.
+        def _sede(nombre, dep, institucion_id):
+            sede = Sede(nombre=nombre, institucion_id=institucion_id)
+            db.add(sede)
+            db.flush()
+            dep.sede_id = sede.sede_id
+            db.flush()
+            return sede
+
+        sede_op_a = _sede("Operaciones", dep_op_a, "INSTA")
+        sede_bod_a = _sede("Bodega", dep_bod_a, "INSTA")
+        sede_arc_a = _sede("Archivo", dep_arc_a, "INSTA")
+        _sede("Sin Inventario", dep_vacia_a, "INSTA")
+        sede_op_b = _sede("Operaciones", dep_op_b, "INSTB")
+
+        def _stock_sede(prod, sede, stock):
+            fila = StockSede(
+                stock_actual=stock,
+                sede_id=sede.sede_id,
+                producto_id=prod.producto_id,
+                institucion_id=prod.institucion_id,
+            )
+            db.add(fila)
+            db.flush()
+            return fila
+
+        stock_papel_op_a = _stock_sede(papel_a, sede_op_a, STOCK_M_MENOS_1)
+        _stock_sede(papel_a, sede_bod_a, STOCK_M)
+        _stock_sede(papel_a, sede_arc_a, STOCK_M_MAS_1)
+        _stock_sede(cero_a, sede_op_a, 0)
+        _stock_sede(papel_b, sede_op_b, STOCK_PAPEL_B)
+
         prioridad = Prioridad(nombre="ALTA", descripcion="Prioridad alta")
         db.add(prioridad)
         db.flush()
@@ -481,6 +520,8 @@ def escenario_kpi(motor):
             "producto_sin_inventario_a": sin_inv_a.producto_id,
             "inventario_papel_op_a": inv_m_menos_1.inventario_id,
             "inventario_papel_b": inv_papel_b.inventario_id,
+            "sede_papel_op_a": sede_op_a.sede_id,
+            "stock_sede_papel_op_a": stock_papel_op_a.stock_sede_id,
         }
     finally:
         db.close()
@@ -592,7 +633,7 @@ def test_alertas_marca_igual_o_menor_al_minimo_y_excluye_m_mas_1(motor, escenari
         cuerpo = _leer_dashboard(cliente)
 
     claves = {
-        (a["producto_nombre"], a["departamento_nombre"], a["stock_actual"])
+        (a["producto_nombre"], a["sede_nombre"], a["stock_actual"])
         for a in cuerpo["alertas"]
     }
     assert claves == {
@@ -700,6 +741,16 @@ def _cuerpo_movimiento(inventario_id: int, tipo: str, cantidad: int) -> dict:
     }
 
 
+def _cuerpo_movimiento_sede(stock_sede_id: int, tipo: str, cantidad: int) -> dict:
+    """Movimiento nuevo de la Feature 011 (referencia por `stock_sede_id`)."""
+    return {
+        "tipo_movimiento": tipo,
+        "cantidad": cantidad,
+        "observacion": f"Movimiento {tipo} del escenario de umbral por sede",
+        "stock_sede_id": stock_sede_id,
+    }
+
+
 # --- AC-8: los cuatro roles limitados solo ven su institucion -----------------
 
 
@@ -774,21 +825,24 @@ def test_kpi_total_alertas_es_el_mismo_conjunto_que_el_listado(motor, escenario_
 
 
 def test_cruce_de_umbral_por_movimiento_real_no_persiste_alertas(motor, escenario_kpi):
-    """AC-5/AC-12: la fila critica entra y sale del log solo por el estado actual.
+    """AC-5/AC-12 (Feature 011): la sede critica entra y sale del log por el estado.
 
-    Se parte de la fila Papel Bond/Operaciones en 9 (minimo 10, critica). Una
-    ENTRADA real de 5 por el endpoint de movimientos la lleva a 14 (no critica) y
-    desaparece del log; una SALIDA real de 5 la devuelve a 9 y reaparece. El unico
-    cambio de auditoria son las dos filas de `movimiento_inventario`; no se crea
-    ninguna fila de alerta (el total de filas del esquema crece exactamente 2).
+    Se parte de la sede Papel Bond/Operaciones en 9 (minimo 10, critica). Una
+    ENTRADA real de 5 por el endpoint de movimientos (referencia nueva
+    `stock_sede_id`) la lleva a 14 (no critica) y desaparece del log; una SALIDA
+    real de 5 la devuelve a 9 y reaparece. El unico cambio de auditoria son las
+    dos filas de `movimiento_inventario`; no se crea ninguna fila de alerta (el
+    total de filas del esquema crece exactamente 2).
     """
-    inventario_id = escenario_kpi["inventario_papel_op_a"]
+    stock_sede_id = escenario_kpi["stock_sede_papel_op_a"]
+    sede_id = escenario_kpi["sede_papel_op_a"]
+    producto_id = escenario_kpi["producto_papel_a"]
 
-    def _alerta_de_la_fila(cliente):
+    def _alerta_de_la_sede(cliente):
         return [
             a
             for a in _leer_dashboard(cliente)["alertas"]
-            if a["inventario_id"] == inventario_id
+            if a["sede_id"] == sede_id and a["producto_id"] == producto_id
         ]
 
     filas_antes = _conteo_filas_por_tabla(motor)
@@ -799,20 +853,22 @@ def test_cruce_de_umbral_por_movimiento_real_no_persiste_alertas(motor, escenari
         departamento_id=escenario_kpi["dep_op_a"],
         usuario_id=escenario_kpi["admin_a"],
     ) as cliente:
-        assert _alerta_de_la_fila(cliente), "la fila 9/10 arranca critica"
+        assert _alerta_de_la_sede(cliente), "la sede 9/10 arranca critica"
 
         entrada = cliente.post(
-            RUTA_MOVIMIENTOS, json=_cuerpo_movimiento(inventario_id, "ENTRADA", 5)
+            RUTA_MOVIMIENTOS,
+            json=_cuerpo_movimiento_sede(stock_sede_id, "ENTRADA", 5),
         )
         assert entrada.status_code == 201, entrada.text
-        assert _alerta_de_la_fila(cliente) == [], "la entrada la saca del umbral"
+        assert _alerta_de_la_sede(cliente) == [], "la entrada la saca del umbral"
         kpi_sin_alerta = _leer_dashboard(cliente)["kpi"]
 
         salida = cliente.post(
-            RUTA_MOVIMIENTOS, json=_cuerpo_movimiento(inventario_id, "SALIDA", 5)
+            RUTA_MOVIMIENTOS,
+            json=_cuerpo_movimiento_sede(stock_sede_id, "SALIDA", 5),
         )
         assert salida.status_code == 201, salida.text
-        assert _alerta_de_la_fila(cliente), "la salida la vuelve a marcar critica"
+        assert _alerta_de_la_sede(cliente), "la salida la vuelve a marcar critica"
         kpi_con_alerta = _leer_dashboard(cliente)["kpi"]
 
     assert kpi_sin_alerta["total_alertas"] == 2

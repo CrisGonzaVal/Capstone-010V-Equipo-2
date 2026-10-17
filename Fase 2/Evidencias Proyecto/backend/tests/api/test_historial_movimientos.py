@@ -26,12 +26,27 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models import EstadoTicket, MovimientoInventario
 
+from ._soporte_sede_011 import asegurar_sede_de_departamento
+
+
+@pytest.fixture(autouse=True)
+def _sede_de_datos_base(motor, datos_base):
+    """Feature 011 (T9): el alta de ticket exige sede en el departamento.
+
+    El caso AC-20 corre el despacho real; desde T9 el departamento debe tener sede
+    y el saldo vive en `stock_sede`.
+    """
+    asegurar_sede_de_departamento(
+        motor, datos_base, stocks={datos_base["producto_id"]: 50}
+    )
+
 #: Ruta contractual del historial (`spec.md` §5).
 RUTA_HISTORIAL = "/api/v1/inventario/movimientos"
 
-#: Las doce claves del DTO `MovimientoInventarioRespuesta` (`spec.md` §5 y
-#: Feature 008: `institucion_id` da la atribucion institucional para las lecturas
-#: globales del Superadmin, AC-8).
+#: Claves del DTO `MovimientoInventarioRespuesta` (`spec.md` §5, Feature 008 y
+#: Feature 011). `institucion_id` da la atribucion institucional para las lecturas
+#: globales del Superadmin (AC-8); `stock_sede_id`/`sede_id`/`sede_nombre`
+#: corresponden a los movimientos nuevos de la granularidad por sede (011 D-2).
 CAMPOS_HISTORIAL = {
     "movimiento_id",
     "tipo_movimiento",
@@ -39,10 +54,13 @@ CAMPOS_HISTORIAL = {
     "fecha_movimiento",
     "observacion",
     "inventario_id",
+    "stock_sede_id",
     "producto_id",
     "producto_nombre",
     "departamento_id",
     "departamento_nombre",
+    "sede_id",
+    "sede_nombre",
     "ubicacion",
     "institucion_id",
 }
@@ -232,12 +250,16 @@ def test_historial_ordena_por_fecha_desc_y_desempata_por_id_desc(
 # --- AC-20: la salida del despacho aparece en el historial ---
 
 
-def test_la_salida_de_un_despacho_aparece_en_el_historial(cliente, motor, datos_despacho):
-    """AC-20/D-6: el `SALIDA` del despacho se lee con cantidad, observacion e inventario.
+def test_la_salida_de_un_despacho_aparece_en_el_historial_por_stock_sede(
+    cliente, motor, datos_despacho
+):
+    """AC-9 (Feature 011): el despacho audita contra `stock_sede` y se lee en el historial.
 
-    Se corre el flujo HTTP real de despacho y luego se consulta el historial por
-    HTTP: el movimiento debe traer el tipo, la cantidad, la observacion literal
-    D-6 y el inventario de destino esperados, ademas de los datos asociados.
+    Bajo la granularidad por sede el despacho deja `inventario_id` nulo y enlaza el
+    movimiento nuevo por `stock_sede_id` (spec D-2). El historial debe reconocer esa
+    poblacion nueva mediante la proyeccion unica: el movimiento aparece, con su
+    `stock_sede_id` y su sede, sin departamento ni saldo legado. La auditoria se
+    comprueba tanto por HTTP como sobre la fila persistida.
     """
     ticket_id = _abrir_ticket_en_curso(
         cliente,
@@ -251,22 +273,39 @@ def test_la_salida_de_un_despacho_aparece_en_el_historial(cliente, motor, datos_
     assert despacho.status_code == 200, despacho.text
     detalle_id = despacho.json()["detalles"][0]["detalle_ticket_id"]
 
-    cuerpo = _leer_historial(cliente)
-    salidas = [m for m in cuerpo if m["tipo_movimiento"] == "SALIDA"]
-    assert len(salidas) == 1, f"se esperaba una salida de despacho: {cuerpo}"
-
-    salida = salidas[0]
-    assert set(salida) == CAMPOS_HISTORIAL, "faltan campos del contrato (§5)"
-    assert salida["cantidad"] == 3
-    assert salida["observacion"] == (
+    observacion = (
         f"Despacho ticket_id={ticket_id}; "
         f"detalle_id={detalle_id}; "
         f"producto_id={datos_despacho['producto_id']}"
     )
-    assert salida["inventario_id"] == datos_despacho["inventario_id"]
-    assert salida["producto_nombre"] == "Cuaderno linedado"
-    assert salida["departamento_nombre"] == "Operaciones"
-    assert salida["ubicacion"] == "Bodega central"
+
+    db = sessionmaker(bind=motor)()
+    try:
+        salidas = [
+            movimiento
+            for movimiento in db.query(MovimientoInventario).all()
+            if movimiento.tipo_movimiento == "SALIDA"
+        ]
+        assert len(salidas) == 1, f"se esperaba una salida de despacho: {salidas}"
+        salida_persistida = salidas[0]
+        assert salida_persistida.inventario_id is None, "el movimiento nuevo no usa el legado"
+        assert salida_persistida.stock_sede_id is not None, "se enlaza por stock_sede_id"
+    finally:
+        db.close()
+
+    cuerpo = _leer_historial(cliente)
+    salidas = [m for m in cuerpo if m["tipo_movimiento"] == "SALIDA"]
+    assert len(salidas) == 1, f"la salida del despacho debe aparecer en el historial: {cuerpo}"
+    salida = salidas[0]
+    assert set(salida) == CAMPOS_HISTORIAL, "faltan campos del contrato (§5)"
+    assert salida["cantidad"] == 3
+    assert salida["observacion"] == observacion
+    assert salida["inventario_id"] is None, "el movimiento nuevo no usa el legado"
+    assert salida["stock_sede_id"] is not None, "se enlaza por stock_sede_id"
+    assert salida["sede_id"] is not None, "el movimiento nuevo atribuye su sede"
+    assert salida["sede_nombre"], "la sede viaja resuelta"
+    assert salida["departamento_id"] is None, "el movimiento nuevo no atribuye departamento"
+    assert salida["producto_id"] == datos_despacho["producto_id"]
 
 
 # --- AC-20: el recurso es de solo lectura (sin modificar ni borrar) ---

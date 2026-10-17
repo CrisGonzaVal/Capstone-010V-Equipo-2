@@ -231,11 +231,11 @@ def test_openapi_dto_de_respuesta_declara_el_contrato():
 
 
 def test_version_esquema_objetivo_declarada():
-    """Plan §1/stack §5: la versión objetivo es la constante de despliegue `010.1`."""
+    """Plan §1/stack §5: la versión objetivo es la constante de despliegue `011.1`."""
     version = getattr(config, "VERSION_ESQUEMA_OBJETIVO", None)
-    assert version == "010.1", (
+    assert version == "011.1", (
         "capacidad ausente (T4/T5): app.core.config debe exponer "
-        "VERSION_ESQUEMA_OBJETIVO = '010.1'."
+        "VERSION_ESQUEMA_OBJETIVO = '011.1'."
     )
 
 

@@ -1,10 +1,12 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-#: Version objetivo del DDL de tenant (Feature 010, stack §5). Es la constante
+#: Version objetivo del DDL de tenant (Feature 011, stack §5). Es la constante
 #: de despliegue compartida por el codigo que resuelve el tenant y por el
 #: procedimiento de migracion: el enrutamiento exige **igualdad exacta** contra
-#: este token y se incrementa con cada cambio posterior de DDL/migracion.
-VERSION_ESQUEMA_OBJETIVO = "010.1"
+#: este token y se incrementa con cada cambio posterior de DDL/migracion. La
+#: Feature 011 agrega la estructura organizacional (sede/stock_sede), asi que el
+#: objetivo sube de `010.1` a `011.1` (spec 011 AC-12).
+VERSION_ESQUEMA_OBJETIVO = "011.1"
 
 
 class Settings(BaseSettings):

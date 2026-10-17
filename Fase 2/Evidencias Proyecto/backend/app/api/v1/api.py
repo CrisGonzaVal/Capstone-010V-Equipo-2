@@ -11,7 +11,15 @@ sin proteccion.
 from fastapi import APIRouter, Depends
 
 from app.api import dependencies
-from app.api.v1.endpoints import auth, control, dashboard, inventario, tickets, usuarios
+from app.api.v1.endpoints import (
+    auth,
+    control,
+    dashboard,
+    inventario,
+    organizacion,
+    tickets,
+    usuarios,
+)
 
 api_router = APIRouter(dependencies=[Depends(dependencies.get_current_user)])
 
@@ -23,3 +31,5 @@ api_router.include_router(tickets.router)
 api_router.include_router(dashboard.router)
 # Feature 010: aprovisionamiento de instituciones (portal de control).
 api_router.include_router(control.router)
+# Feature 011: asignaciones organizacionales minimas (sede y encargados).
+api_router.include_router(organizacion.router)

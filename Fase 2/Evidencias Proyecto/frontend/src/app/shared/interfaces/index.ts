@@ -27,15 +27,6 @@ export interface Producto {
   categoria: Categoria | null;
 }
 
-export interface Inventario {
-  inventario_id: number;
-  stock_actual: number;
-  ubicacion: string | null;
-  departamento_id: number;
-  producto_id: number;
-  producto: Producto | null;
-}
-
 export interface ProductoCrear {
   nombre: string;
   descripcion: string | null;
@@ -59,13 +50,17 @@ export interface RespuestaMovimiento {
   nuevo_stock: number;
 }
 
-/** Fila de `inventario` con el nombre del departamento resuelto. */
+/**
+ * Existencia de un producto en una sede (Feature 011, D-6/AC-11).
+ *
+ * Refleja 1:1 el `SedeExistenciaRespuesta` del backend: la granularidad vigente
+ * es `(sede, producto)` y el nombre de la sede viaja resuelto para que la vista
+ * no tenga que cruzar `sede_id` contra `/organizacion/sedes`.
+ */
 export interface SedeExistencia {
-  inventario_id: number;
-  departamento_id: number;
-  departamento_nombre: string;
+  sede_id: number;
+  sede_nombre: string;
   stock_actual: number;
-  ubicacion: string | null;
 }
 
 /**
@@ -217,20 +212,21 @@ export interface DashboardKpi {
 }
 
 /**
- * Fila crítica del log de alertas (Feature 009, D-1).
+ * Fila de stock por sede actualmente crítica (Features 009 y 011, D-1/D-6).
  *
- * Refleja 1:1 el `AlertaStockRespuesta` del backend: una fila de inventario es
- * crítica si `stock_actual <= stock_minimo` por pareja departamento-producto.
- * `institucion_id`/`institucion_nombre` son la atribución institucional de la
- * fila (poblada en la lectura global del Superadmin) y son `null` solo si la
- * atribución no puede resolverse.
+ * Refleja 1:1 el `AlertaStockRespuesta` del backend (Feature 011): una fila es
+ * crítica si `stock_actual <= stock_minimo` por pareja **sede-producto**, así que
+ * la alerta identifica la bodega física y se atribuye a la sede
+ * (`sede_id`/`sede_nombre`) y a la institución
+ * (`institucion_id`/`institucion_nombre`, pobladas en la lectura global del
+ * Superadmin y `null` solo si la atribución no puede resolverse). No se expone
+ * ningún saldo departamental legado.
  */
 export interface AlertaStock {
-  inventario_id: number;
+  sede_id: number;
+  sede_nombre: string;
   producto_id: number;
   producto_nombre: string;
-  departamento_id: number;
-  departamento_nombre: string;
   stock_actual: number;
   stock_minimo: number;
   institucion_id: string | null;
@@ -238,11 +234,14 @@ export interface AlertaStock {
 }
 
 /**
- * Fila de la actividad reciente (Feature 009, D-5).
+ * Fila de la actividad reciente (Features 009 y 011, D-5/D-6).
  *
- * Refleja 1:1 el `MovimientoDashboardRespuesta` del backend. `fecha_movimiento`
- * llega como cadena ISO (el backend serializa `datetime` a JSON), igual que
- * `Ticket.fecha_creacion`. `ubicacion` es la de la fila de inventario de origen.
+ * Refleja 1:1 el `MovimientoDashboardRespuesta` del backend: una proyección única
+ * y compatible de las dos poblaciones de movimientos. Un movimiento **nuevo**
+ * (Feature 011) puebla `sede_id`/`sede_nombre` y deja el bloque de departamento
+ * en `null`; un movimiento **legado** puebla `departamento_id`/`departamento_nombre`
+ * y `ubicacion`. `fecha_movimiento` llega como cadena ISO (el backend serializa
+ * `datetime` a JSON), igual que `Ticket.fecha_creacion`.
  */
 export interface MovimientoDashboard {
   movimiento_id: number;
@@ -251,8 +250,10 @@ export interface MovimientoDashboard {
   fecha_movimiento: string;
   producto_id: number;
   producto_nombre: string;
-  departamento_id: number;
-  departamento_nombre: string;
+  sede_id: number | null;
+  sede_nombre: string | null;
+  departamento_id: number | null;
+  departamento_nombre: string | null;
   ubicacion: string | null;
   institucion_id: string | null;
   institucion_nombre: string | null;
