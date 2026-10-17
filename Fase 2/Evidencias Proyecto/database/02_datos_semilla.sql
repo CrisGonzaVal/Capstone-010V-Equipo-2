@@ -13,8 +13,9 @@
 --   Los .sql de esta carpeta los ejecuta PostgreSQL solo al crear el volumen,
 --   y los recorre en ORDEN ALFABETICO. Este archivo empieza con TRUNCATE sobre
 --   las 12 tablas, asi que exige que `01_esquema.sql` ya exista: por eso lleva
---   el prefijo numerico. Con los nombres viejos (`datos_semilla.sql` y
---   `script_apt_erp.sql`) la "d" sortea antes que la "s", la semilla corria
+--   el prefijo numerico. Con los nombres viejos (`datos_semilla.sql` para la
+--   semilla y `script_apt_erp.sql` —hoy `database/01_esquema.sql`— para el
+--   esquema) la "d" sortea antes que la "s", la semilla corria
 --   contra un esquema inexistente y, con ON_ERROR_STOP=1, abortaba todo el
 --   arranque. Si renuevas un nombre, revisa que no invierta el orden.
 --   Corre antes que `98_migracion_particionamiento_institucional.sql` y
