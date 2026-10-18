@@ -235,6 +235,32 @@ describe('AppComponent', () => {
         expect(destinos(compilado)).withContext(rol).toContain('/administracion');
       }
     });
+
+    /**
+     * Feature 012, AC-3: el Superadmin deja de ver el Kanban operativo en la
+     * navegación. Su vista es `/control`. Es solo comodidad de interfaz; la ruta
+     * sigue protegida por el guard de rol.
+     */
+    it('oculta el enlace de tickets al Superadmin y conserva /control', () => {
+      autenticacionFalsa.identidad.set({
+        ...IDENTIDAD_RESUELTA,
+        rol: 'Superadmin',
+        institucion: null,
+      });
+      const compilado = crearYRenderizar();
+
+      expect(destinos(compilado)).not.toContain('/tickets');
+      expect(destinos(compilado)).toContain('/control');
+    });
+
+    it('mantiene el enlace de tickets a los roles de negocio', () => {
+      for (const rol of ['Administrador', 'Bodeguero', 'Solicitante']) {
+        autenticacionFalsa.identidad.set({ ...IDENTIDAD_RESUELTA, rol });
+        const compilado = crearYRenderizar();
+
+        expect(destinos(compilado)).withContext(rol).toContain('/tickets');
+      }
+    });
   });
 
   /**

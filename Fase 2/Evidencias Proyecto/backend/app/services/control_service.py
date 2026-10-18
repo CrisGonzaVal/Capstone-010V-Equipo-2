@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -27,14 +27,25 @@ from app.core import security
 from app.core.config import VERSION_ESQUEMA_OBJETIVO
 from app.db.database import Base
 from app.models.control import MapaUsuarioEsquema, VersionEsquema
+from app.models.control_canonico import (
+    CAPACIDADES,
+    FuncionInstitucion,
+    InstitucionControl,
+)
 from app.models.institucion import Departamento, Institucion
 from app.models.rol import Rol
 from app.models.sede import Sede
 from app.models.usuario import Usuario
 from app.schemas.control_schema import (
     ESTADO_OPERATIVA,
+    CapacidadRespuesta,
+    DashboardSaaSRespuesta,
     InstitucionAltaControlCrear,
     InstitucionAltaControlRespuesta,
+    InstitucionControlRespuesta,
+    InstitucionEdicion,
+    InstitucionEstadoRespuesta,
+    InstitucionMetricasRespuesta,
 )
 
 #: Catalogos de rol replicados en cada tenant (D-4). El rol Superadmin vive solo
@@ -108,6 +119,22 @@ class ErrorConflictoAprovisionamiento(ErrorAprovisionamiento):
     """Institucion/correo/esquema ya tomado o fallo de etapa -> HTTP 409."""
 
 
+class ErrorInstitucionNoEncontrada(Exception):
+    """La institucion canonica no existe en control -> HTTP 404."""
+
+
+class ErrorFuncionInvalida(Exception):
+    """La funcion no pertenece al conjunto cerrado de capacidades -> HTTP 422."""
+
+
+class ErrorDashboardSaaS(Exception):
+    """Una institucion activa requerida no pudo agregarse -> HTTP 409/503.
+
+    El dashboard falla **completo**: nunca entrega un agregado parcial si una
+    institucion activa es inaccesible o incompatible (D-5/AC-4).
+    """
+
+
 def es_version_objetivo(version: str | None) -> bool:
     """True solo si `version` es **exactamente** la constante de despliegue.
 
@@ -133,11 +160,16 @@ def tenant_en_version_objetivo(db: Session) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _institucion_administrativa(db: Session) -> Institucion:
-    """Institucion administrativa de control, reutilizandola si ya existe."""
-    institucion = db.get(Institucion, INSTITUCION_ADMINISTRATIVA_ID)
+def _institucion_administrativa(db: Session) -> InstitucionControl:
+    """Institucion administrativa de control, reutilizandola si ya existe.
+
+    Pertenece al **canonico de control** (Feature 012): usa `InstitucionControl`,
+    que porta `rut`, `direccion` y el estado `activo` sin contaminar el espejo
+    tenant de dos columnas.
+    """
+    institucion = db.get(InstitucionControl, INSTITUCION_ADMINISTRATIVA_ID)
     if institucion is None:
-        institucion = Institucion(
+        institucion = InstitucionControl(
             institucion_id=INSTITUCION_ADMINISTRATIVA_ID,
             nombre=INSTITUCION_ADMINISTRATIVA_NOMBRE,
             direccion="Esquema de control",
@@ -281,7 +313,7 @@ def _reservar_control(
     de crear recursos (AC-8). Cualquier conflicto levanta
     `ErrorConflictoAprovisionamiento` sin haber mutado el estado.
     """
-    if db.get(Institucion, datos.institucion_id) is not None:
+    if db.get(InstitucionControl, datos.institucion_id) is not None:
         raise ErrorConflictoAprovisionamiento("la institucion ya esta registrada")
     if _mapa_por_correo(db, datos.correo_administrador) is not None:
         raise ErrorConflictoAprovisionamiento("el correo ya esta asociado a un esquema")
@@ -359,17 +391,35 @@ def _crear_sede_inicial(sesion: Session, institucion_id: str) -> Sede:
     return sede
 
 
+def _inicializar_capacidades(db: Session, institucion_id: str) -> None:
+    """Crea las seis capacidades habilitadas de una institucion (AC-5).
+
+    El catalogo de capacidades es de control (Feature 012): cada institucion
+    nace con sus seis filas `funcion_institucion(habilitada=True)`. Los tenants
+    nunca reciben esta estructura.
+    """
+    for funcion in sorted(CAPACIDADES):
+        db.add(
+            FuncionInstitucion(
+                institucion_id=institucion_id,
+                funcion=funcion,
+                habilitada=True,
+            )
+        )
+
+
 def _provisionar_tenant_logico(
     db: Session, datos: InstitucionAltaControlCrear
 ) -> None:
     """Aprovisiona en el **contexto logico unico** (suite SQLite, AC-16).
 
     Control y tenant comparten tablas, asi que el mismo `db` recibe la
-    institucion, el departamento/rol/usuario Administrador, el mapa y la version.
-    No se crean namespaces: SQLite no los simula (D-10).
+    institucion canonica (con `rut`, `direccion` y `activo`), el
+    departamento/rol/usuario Administrador, las seis capacidades, el mapa y la
+    version. No se crean namespaces: SQLite no los simula (D-10).
     """
     db.add(
-        Institucion(
+        InstitucionControl(
             institucion_id=datos.institucion_id,
             nombre=datos.nombre,
             rut=datos.rut,
@@ -377,6 +427,7 @@ def _provisionar_tenant_logico(
         )
     )
     db.flush()
+    _inicializar_capacidades(db, datos.institucion_id)
     db.add(
         MapaUsuarioEsquema(
             correo=datos.correo_administrador,
@@ -423,12 +474,12 @@ def _provisionar_tenant_postgres(
 
     sesion_tenant = database.crear_sesion_esquema(nombre_esquema, motor=motor)
     try:
+        # Espejo tenant: exactamente dos columnas (`institucion_id`, `nombre`).
+        # El canonico (con `rut`/`direccion`/`activo`) vive solo en control.
         sesion_tenant.add(
             Institucion(
                 institucion_id=datos.institucion_id,
                 nombre=datos.nombre,
-                rut=datos.rut,
-                direccion=datos.direccion,
             )
         )
         sesion_tenant.flush()
@@ -455,7 +506,7 @@ def _provisionar_tenant_postgres(
         sesion_tenant.close()
 
     db.add(
-        Institucion(
+        InstitucionControl(
             institucion_id=datos.institucion_id,
             nombre=datos.nombre,
             rut=datos.rut,
@@ -463,6 +514,7 @@ def _provisionar_tenant_postgres(
         )
     )
     db.flush()
+    _inicializar_capacidades(db, datos.institucion_id)
     db.add(
         MapaUsuarioEsquema(
             correo=datos.correo_administrador,
@@ -534,3 +586,321 @@ def aprovisionar_institucion(
         estado=ESTADO_OPERATIVA,
         mensaje="Institucion aprovisionada y tenant operativo",
     )
+
+
+# ---------------------------------------------------------------------------
+# Gestion administrativa del registro institucional (T6, AC-1…AC-5)
+# ---------------------------------------------------------------------------
+
+
+def _mapa_de_institucion(
+    db: Session, institucion_id: str
+) -> MapaUsuarioEsquema | None:
+    """Primera fila del mapa `correo -> esquema` de la institucion, o `None`.
+
+    Da el `nombre_esquema` derivado de la institucion (informativo) y permite
+    localizar el tenant para sincronizar el espejo (D-1).
+    """
+    return (
+        db.execute(
+            select(MapaUsuarioEsquema)
+            .where(MapaUsuarioEsquema.institucion_id == institucion_id)
+            .order_by(MapaUsuarioEsquema.correo)
+        )
+        .scalars()
+        .first()
+    )
+
+
+def _respuesta_institucion(
+    db: Session, institucion: InstitucionControl
+) -> InstitucionControlRespuesta:
+    """Read model del registro canonico con su `nombre_esquema` derivado."""
+    mapa = _mapa_de_institucion(db, institucion.institucion_id)
+    return InstitucionControlRespuesta(
+        institucion_id=institucion.institucion_id,
+        nombre=institucion.nombre,
+        rut=institucion.rut,
+        direccion=institucion.direccion,
+        activo=institucion.activo,
+        nombre_esquema=mapa.nombre_esquema if mapa is not None else None,
+    )
+
+
+def listar_instituciones(db: Session) -> list[InstitucionControlRespuesta]:
+    """Lista todo el registro institucional canonico de control (orden estable)."""
+    instituciones = (
+        db.execute(
+            select(InstitucionControl).order_by(InstitucionControl.institucion_id)
+        )
+        .scalars()
+        .all()
+    )
+    return [_respuesta_institucion(db, institucion) for institucion in instituciones]
+
+
+def obtener_institucion(db: Session, institucion_id: str) -> InstitucionControlRespuesta:
+    """Devuelve una institucion canonica por id, o 404 si no existe."""
+    institucion = db.get(InstitucionControl, institucion_id)
+    if institucion is None:
+        raise ErrorInstitucionNoEncontrada("la institucion no existe")
+    return _respuesta_institucion(db, institucion)
+
+
+def _sincronizar_espejo(db: Session, institucion_id: str, nombre: str) -> None:
+    """Refleja `institucion_id` + `nombre` en el espejo tenant si el tenant existe.
+
+    En PostgreSQL el espejo vive en el esquema del tenant, asi que se abre una
+    sesion ligada a ese esquema (D-1: solo la pareja `institucion_id` + `nombre`
+    se sincroniza; `rut`/`direccion`/`activo` permanecen solo en control). En el
+    contexto logico unico (SQLite) el espejo y el canonico comparten tabla: la
+    actualizacion del canonico ya refleja el nombre, de modo que solo se ajusta
+    la fila del espejo si existe.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        espejo = db.get(Institucion, institucion_id)
+        if espejo is not None:
+            espejo.nombre = nombre
+        return
+
+    mapa = _mapa_de_institucion(db, institucion_id)
+    if mapa is None:
+        return
+    from app.db import database
+
+    sesion = database.crear_sesion_esquema(mapa.nombre_esquema, motor=db.get_bind())
+    try:
+        espejo = sesion.get(Institucion, institucion_id)
+        if espejo is not None:
+            espejo.nombre = nombre
+            sesion.commit()
+    finally:
+        sesion.close()
+
+
+def editar_institucion(
+    db: Session, institucion_id: str, datos: InstitucionEdicion
+) -> InstitucionControlRespuesta:
+    """Modifica los atributos canonicos y sincroniza el espejo (D-1, AC-1).
+
+    `nombre`, `rut` y `direccion` son canonicos: se persisten en control. Solo
+    `nombre` (junto con `institucion_id`) se refleja en el espejo tenant; un
+    atributo que no forme parte de esa pareja no se copia ni causa rechazo.
+    """
+    institucion = db.get(InstitucionControl, institucion_id)
+    if institucion is None:
+        raise ErrorInstitucionNoEncontrada("la institucion no existe")
+
+    institucion.nombre = datos.nombre
+    institucion.rut = datos.rut
+    institucion.direccion = datos.direccion
+    db.flush()
+    _sincronizar_espejo(db, institucion_id, datos.nombre)
+    db.commit()
+    return _respuesta_institucion(db, institucion)
+
+
+def cambiar_estado_institucion(
+    db: Session, institucion_id: str, activo: bool
+) -> InstitucionEstadoRespuesta:
+    """Activa o desactiva logicamente una institucion (idempotente, D-2/AC-2).
+
+    No borra la fila, el tenant, los mapas, los datos ni el historial; solo
+    persiste el estado de ciclo de vida en `control.institucion.activo`.
+    """
+    institucion = db.get(InstitucionControl, institucion_id)
+    if institucion is None:
+        raise ErrorInstitucionNoEncontrada("la institucion no existe")
+    institucion.activo = activo
+    db.commit()
+    return InstitucionEstadoRespuesta(institucion_id=institucion_id, activo=activo)
+
+
+def listar_capacidades(db: Session, institucion_id: str) -> list[CapacidadRespuesta]:
+    """Devuelve las seis capacidades de la institucion con su estado persistido.
+
+    Una capacidad sin fila explicita se publica **habilitada** (diseno-tecnico
+    §2: la ausencia no es una desactivacion). Institucion inexistente -> 404.
+    """
+    if db.get(InstitucionControl, institucion_id) is None:
+        raise ErrorInstitucionNoEncontrada("la institucion no existe")
+    filas = {
+        fila.funcion: fila.habilitada
+        for fila in db.execute(
+            select(FuncionInstitucion).where(
+                FuncionInstitucion.institucion_id == institucion_id
+            )
+        )
+        .scalars()
+        .all()
+    }
+    return [
+        CapacidadRespuesta(funcion=funcion, habilitada=filas.get(funcion, True))
+        for funcion in sorted(CAPACIDADES)
+    ]
+
+
+def actualizar_capacidad(
+    db: Session, institucion_id: str, funcion: str, habilitada: bool
+) -> CapacidadRespuesta:
+    """Habilita/deshabilita una capacidad funcional de la institucion (AC-5).
+
+    Una funcion fuera del conjunto cerrado responde 422 sin mutacion; una
+    institucion inexistente, 404. La operacion es idempotente y no elimina datos.
+    """
+    if funcion not in CAPACIDADES:
+        raise ErrorFuncionInvalida("la funcion no es una capacidad funcional valida")
+    if db.get(InstitucionControl, institucion_id) is None:
+        raise ErrorInstitucionNoEncontrada("la institucion no existe")
+
+    fila = db.execute(
+        select(FuncionInstitucion).where(
+            FuncionInstitucion.institucion_id == institucion_id,
+            FuncionInstitucion.funcion == funcion,
+        )
+    ).scalar_one_or_none()
+    if fila is None:
+        db.add(
+            FuncionInstitucion(
+                institucion_id=institucion_id, funcion=funcion, habilitada=habilitada
+            )
+        )
+    else:
+        fila.habilitada = habilitada
+    db.commit()
+    return CapacidadRespuesta(funcion=funcion, habilitada=habilitada)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard SaaS atribuido (T6, D-5/AC-4)
+# ---------------------------------------------------------------------------
+
+
+def _leer_metricas(db: Session, institucion_id: str) -> tuple[int, dict[str, int]]:
+    """Cuenta sedes y usuarios por rol de una institucion en la sesion dada."""
+    sedes = db.execute(
+        select(func.count())
+        .select_from(Sede)
+        .where(Sede.institucion_id == institucion_id)
+    ).scalar_one()
+    filas = db.execute(
+        select(Rol.nombre_rol, func.count(Usuario.usuario_id))
+        .select_from(Usuario)
+        .join(Departamento, Usuario.departamento_id == Departamento.departamento_id)
+        .join(Rol, Usuario.rol_id == Rol.rol_id)
+        .where(Departamento.institucion_id == institucion_id)
+        .group_by(Rol.nombre_rol)
+    ).all()
+    usuarios_por_rol = {nombre: cantidad for nombre, cantidad in filas}
+    return sedes, usuarios_por_rol
+
+
+def _instituciones_canonicas(db: Session) -> list[InstitucionControl]:
+    """Instituciones del registro, excluyendo la administrativa de control.
+
+    La institucion administrativa (`CTRL-SAAS`) no es un tenant de negocio y no
+    participa del panorama SaaS.
+    """
+    return list(
+        db.execute(
+            select(InstitucionControl)
+            .where(InstitucionControl.institucion_id != INSTITUCION_ADMINISTRATIVA_ID)
+            .order_by(InstitucionControl.institucion_id)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def dashboard_saas(db: Session) -> DashboardSaaSRespuesta:
+    """Panorama global del Superadmin con atribucion por institucion (D-5/AC-4).
+
+    Recorre el registro institucional: las activas se agregan leyendo su tenant
+    en una transaccion consistente (patron `global_service.lectura_global`);
+    las inactivas se listan identificadas y **sin** metricas. Una institucion
+    activa inaccesible o incompatible hace fallar el agregado **completo**.
+    """
+    instituciones = _instituciones_canonicas(db)
+    activas = sum(1 for institucion in instituciones if institucion.activo)
+
+    if db.get_bind().dialect.name != "postgresql":
+        metricas = [_metricas_logicas(db, institucion) for institucion in instituciones]
+    else:
+        metricas = _metricas_postgres(db, instituciones)
+
+    return DashboardSaaSRespuesta(
+        total_instituciones_activas=activas,
+        instituciones=metricas,
+    )
+
+
+def _metricas_logicas(
+    db: Session, institucion: InstitucionControl
+) -> InstitucionMetricasRespuesta:
+    """Metricas en el contexto logico unico (SQLite): institucion activa o no."""
+    if not institucion.activo:
+        return InstitucionMetricasRespuesta(
+            institucion_id=institucion.institucion_id,
+            nombre=institucion.nombre,
+            activo=False,
+        )
+    sedes, usuarios_por_rol = _leer_metricas(db, institucion.institucion_id)
+    return InstitucionMetricasRespuesta(
+        institucion_id=institucion.institucion_id,
+        nombre=institucion.nombre,
+        activo=True,
+        sedes=sedes,
+        usuarios_por_rol=usuarios_por_rol,
+    )
+
+
+def _metricas_postgres(
+    db: Session, instituciones: list[InstitucionControl]
+) -> list[InstitucionMetricasRespuesta]:
+    """Metricas PostgreSQL: cada institucion activa sobre una transaccion comun.
+
+    Las sesiones por tenant se apoyan en una unica conexion `REPEATABLE READ`
+    (`global_service.lectura_global`), de modo que el agregado representa un solo
+    instante. Una institucion activa sin tenant o con version incompatible
+    levanta `ErrorDashboardSaaS` y revierte **todo** el agregado.
+    """
+    from app.services import global_service
+
+    resultado: list[InstitucionMetricasRespuesta] = []
+    with global_service.lectura_global(db) as lector:
+        for institucion in instituciones:
+            if not institucion.activo:
+                resultado.append(
+                    InstitucionMetricasRespuesta(
+                        institucion_id=institucion.institucion_id,
+                        nombre=institucion.nombre,
+                        activo=False,
+                    )
+                )
+                continue
+            mapa = _mapa_de_institucion(db, institucion.institucion_id)
+            if mapa is None:
+                raise ErrorDashboardSaaS(
+                    "una institucion activa no tiene tenant resoluble"
+                )
+            tenant = global_service.Tenant(
+                institucion_id=institucion.institucion_id,
+                nombre_esquema=mapa.nombre_esquema,
+            )
+            try:
+                with lector.sesion(tenant) as sesion:
+                    sedes, usuarios_por_rol = _leer_metricas(
+                        sesion, institucion.institucion_id
+                    )
+            except global_service.ErrorLecturaGlobal as exc:
+                raise ErrorDashboardSaaS(str(exc)) from exc
+            resultado.append(
+                InstitucionMetricasRespuesta(
+                    institucion_id=institucion.institucion_id,
+                    nombre=institucion.nombre,
+                    activo=True,
+                    sedes=sedes,
+                    usuarios_por_rol=usuarios_por_rol,
+                )
+            )
+    return resultado

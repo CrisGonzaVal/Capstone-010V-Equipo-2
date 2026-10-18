@@ -1,6 +1,6 @@
 import { Route, Routes } from '@angular/router';
 
-import { ROLES_ADMINISTRATIVOS, ROLES_TODOS } from './core/auth/roles';
+import { ROLES_ADMINISTRATIVOS, ROLES_TICKETS, ROLES_TODOS } from './core/auth/roles';
 import { AutenticacionGuard } from './core/guards/auth.guard';
 import { RolGuard } from './core/guards/role.guard';
 
@@ -51,7 +51,10 @@ export const routes: Routes = [
   },
   {
     path: 'tickets',
-    ...seccionProtegida(ROLES_TODOS),
+    // Feature 012, AC-3: el Superadmin no navega al Kanban operativo (su vista
+    // es `/control`). `ROLES_TICKETS` excluye solo a Superadmin; los roles de
+    // negocio conservan el acceso. Es navegación/UI, no matriz de backend.
+    ...seccionProtegida(ROLES_TICKETS),
     loadChildren: () =>
       import('./features/tickets/tickets.routes').then((m) => m.ticketsRoutes),
   },

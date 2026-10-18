@@ -29,7 +29,8 @@ router = APIRouter(prefix="/inventario", tags=["Inventario y Productos"])
     summary="Listar categorias de productos",
     responses=dependencies.respuestas_de_autorizacion(),
     dependencies=[
-        Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/categorias"))
+        Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/categorias")),
+        Depends(dependencies.requiere_capacidad("GET", "/api/v1/inventario/categorias")),
     ],
 )
 def listar_categorias(
@@ -58,6 +59,13 @@ def listar_categorias(
         **dependencies.respuestas_de_autorizacion(),
         **dependencies.respuesta_recurso_oculto(),
     },
+    dependencies=[
+        Depends(
+            dependencies.requiere_capacidad(
+                "GET", "/api/v1/inventario/categorias/{categoria_id}"
+            )
+        )
+    ],
 )
 def obtener_categoria(
     categoria_id: int,
@@ -85,7 +93,8 @@ def obtener_categoria(
     summary="Listar productos del catalogo",
     responses=dependencies.respuestas_de_autorizacion(),
     dependencies=[
-        Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/productos"))
+        Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/productos")),
+        Depends(dependencies.requiere_capacidad("GET", "/api/v1/inventario/productos")),
     ],
 )
 def listar_productos(
@@ -114,6 +123,13 @@ def listar_productos(
         **dependencies.respuestas_de_autorizacion(),
         **dependencies.respuesta_recurso_oculto(),
     },
+    dependencies=[
+        Depends(
+            dependencies.requiere_capacidad(
+                "GET", "/api/v1/inventario/productos/{producto_id}"
+            )
+        )
+    ],
 )
 def obtener_producto(
     producto_id: int,
@@ -144,7 +160,8 @@ def obtener_producto(
         **dependencies.respuesta_recurso_oculto(),
     },
     dependencies=[
-        Depends(dependencies.requiere_operacion("POST", "/api/v1/inventario/productos"))
+        Depends(dependencies.requiere_operacion("POST", "/api/v1/inventario/productos")),
+        Depends(dependencies.requiere_capacidad("POST", "/api/v1/inventario/productos")),
     ],
 )
 def crear_producto(
@@ -170,6 +187,9 @@ def crear_producto(
         "queda marcado como critico."
     ),
     responses=dependencies.respuestas_de_autorizacion(),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", "/api/v1/inventario/existencias"))
+    ],
 )
 def listar_existencias(
     q: Optional[str] = Query(
@@ -223,6 +243,9 @@ def listar_existencias(
         **dependencies.respuestas_de_autorizacion(),
         **dependencies.respuesta_recurso_oculto(),
     },
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", "/api/v1/inventario/stock"))
+    ],
 )
 def listar_stock_sede(
     sede_id: Optional[int] = Query(
@@ -258,6 +281,9 @@ def listar_stock_sede(
         "inmutable de la trazabilidad de stock."
     ),
     responses=dependencies.respuestas_de_autorizacion(),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", "/api/v1/inventario/movimientos"))
+    ],
 )
 def listar_movimientos(
     identidad: IdentidadAutenticada = Depends(
@@ -280,6 +306,9 @@ def listar_movimientos(
         **dependencies.respuestas_de_autorizacion(),
         **dependencies.respuesta_recurso_oculto(),
     },
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("POST", "/api/v1/inventario/movimientos"))
+    ],
 )
 def registrar_movimiento(
     datos: MovimientoCrear,

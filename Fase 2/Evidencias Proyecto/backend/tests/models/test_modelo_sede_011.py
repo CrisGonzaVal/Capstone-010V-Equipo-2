@@ -67,7 +67,7 @@ def _fila_base(motor) -> dict:
         rol = Rol(rol_id=1, nombre_rol="Administrador", descripcion="Rol de prueba")
         db.add(rol)
         institucion = Institucion(
-            institucion_id="INST011", nombre="Instituto 011", direccion="Calle 1"
+            institucion_id="INST011", nombre="Instituto 011"
         )
         db.add(institucion)
         db.flush()

@@ -51,6 +51,9 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
         "denegado sobre `GET /api/v1/inventario/movimientos`."
     ),
     responses=dependencies.respuestas_de_autorizacion(),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", "/api/v1/dashboard/"))
+    ],
 )
 def obtener_dashboard_analitico(
     identidad: IdentidadAutenticada = Depends(

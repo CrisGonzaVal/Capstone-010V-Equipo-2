@@ -88,6 +88,36 @@ MATRIZ_008: dict[tuple[str, str], set[str]] = {
         "DELETE",
         "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
     ): _ORGANIZACION,
+    # Feature 012 (T6): gestion administrativa de control SaaS, solo Superadmin.
+    ("GET", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    ("PUT", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/estado",
+    ): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/dashboard"): _ALTA_INSTITUCION,
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades",
+    ): _ALTA_INSTITUCION,
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades/{funcion}",
+    ): _ALTA_INSTITUCION,
+    # Feature 012 (T7): CRUD organizacional del Administrador institucional.
+    ("POST", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/sedes/{sede_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/organizacion/sedes/{sede_id}/estado"): _ORGANIZACION,
+    ("GET", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("POST", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}"): _ORGANIZACION,
+    (
+        "PATCH",
+        "/api/v1/organizacion/departamentos/{departamento_id}/estado",
+    ): _ORGANIZACION,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
 }
 
 #: Las 5 operaciones exactamente afectadas por el ajuste 008.
@@ -177,7 +207,7 @@ def test_matriz_central_es_la_esperada_para_008():
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_008
-    assert len(MATRIZ_008) == 28
+    assert len(MATRIZ_008) == 44
 
 
 def test_ajuste_008_es_minimo_y_acotado():

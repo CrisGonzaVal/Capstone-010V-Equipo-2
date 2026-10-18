@@ -60,11 +60,44 @@ SET search_path TO control, public;
 -- 1. INSTITUCION
 -- =====================================================
 
+-- Feature 012: `activo` es el estado de ciclo de vida del registro institucional
+-- canonico (suspender/reactivar sin borrado). Vive SOLO en control; el espejo
+-- tenant `institucion` lo materializa el constructor/`control_service` con dos
+-- columnas (`institucion_id`, `nombre`), sin `activo`. Justificacion aprobada en
+-- docs/spec/stack.md §"Gestion del ciclo de vida institucional y capacidades
+-- funcionales (Feature 012)".
 CREATE TABLE control.institucion (
     institucion_id VARCHAR(20) PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL,
     rut VARCHAR(20),
-    direccion VARCHAR(200)
+    direccion VARCHAR(200),
+    activo BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- =====================================================
+-- 1a. FUNCION_INSTITUCION  (Feature 012, auxiliar)
+-- =====================================================
+-- Estructura auxiliar SOLO de control: una fila por pareja
+-- `(institucion_id, funcion)` con estado `habilitada` explicito. No es entidad de
+-- dominio ni catalogo configurable: el conjunto de funciones es una lista cerrada
+-- del codigo (`catalogo`, `inventario`, `tickets`, `kanban`, `dashboard`,
+-- `gestion_organizacional`). FK **local** a `institucion` del mismo esquema. Nunca
+-- se copia a un tenant.
+
+CREATE TABLE control.funcion_institucion (
+    institucion_id VARCHAR(20) NOT NULL,
+    funcion VARCHAR(50) NOT NULL,
+    habilitada BOOLEAN NOT NULL,
+
+    CONSTRAINT funcion_institucion_pk
+        PRIMARY KEY (institucion_id, funcion),
+
+    CONSTRAINT funcion_institucion_institucion_fk
+        FOREIGN KEY (institucion_id)
+        REFERENCES institucion(institucion_id),
+
+    CONSTRAINT funcion_institucion_funcion_ck
+        CHECK (funcion IN ('catalogo', 'inventario', 'tickets', 'kanban', 'dashboard', 'gestion_organizacional'))
 );
 
 -- =====================================================
@@ -82,6 +115,9 @@ CREATE TABLE control.sede (
     nombre VARCHAR(100) NOT NULL,
     direccion VARCHAR(200),
     institucion_id VARCHAR(20) NOT NULL,
+    -- Feature 012 (AC-6/AC-11): estado logico de la sede. Desactivar no borra ni
+    -- pierde historial; una base migrada parte con todas las sedes activas.
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
 
     CONSTRAINT sede_institucion_fk
         FOREIGN KEY (institucion_id)
@@ -105,6 +141,9 @@ CREATE TABLE control.departamento (
     -- obligatoriedad es operativa (sin sede se rechazan las operaciones
     -- dependientes), de modo que una base migrada puede partir sin asignaciones.
     sede_id INTEGER,
+    -- Feature 012 (AC-11): estado logico del departamento. Desactivar no borra ni
+    -- pierde historial; una base migrada parte con todos los departamentos activos.
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
 
     CONSTRAINT departamento_institucion_fk
         FOREIGN KEY (institucion_id)

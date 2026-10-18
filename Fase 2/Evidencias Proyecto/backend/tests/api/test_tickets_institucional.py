@@ -126,8 +126,6 @@ def particion(motor, datos_base):
         institucion_ajena = Institucion(
             institucion_id="INST02",
             nombre="Instituto Ajeno",
-            rut="2-9",
-            direccion="Otra Calle 456",
         )
         db.add(institucion_ajena)
         db.flush()

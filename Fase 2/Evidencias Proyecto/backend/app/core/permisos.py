@@ -120,6 +120,42 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # Feature 010 (D-7/AC-7…AC-9/AC-17): aprovisionamiento de instituciones.
     # Es la unica incorporacion de la 010: solo Superadmin.
     ("POST", "/api/v1/control/instituciones/"): frozenset({_SUPERADMIN}),
+    # Feature 012 (D-1/D-2/D-5/D-6, AC-1…AC-5/AC-13): gestion administrativa del
+    # control SaaS (registro institucional, estado, dashboard y capacidades). Son
+    # operaciones nuevas **aditivas** y exclusivas del Superadmin; no modifican
+    # ninguna de las entradas previas.
+    ("GET", "/api/v1/control/instituciones/"): frozenset({_SUPERADMIN}),
+    ("GET", "/api/v1/control/instituciones/{institucion_id}"): frozenset({_SUPERADMIN}),
+    ("PUT", "/api/v1/control/instituciones/{institucion_id}"): frozenset({_SUPERADMIN}),
+    ("PATCH", "/api/v1/control/instituciones/{institucion_id}/estado"): frozenset(
+        {_SUPERADMIN}
+    ),
+    ("GET", "/api/v1/control/dashboard"): frozenset({_SUPERADMIN}),
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades",
+    ): frozenset({_SUPERADMIN}),
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades/{funcion}",
+    ): frozenset({_SUPERADMIN}),
+    # Feature 012 (T7, D-3/D-4/AC-6…AC-13): CRUD organizacional del Administrador
+    # institucional (sedes, departamentos y usuarios locales). Operaciones nuevas
+    # **aditivas** que no modifican ninguna entrada previa; el Administrador sigue
+    # siendo el unico autorizado sobre `/organizacion/*` y comparte con Superadmin
+    # las operaciones de `/usuarios/`.
+    ("POST", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/sedes/{sede_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/organizacion/sedes/{sede_id}/estado"): _ORGANIZACION,
+    ("GET", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("POST", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}"): _ORGANIZACION,
+    (
+        "PATCH",
+        "/api/v1/organizacion/departamentos/{departamento_id}/estado",
+    ): _ORGANIZACION,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
     # Feature 011 (D-4/D-5, AC-5): gestion organizacional minima. Las seis
     # operaciones las autoriza solo el Administrador institucional; no hay permiso
     # implicito para el resto de roles ni escritura de Superadmin en tenants.

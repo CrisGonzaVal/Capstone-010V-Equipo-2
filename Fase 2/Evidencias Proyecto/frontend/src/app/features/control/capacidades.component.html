@@ -1,0 +1,98 @@
+<div class="mx-auto max-w-3xl space-y-6">
+  <app-control-nav />
+
+  <header>
+    <h2 class="text-2xl font-bold text-slate-800">Capacidades funcionales</h2>
+    @if (institucion(); as inst) {
+      <p class="text-sm text-slate-500">
+        Disponibilidad de funciones del producto para
+        <strong class="text-slate-700">{{ inst.nombre }}</strong>
+        <span class="font-mono text-xs text-slate-400">({{ inst.institucion_id }})</span>
+      </p>
+    } @else {
+      <p class="text-sm text-slate-500">
+        Disponibilidad de funciones del producto por institución.
+      </p>
+    }
+  </header>
+
+  @if (mensajeExito(); as exito) {
+    <p
+      role="status"
+      aria-live="polite"
+      class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+    >
+      {{ exito }}
+    </p>
+  }
+
+  @if (mensajeError(); as error) {
+    <p
+      role="alert"
+      class="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+    >
+      {{ error }}
+    </p>
+  }
+
+  @if (cargando()) {
+    <p
+      role="status"
+      aria-live="polite"
+      class="rounded-xl border border-slate-100 bg-white p-8 text-center text-sm text-slate-500"
+    >
+      Cargando capacidades...
+    </p>
+  } @else if (!institucion()) {
+    <div
+      class="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+    >
+      <span>No se pudieron cargar las capacidades de la institución.</span>
+      <button
+        type="button"
+        class="rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+        (click)="reintentar()"
+      >
+        Reintentar
+      </button>
+    </div>
+  } @else {
+    <ul class="space-y-3">
+      @for (capacidad of capacidades(); track capacidad.funcion) {
+        <li
+          class="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+        >
+          <div>
+            <p class="font-medium text-slate-800">{{ etiqueta(capacidad.funcion) }}</p>
+            <p class="text-xs text-slate-400">{{ capacidad.funcion }}</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span
+              class="rounded-full px-2 py-1 text-xs font-medium"
+              [class.bg-emerald-100]="capacidad.habilitada"
+              [class.text-emerald-800]="capacidad.habilitada"
+              [class.bg-slate-200]="!capacidad.habilitada"
+              [class.text-slate-600]="!capacidad.habilitada"
+            >
+              {{ capacidad.habilitada ? 'Habilitada' : 'Deshabilitada' }}
+            </span>
+            <button
+              type="button"
+              [disabled]="guardandoFuncion() !== null"
+              class="rounded-lg border px-3 py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+              [class.border-rose-300]="capacidad.habilitada"
+              [class.text-rose-700]="capacidad.habilitada"
+              [class.hover:bg-rose-100]="capacidad.habilitada"
+              [class.border-emerald-300]="!capacidad.habilitada"
+              [class.text-emerald-700]="!capacidad.habilitada"
+              [class.hover:bg-emerald-100]="!capacidad.habilitada"
+              (click)="cambiar(capacidad)"
+            >
+              {{ capacidad.habilitada ? 'Deshabilitar' : 'Habilitar' }}
+            </button>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+</div>

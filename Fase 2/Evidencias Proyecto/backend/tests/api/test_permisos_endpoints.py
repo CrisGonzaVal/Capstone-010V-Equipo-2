@@ -44,10 +44,10 @@ from app.models import (
 from app.services.auth_service import IdentidadAutenticada
 
 # ---------------------------------------------------------------------------
-# Fuente de verdad independiente: la matriz D-3 transcrita a mano (28 filas:
+# Fuente de verdad independiente: la matriz D-3 transcrita a mano (35 filas:
 # las 20 de 007/008 mas el GET consolidado del dashboard que exige AC-13/AC-14
-# de la 009, el alta de institucion de la 010 y las seis asignaciones
-# organizacionales de la 011)
+# de la 009, el alta de institucion de la 010, las seis asignaciones
+# organizacionales de la 011 y las siete operaciones de control SaaS de la 012)
 # ---------------------------------------------------------------------------
 
 _TODOS = {"Superadmin", "Administrador", "Bodeguero", "Solicitante"}
@@ -106,6 +106,38 @@ MATRIZ_D3: dict[tuple[str, str], set[str]] = {
         "DELETE",
         "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
     ): _ORGANIZACION,
+    # Feature 012 (T6, D-1/D-2/D-5/D-6/AC-1…AC-5): gestion administrativa de
+    # control SaaS, exclusiva del Superadmin. Operaciones nuevas y aditivas.
+    ("GET", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    ("PUT", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/estado",
+    ): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/dashboard"): _ALTA_INSTITUCION,
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades",
+    ): _ALTA_INSTITUCION,
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades/{funcion}",
+    ): _ALTA_INSTITUCION,
+    # Feature 012 (T7, D-3/D-4/AC-6…AC-13): CRUD organizacional del Administrador
+    # institucional (sedes, departamentos y usuarios locales).
+    ("POST", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/sedes/{sede_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/organizacion/sedes/{sede_id}/estado"): _ORGANIZACION,
+    ("GET", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("POST", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}"): _ORGANIZACION,
+    (
+        "PATCH",
+        "/api/v1/organizacion/departamentos/{departamento_id}/estado",
+    ): _ORGANIZACION,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -127,6 +159,9 @@ _CODIGOS_EXITO: dict[tuple[str, str], int] = {
         "DELETE",
         "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
     ): 204,
+    # Feature 012 (T7): el alta de sede y de departamento responde 201.
+    ("POST", "/api/v1/organizacion/sedes"): 201,
+    ("POST", "/api/v1/organizacion/departamentos"): 201,
 }
 
 
@@ -248,6 +283,34 @@ def _ruta_concreta(metodo: str, ruta: str, datos: dict) -> str:
             ruta.replace("{departamento_id}", str(datos["departamento_id"]))
             .replace("{usuario_id}", str(datos["usuario_solicitante_id"]))
         )
+    # Feature 012 (T6): recursos del control SaaS (institucion sembrada y funcion).
+    if ruta == "/api/v1/control/instituciones/{institucion_id}":
+        return ruta.replace("{institucion_id}", datos["institucion_id"])
+    if ruta == "/api/v1/control/instituciones/{institucion_id}/estado":
+        return ruta.replace("{institucion_id}", datos["institucion_id"])
+    if ruta == "/api/v1/control/instituciones/{institucion_id}/capacidades":
+        return ruta.replace("{institucion_id}", datos["institucion_id"])
+    if (
+        ruta
+        == "/api/v1/control/instituciones/{institucion_id}/capacidades/{funcion}"
+    ):
+        return ruta.replace("{institucion_id}", datos["institucion_id"]).replace(
+            "{funcion}", "catalogo"
+        )
+    # Feature 012 (T7): recursos del CRUD organizacional.
+    if ruta == "/api/v1/organizacion/sedes/{sede_id}":
+        return ruta.replace("{sede_id}", str(datos["sede_id"]))
+    if ruta == "/api/v1/organizacion/sedes/{sede_id}/estado":
+        return ruta.replace("{sede_id}", str(datos["sede_id"]))
+    if ruta == "/api/v1/organizacion/departamentos/{departamento_id}":
+        return ruta.replace("{departamento_id}", str(datos["departamento_id"]))
+    if ruta == "/api/v1/organizacion/departamentos/{departamento_id}/estado":
+        return ruta.replace("{departamento_id}", str(datos["departamento_id"]))
+    if ruta in (
+        "/api/v1/usuarios/{usuario_id}",
+        "/api/v1/usuarios/{usuario_id}/estado",
+    ):
+        return ruta.replace("{usuario_id}", str(datos["usuario_bodeguero_id"]))
     return ruta
 
 
@@ -309,6 +372,16 @@ def _cuerpo(metodo: str, ruta: str, datos: dict):
         return {"usuario_id": datos["usuario_encargable_id"]}
     if metodo == "DELETE":
         return None
+    # Feature 012 (T6): payloads de la gestion administrativa de control.
+    if (metodo, ruta) == ("PUT", "/api/v1/control/instituciones/{institucion_id}"):
+        return {"nombre": "Institucion renombrada"}
+    if (
+        metodo,
+        ruta,
+    ) == ("PATCH", "/api/v1/control/instituciones/{institucion_id}/estado"):
+        return {"activo": False}
+    if ruta == "/api/v1/control/instituciones/{institucion_id}/capacidades/{funcion}":
+        return {"habilitada": False}
     if (metodo, ruta) == ("POST", "/api/v1/control/instituciones/"):
         return {
             "institucion_id": "INSTCTRL",
@@ -318,6 +391,31 @@ def _cuerpo(metodo: str, ruta: str, datos: dict):
             "apellido_administrador": "Control",
             "departamento_nombre_administrativo": "Administracion",
         }
+    # Feature 012 (T7): payloads del CRUD organizacional.
+    if (metodo, ruta) == ("POST", "/api/v1/organizacion/sedes"):
+        return {"nombre": "Sede nueva autorizada"}
+    if (metodo, ruta) == ("PUT", "/api/v1/organizacion/sedes/{sede_id}"):
+        return {"nombre": "Sede renombrada"}
+    if (metodo, ruta) == ("PATCH", "/api/v1/organizacion/sedes/{sede_id}/estado"):
+        return {"activo": True}
+    if (metodo, ruta) == ("POST", "/api/v1/organizacion/departamentos"):
+        return {"nombre_dep": "Departamento autorizado"}
+    if (metodo, ruta) == ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}"):
+        return {"nombre_dep": "Departamento renombrado"}
+    if (
+        metodo,
+        ruta,
+    ) == ("PATCH", "/api/v1/organizacion/departamentos/{departamento_id}/estado"):
+        return {"activo": True}
+    if (metodo, ruta) == ("PUT", "/api/v1/usuarios/{usuario_id}"):
+        return {
+            "nombre": "Usuario editado",
+            "apellido": "Autorizacion",
+            "departamento_id": datos["departamento_id"],
+            "rol_id": datos["rol_bodeguero_id"],
+        }
+    if (metodo, ruta) == ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"):
+        return {"activo": True}
     raise AssertionError(f"sin payload definido para {metodo} {ruta}")
 
 
@@ -682,6 +780,19 @@ REFERENCIAS_ESPERADAS = {
         "POST",
         "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
     ): "EncargadoRespuesta",
+    # Feature 012 (T7): DTOs del CRUD organizacional.
+    ("POST", "/api/v1/organizacion/sedes"): "SedeRespuesta",
+    ("PUT", "/api/v1/organizacion/sedes/{sede_id}"): "SedeRespuesta",
+    ("PATCH", "/api/v1/organizacion/sedes/{sede_id}/estado"): "SedeEstadoRespuesta",
+    ("GET", "/api/v1/organizacion/departamentos"): "DepartamentoRespuesta",
+    ("POST", "/api/v1/organizacion/departamentos"): "DepartamentoRespuesta",
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}"): "DepartamentoRespuesta",
+    (
+        "PATCH",
+        "/api/v1/organizacion/departamentos/{departamento_id}/estado",
+    ): "DepartamentoEstadoRespuesta",
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): "UsuarioRespuesta",
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): "UsuarioEstadoRespuesta",
 }
 
 

@@ -117,8 +117,9 @@
 -- =====================================================
 -- Esta semilla es destructiva (TRUNCATE + INSERT). Para no confundir una base
 -- real o ya sembrada con un entorno descartable, ABORTA antes del primer
--- TRUNCATE si detecta cualquier fila en las quince tablas canonicas (las doce de
--- 3NF mas `sede`, `stock_sede` y `departamento_encargado` de la Feature 011), en
+-- TRUNCATE si detecta cualquier fila en las tablas canonicas (las doce de 3NF mas
+-- `sede`, `stock_sede` y `departamento_encargado` de la Feature 011, y
+-- `funcion_institucion` de la Feature 012), en
 -- `mapa_usuario_esquema` o en `version_esquema` (criterio aprobado en
 -- T8a-hallazgos-docker-initdb.md section 5). La condicion es una propiedad de
 -- la base calculada en el servidor: no la aporta el cliente ni un parametro, y
@@ -138,6 +139,7 @@ BEGIN
     -- y el arranque aborta: tambien cierra.
     SELECT
         (SELECT count(*) FROM detalle_ticket)
+      + (SELECT count(*) FROM funcion_institucion)
       + (SELECT count(*) FROM movimiento_inventario)
       + (SELECT count(*) FROM stock_sede)
       + (SELECT count(*) FROM ticket)
@@ -186,7 +188,7 @@ $guardia$;
 
 TRUNCATE TABLE detalle_ticket, movimiento_inventario, stock_sede, ticket,
     inventario, departamento_encargado, producto, categoria, usuario, rol,
-    departamento, sede, prioridad, estado_ticket, institucion
+    departamento, sede, prioridad, estado_ticket, institucion, funcion_institucion
 RESTART IDENTITY CASCADE;
 
 -- =====================================================
@@ -200,6 +202,22 @@ INSERT INTO institucion (institucion_id, nombre, rut, direccion) VALUES
 ('INST-002', 'Centro de Salud Familiar Norte', '65.887.230-1', 'Calle Los Robles 45, Maipu'),
 ('INST-003', 'Corporacion Educacional Cordillera', '77.120.540-3', 'Camino La Ladera 890, Lo Barnechea'),
 ('INST-004', 'Municipalidad de Talagante', '65.998.720-K', 'Plaza de Armas s/n, Talagante');
+
+-- =====================================================
+-- 1a. FUNCION_INSTITUCION  (24 filas = 4 x 6)  [Feature 012, auxiliar]
+-- =====================================================
+-- Cada institucion nace con sus seis capacidades funcionales habilitadas
+-- (conjunto cerrado, AC-5). `activo` de `institucion` toma su DEFAULT TRUE (la
+-- semilla no nombra la columna). `funcion_institucion` es SOLO de control: el
+-- constructor no la copia a ningun tenant.
+
+INSERT INTO funcion_institucion (institucion_id, funcion, habilitada)
+SELECT i.institucion_id, f.funcion, TRUE
+FROM institucion i
+CROSS JOIN (
+    VALUES ('catalogo'), ('inventario'), ('tickets'),
+           ('kanban'), ('dashboard'), ('gestion_organizacional')
+) AS f(funcion);
 
 -- =====================================================
 -- 1b. SEDE  (11 filas)  [Feature 011]

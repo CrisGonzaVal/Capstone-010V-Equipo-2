@@ -128,6 +128,22 @@ def _modelo(nombre: str):
     return getattr(modelos, nombre)
 
 
+def _crear_esquema_control_012(motor_control) -> None:
+    """Materializa el DDL canonico de control vigente en el harness.
+
+    Desde la Feature 012 el registro canonico de control (`institucion`) porta
+    `activo` y existe la auxiliar `funcion_institucion`, ambas **solo** en control.
+    El harness las crea con `BaseControl.metadata` (antes de `Base.metadata`), de
+    modo que la tabla `institucion` del control sea el superset y el espejo tenant
+    de `_esquema` siga limitado a dos columnas. Sin esto, la resolucion de
+    identidad de la 012 no encontraria `institucion.activo`.
+    """
+    from app.models.control_canonico import BaseControl
+
+    BaseControl.metadata.create_all(bind=motor_control)
+    Base.metadata.create_all(bind=motor_control)
+
+
 # ---------------------------------------------------------------------------
 # AC-16/T11: la sesion de control fija `control` explicitamente
 # ---------------------------------------------------------------------------
@@ -150,7 +166,7 @@ def test_sesion_control_resuelve_control_en_base_migrada():
             motor_control = engine.execution_options(
                 schema_translate_map={None: ESQUEMA_CONTROL}
             )
-            Base.metadata.create_all(bind=motor_control)
+            _crear_esquema_control_012(motor_control)
             with motor_control.begin() as conexion:
                 conexion.execute(
                     Base.metadata.tables["institucion"].insert().values(
@@ -222,7 +238,7 @@ def test_sesion_control_resuelve_control_en_instalacion_limpia():
             motor_control = engine.execution_options(
                 schema_translate_map={None: ESQUEMA_CONTROL}
             )
-            Base.metadata.create_all(bind=motor_control)
+            _crear_esquema_control_012(motor_control)
             with motor_control.begin() as conexion:
                 conexion.execute(
                     Base.metadata.tables["institucion"].insert().values(
@@ -275,7 +291,7 @@ def mundo_multitenant():
             motor_control = engine.execution_options(
                 schema_translate_map={None: ESQUEMA_CONTROL}
             )
-            Base.metadata.create_all(bind=motor_control)
+            _crear_esquema_control_012(motor_control)
 
             with _esquema(engine, "tenant_a") as (esq_a, motor_a):
                 with _esquema(engine, "tenant_b") as (esq_b, motor_b):

@@ -4,10 +4,10 @@ Seam bajo prueba: la **operacion HTTP real** `POST /api/v1/control/instituciones
 sobre el `app` real (contexto logico unico de SQLite) mas las funciones publicas de
 `app.services.control_service` para el porton de version.
 
-La Feature 011 anade DDL a cada tenant, de modo que sube el token objetivo a
-`011.1` (spec AC-12) y un tenant nuevo debe nacer **operativo**: sin CRUD de sedes
-(eso es la Feature 012), el aprovisionamiento crea automaticamente la sede inicial
-"Sede Central" (spec D-5).
+La Feature 011 anadio DDL a cada tenant y subio el token objetivo a `011.1` (spec
+AC-12); la Feature 012 lo sube de nuevo a `012.1`, y un tenant nuevo debe nacer
+**operativo**: sin CRUD de sedes (eso es la Feature 012), el aprovisionamiento crea
+automaticamente la sede inicial "Sede Central" (spec D-5).
 
 Trazabilidad AC (spec 011 §5):
 
@@ -98,8 +98,8 @@ def _cliente_alta(motor):
 # ---------------------------------------------------------------------------
 
 
-def test_version_objetivo_es_011_1():
-    """AC-12: el token de despliegue sube con el DDL de la Feature 011."""
+def test_version_objetivo_es_012_1():
+    """AC-12 (012): el token de despliegue sube con el DDL de la Feature 012."""
     assert config.VERSION_ESQUEMA_OBJETIVO == VERSION_OBJETIVO_011
 
 
@@ -115,7 +115,7 @@ def test_tenant_con_la_version_anterior_no_es_objetivo(motor):
         assert control_service.tenant_en_version_objetivo(db) is False
 
 
-def test_tenant_en_version_011_1_es_objetivo(motor):
+def test_tenant_en_version_012_1_es_objetivo(motor):
     """AC-12: la version nueva exacta si habilita el enrutamiento."""
     with sesion(motor) as db:
         db.add(VersionEsquema(version=VERSION_OBJETIVO_011))
@@ -151,7 +151,7 @@ def test_aprovisionamiento_crea_la_sede_inicial(motor):
     assert sedes[0].nombre == NOMBRE_SEDE_CENTRAL
 
 
-def test_aprovisionamiento_responde_la_version_011_1(motor):
+def test_aprovisionamiento_responde_la_version_012_1(motor):
     """AC-12: la respuesta del alta declara el token objetivo vigente."""
     modelo("Sede")
 

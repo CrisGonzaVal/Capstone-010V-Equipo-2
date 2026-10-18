@@ -2,10 +2,13 @@ import { ControlSuperadminGuard } from '../../core/guards/control-superadmin.gua
 import { controlRoutes } from './control.routes';
 
 /**
- * Contrato de navegación del portal `/control` (Feature 010, AC-15): un
- * segmento lazy con dos vistas mínimas — login público con Clerk prebuilt y
- * alta protegida solo para Superadmin. No expone ninguna vista de CRUD (eso es
- * la Feature 012).
+ * Contrato de navegación del portal `/control` (Features 010 y 012).
+ *
+ * El portal es un segmento lazy con el login público con Clerk prebuilt (`''`,
+ * sin guard), el alta de institución y la gestión administrativa SaaS del
+ * Superadmin (`dashboard`, `instituciones`, capacidades por institución), todas
+ * protegidas por el guard exacto de Superadmin. No monta el layout operativo de
+ * tenant ni ofrece selector de esquema.
  */
 describe('controlRoutes', () => {
   function ruta(path: string) {
@@ -24,8 +27,26 @@ describe('controlRoutes', () => {
     expect(alta?.canActivate).toContain(ControlSuperadminGuard);
   });
 
-  it('no publica rutas de CRUD de instituciones/usuarios/permisos', () => {
-    const prohibidas = ['crear', 'editar', 'usuarios', 'permisos', 'instituciones'];
-    expect(controlRoutes.some((r) => prohibidas.includes(r.path ?? ''))).toBe(false);
+  it('publica las vistas de gestión SaaS protegidas por el guard de Superadmin', () => {
+    const protegidas = [
+      'dashboard',
+      'instituciones',
+      'instituciones/:institucionId/capacidades',
+    ];
+    for (const path of protegidas) {
+      const definicion = ruta(path);
+      expect(definicion).withContext(path).toBeTruthy();
+      expect(definicion?.canActivate).withContext(path).toContain(
+        ControlSuperadminGuard,
+      );
+    }
+  });
+
+  it('carga cada vista de gestión de forma perezosa, sin módulos', () => {
+    for (const path of ['dashboard', 'instituciones', 'instituciones/:institucionId/capacidades']) {
+      const definicion = ruta(path);
+      expect(typeof definicion?.loadComponent).withContext(path).toBe('function');
+      expect(definicion?.loadChildren).withContext(path).toBeUndefined();
+    }
   });
 });

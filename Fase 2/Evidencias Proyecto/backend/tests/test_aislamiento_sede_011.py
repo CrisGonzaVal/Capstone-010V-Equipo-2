@@ -41,13 +41,14 @@ except ImportError:  # pragma: no cover - entorno sin la dependencia
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.db.database import Base, ESQUEMA_CONTROL
+from app.db.database import ESQUEMA_CONTROL
 
 # La infraestructura temporal y el cliente HTTP real ya viven en el modulo gated
 # de la 010; se reutilizan para no duplicarlos.
 from tests.test_integracion_multitenant_010 import (
     _base_temporal,
     _cliente_http,
+    _crear_esquema_control_012,
     _esquema,
     _sembrar_control,
     _sembrar_tenant,
@@ -104,7 +105,7 @@ def mundo_dos_tenants():
             motor_control = engine.execution_options(
                 schema_translate_map={None: ESQUEMA_CONTROL}
             )
-            Base.metadata.create_all(bind=motor_control)
+            _crear_esquema_control_012(motor_control)
 
             with _esquema(engine, "tenant_a") as (esq_a, motor_a):
                 with _esquema(engine, "tenant_b") as (esq_b, motor_b):

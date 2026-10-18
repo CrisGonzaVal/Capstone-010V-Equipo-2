@@ -1,0 +1,220 @@
+<div class="mx-auto max-w-4xl space-y-6">
+  <app-control-nav />
+
+  <header class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h2 class="text-2xl font-bold text-slate-800">Instituciones</h2>
+      <p class="text-sm text-slate-500">
+        Registro canónico de la plataforma. Desactivar es lógico y reversible: no borra
+        datos ni historial.
+      </p>
+    </div>
+    <a
+      routerLink="/control/alta"
+      class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+    >
+      Alta de institución
+    </a>
+  </header>
+
+  @if (mensajeExito(); as exito) {
+    <p
+      role="status"
+      aria-live="polite"
+      class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+    >
+      {{ exito }}
+    </p>
+  }
+
+  @if (errorAccion(); as error) {
+    <p
+      role="alert"
+      class="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+    >
+      {{ error }}
+    </p>
+  }
+
+  @if (cargando()) {
+    <p
+      role="status"
+      aria-live="polite"
+      class="rounded-xl border border-slate-100 bg-white p-8 text-center text-sm text-slate-500"
+    >
+      Cargando instituciones...
+    </p>
+  } @else if (mensajeError()) {
+    <div
+      role="alert"
+      class="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+    >
+      <span>{{ mensajeError() }}</span>
+      <button
+        type="button"
+        class="rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+        (click)="reintentar()"
+      >
+        Reintentar
+      </button>
+    </div>
+  } @else if (instituciones().length) {
+    <ul class="space-y-4">
+      @for (institucion of instituciones(); track institucion.institucion_id) {
+        <li class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p class="text-lg font-semibold text-slate-800">{{ institucion.nombre }}</p>
+              <p class="font-mono text-xs text-slate-400">{{ institucion.institucion_id }}</p>
+              <p class="mt-1 text-xs text-slate-500">
+                RUT: {{ institucion.rut ?? '—' }} · Dirección: {{ institucion.direccion ?? '—' }}
+              </p>
+            </div>
+            <span
+              class="rounded-full px-2 py-1 text-xs font-medium"
+              [class.bg-emerald-100]="institucion.activo"
+              [class.text-emerald-800]="institucion.activo"
+              [class.bg-slate-200]="!institucion.activo"
+              [class.text-slate-600]="!institucion.activo"
+            >
+              {{ institucion.activo ? 'Activa' : 'Inactiva' }}
+            </span>
+          </div>
+
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+              (click)="verCapacidades(institucion)"
+            >
+              Capacidades
+            </button>
+            <button
+              type="button"
+              class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+              (click)="iniciarEdicion(institucion)"
+            >
+              Editar
+            </button>
+            @if (institucion.activo) {
+              <button
+                type="button"
+                class="rounded-lg border border-rose-300 px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+                (click)="solicitarCambioEstado(institucion)"
+              >
+                Desactivar
+              </button>
+            } @else {
+              <button
+                type="button"
+                class="rounded-lg border border-emerald-300 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                (click)="solicitarCambioEstado(institucion)"
+              >
+                Reactivar
+              </button>
+            }
+          </div>
+
+          @if (confirmando()?.institucion_id === institucion.institucion_id) {
+            <div
+              class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+            >
+              <p>
+                {{ institucion.activo
+                  ? '¿Desactivar esta institución? Sus usuarios locales dejarán de operar hasta reactivarla.'
+                  : '¿Reactivar esta institución? El acceso vuelve a depender de la versión del tenant.' }}
+              </p>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  [disabled]="guardando()"
+                  class="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  (click)="confirmarCambioEstado()"
+                >
+                  Confirmar
+                </button>
+                <button
+                  type="button"
+                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  (click)="cancelarCambioEstado()"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          }
+
+          @if (editando()?.institucion_id === institucion.institucion_id) {
+            <form
+              [formGroup]="formulario"
+              (ngSubmit)="guardarEdicion()"
+              novalidate
+              class="mt-4 grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 md:grid-cols-2"
+            >
+              <div class="flex flex-col gap-1 md:col-span-2">
+                <label for="editar-nombre" class="text-sm font-medium text-slate-700">
+                  Nombre <span aria-hidden="true" class="text-rose-600">*</span>
+                </label>
+                <input
+                  id="editar-nombre"
+                  type="text"
+                  formControlName="nombre"
+                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                />
+                @if (formulario.controls.nombre.invalid && formulario.controls.nombre.touched) {
+                  <p class="text-xs text-rose-600">El nombre es obligatorio.</p>
+                }
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label for="editar-rut" class="text-sm font-medium text-slate-700">RUT</label>
+                <input
+                  id="editar-rut"
+                  type="text"
+                  formControlName="rut"
+                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                />
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label for="editar-direccion" class="text-sm font-medium text-slate-700">
+                  Dirección
+                </label>
+                <input
+                  id="editar-direccion"
+                  type="text"
+                  formControlName="direccion"
+                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                />
+              </div>
+
+              <div class="flex flex-wrap gap-2 md:col-span-2">
+                <button
+                  type="submit"
+                  [disabled]="guardando()"
+                  class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  Guardar cambios
+                </button>
+                <button
+                  type="button"
+                  class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  (click)="cancelarEdicion()"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          }
+        </li>
+      }
+    </ul>
+  } @else {
+    <p
+      class="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500"
+    >
+      No hay instituciones registradas. Usa «Alta de institución» para aprovisionar la
+      primera.
+    </p>
+  }
+</div>

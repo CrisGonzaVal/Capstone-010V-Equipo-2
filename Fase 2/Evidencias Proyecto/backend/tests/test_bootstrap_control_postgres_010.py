@@ -39,7 +39,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.db.database import Base, crear_sesion_esquema
-from app.models import Departamento, Institucion, Rol, Usuario
+from app.models import BaseControl, Departamento, Institucion, Rol, Usuario
 from app.services.control_service import (
     INSTITUCION_ADMINISTRATIVA_ID,
     ROL_SUPERADMIN,
@@ -145,6 +145,10 @@ def test_bootstrap_control_es_idempotente_y_no_toca_negocio(engine):
     """AC-6: dos ejecuciones dejan los mismos registros y datos de negocio intactos."""
     with _esquema_temporal(engine) as esquema:
         motor_control = engine.execution_options(schema_translate_map={None: esquema})
+        # Feature 012: el canonico de control (`InstitucionControl` + capacidades)
+        # vive en `BaseControl`; la tabla compartida `institucion` debe ser el
+        # superset, asi que se crea primero y `Base` la salta por `checkfirst`.
+        BaseControl.metadata.create_all(bind=motor_control)
         Base.metadata.create_all(bind=motor_control)
 
         sesion = crear_sesion_esquema(esquema, motor=engine)
@@ -182,6 +186,10 @@ def test_bootstrap_control_conserva_nulabilidades_del_modelo(engine):
     """AC-6: el usuario/departamento administrativos satisfacen los NOT NULL 3NF."""
     with _esquema_temporal(engine) as esquema:
         motor_control = engine.execution_options(schema_translate_map={None: esquema})
+        # Feature 012: el canonico de control (`InstitucionControl` + capacidades)
+        # vive en `BaseControl`; la tabla compartida `institucion` debe ser el
+        # superset, asi que se crea primero y `Base` la salta por `checkfirst`.
+        BaseControl.metadata.create_all(bind=motor_control)
         Base.metadata.create_all(bind=motor_control)
 
         sesion = crear_sesion_esquema(esquema, motor=engine)

@@ -3,13 +3,17 @@ import { Routes } from '@angular/router';
 import { ControlSuperadminGuard } from '../../core/guards/control-superadmin.guard';
 
 /**
- * Segmento lazy-loaded del portal `/control` (Feature 010, plan §"Portal Angular").
+ * Segmento lazy-loaded del portal `/control` (Features 010 y 012).
  *
- * Dos vistas mínimas: el login público con la UI prebuilt de Clerk (`''`, sin
- * guard, para poder iniciar sesión) y el alta protegida por
- * `ControlSuperadminGuard` (`'alta'`), que solo deja pasar al rol exacto
- * `Superadmin`. No publica CRUD de instituciones, usuarios ni permisos
- * (Feature 012).
+ * Vistas: el login público con la UI prebuilt de Clerk (`''`, sin guard, para
+ * poder iniciar sesión); el alta de institución (`'alta'`); y la gestión
+ * administrativa SaaS del Superadmin (Feature 012): dashboard global
+ * (`'dashboard'`), gestión institucional (`'instituciones'`) y capacidades
+ * funcionales por institución (`'instituciones/:institucionId/capacidades'`).
+ * Todas las rutas de gestión exigen el rol exacto `Superadmin` mediante
+ * `ControlSuperadminGuard`. No monta el layout operativo de tenant ni permite
+ * escoger esquema. La gestión administrativa institucional (sedes, departamentos,
+ * usuarios y encargados) vive en `/administracion` (Feature 012, T10).
  */
 export const controlRoutes: Routes = [
   {
@@ -24,5 +28,26 @@ export const controlRoutes: Routes = [
     loadComponent: () =>
       import('./alta-institucion.component').then((m) => m.AltaInstitucionComponent),
     title: 'Alta de institución | CompuStock',
+  },
+  {
+    path: 'dashboard',
+    canActivate: [ControlSuperadminGuard],
+    loadComponent: () =>
+      import('./dashboard-saas.component').then((m) => m.DashboardSaasComponent),
+    title: 'Dashboard SaaS | CompuStock',
+  },
+  {
+    path: 'instituciones',
+    canActivate: [ControlSuperadminGuard],
+    loadComponent: () =>
+      import('./instituciones.component').then((m) => m.InstitucionesComponent),
+    title: 'Instituciones | CompuStock',
+  },
+  {
+    path: 'instituciones/:institucionId/capacidades',
+    canActivate: [ControlSuperadminGuard],
+    loadComponent: () =>
+      import('./capacidades.component').then((m) => m.CapacidadesComponent),
+    title: 'Capacidades institucionales | CompuStock',
   },
 ];

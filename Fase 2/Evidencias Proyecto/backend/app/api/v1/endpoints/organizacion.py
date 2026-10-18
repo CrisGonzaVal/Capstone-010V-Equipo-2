@@ -27,8 +27,17 @@ from app.schemas.organizacion_schema import (
     AsignacionSedeCrear,
     AsignacionSedeDepartamentoRespuesta,
     AsignacionSedeUsuarioRespuesta,
+    DepartamentoCrear,
+    DepartamentoEdicion,
+    DepartamentoEstado,
+    DepartamentoEstadoRespuesta,
+    DepartamentoRespuesta,
     EncargadoCrear,
     EncargadoRespuesta,
+    SedeCrear,
+    SedeEdicion,
+    SedeEstado,
+    SedeEstadoRespuesta,
     SedeRespuesta,
 )
 from app.services import organizacion_service
@@ -38,6 +47,13 @@ router = APIRouter(prefix="/organizacion", tags=["Organizacion"])
 
 #: Rutas contractuales de la matriz central (plan §1, spec §4.12).
 RUTA_SEDES = "/api/v1/organizacion/sedes"
+RUTA_SEDE = "/api/v1/organizacion/sedes/{sede_id}"
+RUTA_SEDE_ESTADO = "/api/v1/organizacion/sedes/{sede_id}/estado"
+RUTA_DEPARTAMENTOS = "/api/v1/organizacion/departamentos"
+RUTA_DEPARTAMENTO = "/api/v1/organizacion/departamentos/{departamento_id}"
+RUTA_DEPARTAMENTO_ESTADO = (
+    "/api/v1/organizacion/departamentos/{departamento_id}/estado"
+)
 RUTA_SEDE_DEPARTAMENTO = "/api/v1/organizacion/departamentos/{departamento_id}/sede"
 RUTA_SEDE_USUARIO = "/api/v1/organizacion/usuarios/{usuario_id}/sede"
 RUTA_ENCARGADOS = "/api/v1/organizacion/departamentos/{departamento_id}/encargados"
@@ -87,6 +103,9 @@ def _encargado_respuesta(usuario) -> EncargadoRespuesta:
         "consultan."
     ),
     responses=_respuestas(),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", RUTA_SEDES))
+    ],
 )
 def listar_sedes(
     identidad: IdentidadAutenticada = Depends(
@@ -110,6 +129,9 @@ def listar_sedes(
         "tickets del departamento."
     ),
     responses=_respuestas(payload=True),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("PUT", RUTA_SEDE_DEPARTAMENTO))
+    ],
 )
 def asignar_sede_a_departamento(
     departamento_id: int,
@@ -139,6 +161,9 @@ def asignar_sede_a_departamento(
         "**409** sin mutacion. El Bodeguero solo opera la sede asignada."
     ),
     responses=_respuestas(conflicto=True, payload=True),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("PUT", RUTA_SEDE_USUARIO))
+    ],
 )
 def asignar_sede_a_usuario(
     usuario_id: int,
@@ -168,6 +193,9 @@ def asignar_sede_a_usuario(
         "departamento inexistente o ajeno responde **404** (AC-1/AC-5)."
     ),
     responses=_respuestas(),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", RUTA_ENCARGADOS))
+    ],
 )
 def listar_encargados(
     departamento_id: int,
@@ -197,6 +225,9 @@ def listar_encargados(
         "Ser encargado no cambia el rol ni amplia permisos."
     ),
     responses=_respuestas(conflicto=True, payload=True),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("POST", RUTA_ENCARGADOS))
+    ],
 )
 def asociar_encargado(
     departamento_id: int,
@@ -222,6 +253,9 @@ def asociar_encargado(
         "departamento ajeno responde **404** sin efecto."
     ),
     responses=_respuestas(),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("DELETE", RUTA_ENCARGADO))
+    ],
 )
 def retirar_encargado(
     departamento_id: int,
@@ -233,4 +267,206 @@ def retirar_encargado(
 ) -> None:
     organizacion_service.retirar_encargado(
         db, departamento_id, usuario_id, identidad
+    )
+
+
+# ---------------------------------------------------------------------------
+# CRUD organizacional de sedes (Feature 012, T7, AC-6/AC-11/AC-13)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/sedes",
+    response_model=SedeRespuesta,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear una sede de la institucion",
+    description=(
+        "Crea una sede en la institucion del Administrador (AC-6). El cliente solo "
+        "aporta nombre y direccion; la institucion la resuelve el servidor. Una "
+        "sede homonima en la institucion responde **409** sin crear fila, de modo "
+        "que 'Sede Central' no se duplica. Un cuerpo invalido responde **422**."
+    ),
+    responses=_respuestas(conflicto=True, payload=True),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("POST", RUTA_SEDES))
+    ],
+)
+def crear_sede(
+    datos: SedeCrear,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("POST", RUTA_SEDES)
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+) -> SedeRespuesta:
+    return organizacion_service.crear_sede(db, datos, identidad)
+
+
+@router.put(
+    "/sedes/{sede_id}",
+    response_model=SedeRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Modificar una sede de la institucion",
+    description=(
+        "Modifica el nombre y la direccion de una sede del tenant (AC-6). Una sede "
+        "inexistente o **ajena** responde **404** sin mutacion; un cuerpo invalido, "
+        "**422**."
+    ),
+    responses=_respuestas(payload=True),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("PUT", RUTA_SEDE))
+    ],
+)
+def editar_sede(
+    sede_id: int,
+    datos: SedeEdicion,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("PUT", RUTA_SEDE)
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+) -> SedeRespuesta:
+    return organizacion_service.editar_sede(db, sede_id, datos, identidad)
+
+
+@router.patch(
+    "/sedes/{sede_id}/estado",
+    response_model=SedeEstadoRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Activar o desactivar una sede",
+    description=(
+        "Persiste el estado logico `activo` de la sede (idempotente, AC-11). "
+        "Desactivar no borra la fila ni su historial; reactivar es el mismo "
+        "endpoint con `true`. Si la desactivacion dejaria departamentos activos o "
+        "Bodegueros asignados a la sede responde **409** con el motivo concreto; "
+        "una sede inexistente o ajena responde **404**."
+    ),
+    responses=_respuestas(conflicto=True),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("PATCH", RUTA_SEDE_ESTADO))
+    ],
+)
+def cambiar_estado_sede(
+    sede_id: int,
+    datos: SedeEstado,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("PATCH", RUTA_SEDE_ESTADO)
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+) -> SedeEstadoRespuesta:
+    sede = organizacion_service.cambiar_estado_sede(db, sede_id, datos.activo, identidad)
+    return SedeEstadoRespuesta(sede_id=sede.sede_id, activo=sede.activo)
+
+
+# ---------------------------------------------------------------------------
+# CRUD organizacional de departamentos (Feature 012, T7, AC-7/AC-11/AC-13)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/departamentos",
+    response_model=List[DepartamentoRespuesta],
+    status_code=status.HTTP_200_OK,
+    summary="Listar los departamentos de la institucion del actor",
+    description=(
+        "Devuelve los departamentos de la institucion resuelta desde la sesion, "
+        "con su sede asignada o su ausencia y su estado logico (AC-7). Un "
+        "departamento de otro tenant no aparece en la lista."
+    ),
+    responses=_respuestas(),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", RUTA_DEPARTAMENTOS))
+    ],
+)
+def listar_departamentos(
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("GET", RUTA_DEPARTAMENTOS)
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+) -> List[DepartamentoRespuesta]:
+    return organizacion_service.listar_departamentos(db, identidad)
+
+
+@router.post(
+    "/departamentos",
+    response_model=DepartamentoRespuesta,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear un departamento de la institucion",
+    description=(
+        "Crea un departamento en la institucion del Administrador (AC-7). La sede "
+        "no es obligatoria en el alta (la precondicion de sede es operativa, regla "
+        "011); se asigna despues con `PUT .../{departamento_id}/sede`. Un cuerpo "
+        "invalido responde **422**."
+    ),
+    responses=_respuestas(payload=True),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("POST", RUTA_DEPARTAMENTOS))
+    ],
+)
+def crear_departamento(
+    datos: DepartamentoCrear,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("POST", RUTA_DEPARTAMENTOS)
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+) -> DepartamentoRespuesta:
+    return organizacion_service.crear_departamento(db, datos, identidad)
+
+
+@router.put(
+    "/departamentos/{departamento_id}",
+    response_model=DepartamentoRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Modificar un departamento de la institucion",
+    description=(
+        "Modifica nombre y descripcion de un departamento del tenant (AC-7). Un "
+        "departamento inexistente o **ajeno** responde **404** sin mutacion; un "
+        "cuerpo invalido, **422**."
+    ),
+    responses=_respuestas(payload=True),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("PUT", RUTA_DEPARTAMENTO))
+    ],
+)
+def editar_departamento(
+    departamento_id: int,
+    datos: DepartamentoEdicion,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("PUT", RUTA_DEPARTAMENTO)
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+) -> DepartamentoRespuesta:
+    return organizacion_service.editar_departamento(
+        db, departamento_id, datos, identidad
+    )
+
+
+@router.patch(
+    "/departamentos/{departamento_id}/estado",
+    response_model=DepartamentoEstadoRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Activar o desactivar un departamento",
+    description=(
+        "Persiste el estado logico `activo` del departamento (idempotente, AC-11). "
+        "Desactivar no borra la fila ni su historial; reactivar es el mismo "
+        "endpoint con `true`. Si la desactivacion dejaria usuarios activos "
+        "vinculados responde **409** con el motivo concreto; un departamento "
+        "inexistente o ajeno, **404**."
+    ),
+    responses=_respuestas(conflicto=True),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("PATCH", RUTA_DEPARTAMENTO_ESTADO))
+    ],
+)
+def cambiar_estado_departamento(
+    departamento_id: int,
+    datos: DepartamentoEstado,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("PATCH", RUTA_DEPARTAMENTO_ESTADO)
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+) -> DepartamentoEstadoRespuesta:
+    departamento = organizacion_service.cambiar_estado_departamento(
+        db, departamento_id, datos.activo, identidad
+    )
+    return DepartamentoEstadoRespuesta(
+        departamento_id=departamento.departamento_id, activo=departamento.activo
     )

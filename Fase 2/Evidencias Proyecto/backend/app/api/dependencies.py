@@ -19,11 +19,11 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.core import permisos, security
+from app.core import capacidades, permisos, security
 from app.core.config import settings
 from app.core.security import FuenteJWKS
 from app.db.database import crear_sesion_control, crear_sesion_esquema
-from app.services import auth_service, tenant_service
+from app.services import auth_service, capacidad_service, tenant_service
 from app.services.auth_service import IdentidadAutenticada
 from app.services.tenant_service import ContextoSolicitud
 
@@ -139,6 +139,21 @@ def _no_autorizado() -> HTTPException:
     )
 
 
+def _identidad_no_resoluble() -> HTTPException:
+    """401 para una institucion inactiva: la identidad local no resuelve (D-2).
+
+    Feature 012 (D-2/AC-2): una institucion desactivada en `control` deja de
+    enrutar a su tenant aunque la sesion Clerk sea valida. El patron es el de
+    identidad local no resoluble, **401**, no el 403 de la identidad sin tenant
+    operativo (`ErrorTenant`).
+    """
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="La identidad no resuelve a una institucion activa",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def get_current_user(
     credenciales: HTTPAuthorizationCredentials | None = Depends(esquema_bearer),
     fuente_jwks: FuenteJWKS = Depends(obtener_fuente_jwks),
@@ -174,12 +189,15 @@ def get_contexto_solicitud(
 
     La identidad ya validada por Clerk aporta el correo; `tenant_service` lo
     traduce a un esquema tenant (o a la identidad global del Superadmin) contra
-    el mapa de control. Ninguna entrada del cliente participa. Un correo no
-    mapeado, con asociacion inactiva o con tenant no versionado responde **403**
-    sin caer a otro esquema ni a global.
+    el mapa de control. Ninguna entrada del cliente participa. Una institucion
+    inactiva responde **401** (identidad local no resoluble, D-2/AC-2); un correo
+    no mapeado, con asociacion inactiva o con tenant no versionado responde
+    **403** sin caer a otro esquema ni a global.
     """
     try:
         return tenant_service.resolver_contexto_solicitud(db, identidad.usuario.correo)
+    except tenant_service.ErrorInstitucionInactiva as exc:
+        raise _identidad_no_resoluble() from exc
     except tenant_service.ErrorTenant as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -241,6 +259,8 @@ def get_db_negocio(
                 esquema, motor=db.get_bind()
             ),
         )
+    except tenant_service.ErrorInstitucionInactiva as exc:
+        raise _identidad_no_resoluble() from exc
     except tenant_service.ErrorTenant as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -256,6 +276,32 @@ def get_db_negocio(
         yield sesion
     finally:
         sesion.close()
+
+
+def get_contexto_capacidad(
+    identidad: IdentidadAutenticada = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ContextoSolicitud | None:
+    """Contexto tenant para el gating de capacidad, tolerante a no resolucion.
+
+    Feature 012 (D-6): el gating por capacidad necesita el `institucion_id` del
+    contexto tenant, pero **no** sustituye la denegacion de routing. Una
+    institucion inactiva, un correo no mapeado o un tenant sin version objetivo
+    ya se normalizan (**401**/**403**) al abrir la sesion de negocio
+    (`get_db_negocio`), antes de ejecutar el endpoint.
+
+    Por eso este seam resuelve el contexto de forma **tolerante**: si no resuelve
+    (cualquier `ErrorTenant`, incluida `ErrorInstitucionInactiva`) devuelve `None`
+    y el gating se omite, dejando intacta la precedencia 401/403 de la capa de
+    routing y de la matriz. El gating solo se aplica cuando hay un tenant resuelto
+    con `institucion_id`, que es exactamente el caso en que la operacion de
+    negocio se ejecutaria. La identidad global (Superadmin) devuelve un contexto
+    con `institucion_id=None` y tampoco se gatea por capacidades de tenant.
+    """
+    try:
+        return tenant_service.resolver_contexto_solicitud(db, identidad.usuario.correo)
+    except tenant_service.ErrorTenant:
+        return None
 
 
 def _permiso_insuficiente() -> HTTPException:
@@ -300,3 +346,46 @@ def requiere_operacion(
     implicito.
     """
     return requiere_roles(*permisos.roles_de_operacion(metodo, ruta))
+
+
+def _capacidad_deshabilitada() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="La capacidad funcional de la institucion esta deshabilitada",
+    )
+
+
+def requiere_capacidad(metodo: str, ruta: str) -> Callable[..., None]:
+    """Dependencia de **capacidad funcional** por institucion (Feature 012, D-6).
+
+    Es una condicion **adicional** a la matriz central, no un sustituto: el rol
+    autorizado por `requiere_operacion` puede seguir recibiendo 403 si la
+    capacidad funcional de su institucion esta apagada. Consulta el estado en
+    `control.funcion_institucion` (via `capacidad_service`) usando el contexto
+    tenant resuelto por `get_contexto_capacidad`, **sin** leer ni escribir datos
+    del tenant.
+
+    Reglas:
+
+    * Una operacion no asociada a capacidad (`capacidad_de_operacion` -> `None`,
+      p. ej. `/auth/me` o `/control/*`) no se gatea.
+    * Contexto no resoluble o identidad global del Superadmin
+      (`institucion_id=None`) no se gatea: la denegacion de routing la aplica
+      `get_db_negocio` con su propio 401/403.
+    * Capacidad apagada (`habilitada = False`) -> **403** sin mutacion.
+    * Sin fila de capacidad -> habilitada (diseno-tecnico.md §2).
+    """
+    funcion = capacidades.capacidad_de_operacion(metodo, ruta)
+
+    def dependencia(
+        contexto: ContextoSolicitud | None = Depends(get_contexto_capacidad),
+        db: Session = Depends(get_db),
+    ) -> None:
+        if funcion is None or contexto is None or contexto.institucion_id is None:
+            return
+        if not capacidad_service.capacidad_habilitada(
+            db, contexto.institucion_id, funcion
+        ):
+            raise _capacidad_deshabilitada()
+
+    return dependencia

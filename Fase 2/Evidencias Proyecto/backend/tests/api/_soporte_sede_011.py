@@ -73,8 +73,9 @@ RUTA_MOVIMIENTOS = "/api/v1/inventario/movimientos"
 RUTA_TICKETS = "/api/v1/tickets/"
 RUTA_DASHBOARD = "/api/v1/dashboard/"
 
-#: Version objetivo del DDL tras la Feature 011 (spec AC-12, plan T6).
-VERSION_OBJETIVO_011 = "011.1"
+#: Version objetivo del DDL vigente (Feature 012: sube a `012.1` con el modelo
+#: administrativo; antes `011.1`, Feature 011).
+VERSION_OBJETIVO_011 = "012.1"
 
 #: Nombre de la sede inicial que recibe un tenant recien aprovisionado (spec D-5).
 NOMBRE_SEDE_CENTRAL = "Sede Central"

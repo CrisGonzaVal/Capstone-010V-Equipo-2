@@ -457,6 +457,13 @@ permite representar tickets legados; y `movimiento_inventario.stock_sede_id` nul
 identifica movimientos nuevos contra stock por sede. Las columnas y restricciones compuestas
 locales deben impedir asociaciones incoherentes dentro del tenant, sin FK cross-schema.
 
+**Nota histórica:** las menciones al «modelo de 12 entidades 3NF» que aparecen en las
+justificaciones de las Features 008 y 010 (§2 de este documento) y en el comentario del árbol
+de `database/` (§1) son **históricas**: describen el estado vigente hasta la Feature 010 y
+quedan **superadas** por esta sección, que fija el modelo de dominio en **14 entidades** (más
+`departamento_encargado` auxiliar). Se conservan sin reescribir por trazabilidad de las
+justificaciones aprobadas.
+
 Las filas legadas de `inventario` referenciadas por `movimiento_inventario.inventario_id` se
 conservan sin modificación, al igual que sus claves y todos los movimientos históricos.
 `inventario.ubicacion` queda como dato legado y no se traslada automáticamente a
@@ -497,6 +504,20 @@ usa; al mismo tiempo, la auditoría histórica permanece íntegra y el saldo ins
 siendo una derivación, no una segunda fuente de verdad. Esta es la justificación que exige
 `AGENTS.md` §7 antes de tocar modelos, DDL o migraciones, y la aprobación de este apartado es
 el prerrequisito de implementación de la Feature 011.
+
+#### Gestión del ciclo de vida institucional y capacidades funcionales (Feature 012)
+
+La Feature 012 agrega `control.institucion.activo` como estado de ciclo de vida del registro institucional canónico. La fila de control es la fuente de verdad; `mapa_usuario_esquema.activo` conserva exclusivamente el significado de asociación local correo-esquema y no se reutiliza para suspender una institución. La resolución de identidad consulta `control.institucion.activo` antes de comprobar versión o seleccionar el tenant: una institución inactiva no resuelve a su esquema y las operaciones de negocio de sus identidades locales deniegan con 401. Reactivar restaura el routing solo si el tenant ya cumple la versión objetivo. La desactivación no borra la institución, el tenant, sus mapas, datos ni historial.
+
+La Feature 012 incorpora además `funcion_institucion`, estructura auxiliar únicamente en `control`, con una fila por pareja `(institucion_id, funcion)`, FK local a la institución, estado `habilitada` explícito y unicidad de la pareja. No es entidad de dominio, permiso de usuario, capacidad de rol ni catálogo configurable. El conjunto cerrado de identificadores es `catalogo`, `inventario`, `tickets`, `kanban`, `dashboard` y `gestion_organizacional`; no se crea una tabla de catálogo ni se infiere disponibilidad a partir de roles o datos existentes. Las capacidades deshabilitadas se aplican como gating backend 403 adicional a la matriz central, que permanece como autoridad independiente de rol. La fila de capacidad no concede permisos ni elimina información al deshabilitar.
+
+En instalaciones nuevas, `database/01_esquema.sql`, `database/02_datos_semilla.sql` cuando corresponda y `database/03_construir_tenants_011.sql` (o su constructor vigente) deben crear el atributo/auxiliar solo en control y aprovisionar para cada institución las seis capacidades inicialmente habilitadas. En instalaciones existentes, una migración operacional idempotente bajo `database/migraciones/` añade `activo` con valor inicial compatible, crea las seis filas habilitadas por institución y eleva la versión de control/tenants conforme al procedimiento aprobado, sin semilla destructiva ni pérdida de datos. El espejo tenant de `institucion` permanece limitado a `institucion_id` y `nombre`; `activo` y `funcion_institucion` nunca se copian al tenant.
+
+**Por qué:** el estado canónico permite suspender y reactivar una institución en el punto global que precede al routing, sin confundir institución con asociación individual. La tabla auxiliar hace persistente y auditable la disponibilidad de las seis funciones por tenant, separándola de autorización por rol y del modelo de negocio. Ambos cambios se justifican como ampliación del esquema de control y estructuras auxiliares, no como nuevas entidades de dominio tenant; deben existir en el DDL, modelo, aprovisionamiento, migración y routing antes de habilitar su uso.
+
+La Feature 012 agrega además un estado lógico `activo` a las tablas tenant `sede` y `departamento` (`BOOLEAN NOT NULL DEFAULT TRUE`), porque los criterios aprobados exigen mostrar y alternar el estado activo/inactivo de sedes y departamentos (AC-6/AC-11) y hoy ninguna de esas entidades porta un estado. Marcar `activo = FALSE` es una **desactivación lógica reversible**: la fila, sus claves, sus dependencias y su historial permanecen intactos y la reactivación consiste en reponer el valor, nunca en recrear el registro. El estado del **usuario local** se mantiene en `mapa_usuario_esquema.activo` (la asociación local correo-esquema) y **no** recibe una columna nueva en `usuario`. El DDL de instalación nueva, el constructor de tenants y el modelo ORM materializan `sede.activo` y `departamento.activo`; una instalación existente los recibe por la migración operacional de la 012 con valor inicial compatible y sin pérdida de datos.
+
+**Por qué:** `sede` y `departamento` son entidades tenant cuya vigencia operativa es un atributo propio del dominio organizacional, no una propiedad del esquema de control; añadirlo como estado lógico evita el borrado físico, conserva la trazabilidad histórica ya exigida por el proyecto y mantiene el ciclo de vida institucional (control) diferenciado del ciclo de vida de cada entidad organizacional. No se introduce entidad nueva de dominio —`activo` es una columna de tablas existentes— y el repliegue de una desactivación no depende de reconstruir datos, sino de reponer el estado, por lo que la operación es reversible y auditable.
 
 ### 3. Estructura del Frontend (Angular 18 Standalone)
 En Angular moderno (sin NgModules), la clave es el agrupamiento por Características (Features). Esto facilita el Lazy Loading (carga perezosa) y hace que la aplicación escale sin que el código se enrede.

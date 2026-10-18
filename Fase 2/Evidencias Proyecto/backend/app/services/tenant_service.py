@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import VERSION_ESQUEMA_OBJETIVO
 from app.models.control import MapaUsuarioEsquema
+from app.models.control_canonico import InstitucionControl
 from app.models.rol import Rol
 from app.models.usuario import Usuario
 from app.services import control_service
@@ -50,6 +51,16 @@ class ErrorTenant(Exception):
     Un correo no mapeado, una asociacion inactiva o un tenant sin la version
     objetivo levantan esta excepcion; la capa HTTP la normaliza a su respuesta
     de denegacion. Nunca hay caida a otro tenant ni a un esquema predeterminado.
+    """
+
+
+class ErrorInstitucionInactiva(ErrorTenant):
+    """La institucion canonica de `control` esta inactiva (suspension, D-2).
+
+    Es un `ErrorTenant` (la resolucion falla) que la capa HTTP distingue para
+    responder **401** —identidad local no resoluble— en vez del 403 de una
+    identidad sin tenant operativo, incluso con una sesion Clerk previamente
+    valida.
     """
 
 
@@ -137,6 +148,23 @@ def _resolver_mapa(db: Session, correo: str) -> MapaUsuarioEsquema:
     return mapa
 
 
+def _institucion_activa(db: Session, institucion_id: str) -> bool:
+    """Estado de ciclo de vida de la institucion canonica de control (D-2).
+
+    Lee `InstitucionControl.activo` en la sesion de control, **antes** de validar
+    version o abrir la sesion tenant. Una desactivacion explicita (`activo =
+    False`) deniega la resolucion; la ausencia de la fila canonica no suspende
+    (compatibilidad con contextos historicos/legado, igual que la ausencia de
+    capacidad en `capacidad_service`).
+    """
+    activo = db.execute(
+        select(InstitucionControl.activo).where(
+            InstitucionControl.institucion_id == institucion_id
+        )
+    ).scalar_one_or_none()
+    return activo is not False
+
+
 def esquema_para_correo(db: Session, correo: str) -> str | None:
     """Nombre del esquema activo del correo, o `None` si no esta mapeado.
 
@@ -161,10 +189,14 @@ def resolver_tenant_por_correo(
     `db` es la sesion de **control** (mapa `correo -> esquema`). La version vive
     en el esquema del tenant, por lo que `sesion_version` puede ser una sesion
     ligada a ese esquema; por defecto se reutiliza `db` (contexto logico unico
-    de la suite SQLite). Si no hay asociacion activa o el tenant no esta en la
-    version objetivo, levanta `ErrorTenant` sin fallback.
+    de la suite SQLite). Si no hay asociacion activa, la institucion canonica
+    esta inactiva o el tenant no esta en la version objetivo, levanta
+    `ErrorTenant` sin fallback. El estado de la institucion se consulta **antes**
+    de la version: una institucion suspendida no revela el estado del tenant.
     """
     mapa = _resolver_mapa(db, correo)
+    if not _institucion_activa(db, mapa.institucion_id):
+        raise ErrorInstitucionInactiva("la institucion de la identidad esta inactiva")
     if not control_service.tenant_en_version_objetivo(sesion_version or db):
         raise ErrorTenant("el tenant no esta en la version objetivo")
     return ResolucionTenant(
@@ -200,6 +232,8 @@ def resolver_contexto_solicitud(
         )
 
     mapa = _resolver_mapa(db, correo)
+    if not _institucion_activa(db, mapa.institucion_id):
+        raise ErrorInstitucionInactiva("la institucion de la identidad esta inactiva")
     if abrir_sesion_tenant is None:
         sesion_version = db
         cerrar = False

@@ -70,6 +70,44 @@ OPERACIONES_011: dict[tuple[str, str], set[str]] = {
     ): _ORGANIZACION,
 }
 
+#: Operaciones nuevas de control SaaS de la Feature 012 (T6), solo Superadmin.
+OPERACIONES_012_CONTROL: dict[tuple[str, str], set[str]] = {
+    ("GET", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    ("PUT", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/estado",
+    ): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/dashboard"): _ALTA_INSTITUCION,
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades",
+    ): _ALTA_INSTITUCION,
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades/{funcion}",
+    ): _ALTA_INSTITUCION,
+}
+
+#: Operaciones nuevas de CRUD organizacional de la Feature 012 (T7). El
+#: Administrador institucional administra `/organizacion/*`; las operaciones de
+#: `/usuarios/` las comparte con Superadmin.
+OPERACIONES_012_ORGANIZACION: dict[tuple[str, str], set[str]] = {
+    ("POST", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/sedes/{sede_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/organizacion/sedes/{sede_id}/estado"): _ORGANIZACION,
+    ("GET", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("POST", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}"): _ORGANIZACION,
+    (
+        "PATCH",
+        "/api/v1/organizacion/departamentos/{departamento_id}/estado",
+    ): _ORGANIZACION,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+}
+
 #: Matriz vigente tras las Features 008/009, SIN el alta de la 010 (21 operaciones).
 MATRIZ_009: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
@@ -101,6 +139,8 @@ MATRIZ_010: dict[tuple[str, str], set[str]] = {
     **MATRIZ_009,
     OPERACION_ALTA: _ALTA_INSTITUCION,
     **OPERACIONES_011,
+    **OPERACIONES_012_CONTROL,
+    **OPERACIONES_012_ORGANIZACION,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -179,7 +219,9 @@ def _cliente(app_sonda: FastAPI, motor, rol: str | None = None, *, autenticar=Fa
 
 
 def test_matriz_010_transcrita_tiene_28_operaciones():
-    assert len(MATRIZ_010) == 28
+    assert len(MATRIZ_010) == (
+        28 + len(OPERACIONES_012_CONTROL) + len(OPERACIONES_012_ORGANIZACION)
+    )
     assert len(MATRIZ_009) == 21
 
 
@@ -190,7 +232,14 @@ def test_matriz_central_es_la_esperada_para_010():
 
 
 def test_alta_institucion_es_la_unica_operacion_agregada_por_010():
-    assert set(MATRIZ_010) - set(MATRIZ_009) - set(OPERACIONES_011) == {OPERACION_ALTA}
+    assert (
+        set(MATRIZ_010)
+        - set(MATRIZ_009)
+        - set(OPERACIONES_011)
+        - set(OPERACIONES_012_CONTROL)
+        - set(OPERACIONES_012_ORGANIZACION)
+        == {OPERACION_ALTA}
+    )
     assert MATRIZ_010[OPERACION_ALTA] == _ALTA_INSTITUCION
 
 

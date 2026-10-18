@@ -41,7 +41,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.schema import CreateSchema
 
 from app.db.database import Base, ESQUEMA_CONTROL, crear_sesion_control, crear_sesion_esquema
-from app.models import Rol, Sede, Usuario, VersionEsquema
+from app.models import BaseControl, Rol, Sede, Usuario, VersionEsquema
 from app.schemas.control_schema import InstitucionAltaControlCrear
 from app.services import control_service, tenant_service
 
@@ -120,6 +120,9 @@ def test_tenant_aprovisionado_tiene_rol_administrador_unico():
             motor_control = engine.execution_options(
                 schema_translate_map={None: ESQUEMA_CONTROL}
             )
+            # Feature 012: el canonico de control vive en `BaseControl`; se crea
+            # primero para que `institucion` sea el superset (mirror + `activo`).
+            BaseControl.metadata.create_all(bind=motor_control)
             Base.metadata.create_all(bind=motor_control)
 
             sesion_control = crear_sesion_control(engine)
@@ -161,13 +164,13 @@ def test_tenant_aprovisionado_tiene_rol_administrador_unico():
             engine.dispose()
 
 
-def test_tenant_aprovisionado_recibe_sede_central_y_version_011_1():
+def test_tenant_aprovisionado_recibe_sede_central_y_version_012_1():
     """AC-12 (T6, Feature 011): el tenant nuevo nace operativo.
 
     El aprovisionamiento debe crear "Sede Central" (bootstrap organizacional, no
-    CRUD) y dejar una **unica** fila de version objetivo `011.1` para que el
-    tenant sea enrutable. SQLite no reproduce el namespace por tenant, asi que el
-    invariante se acredita contra PostgreSQL 16 real.
+    CRUD) y dejar una **unica** fila de version objetivo `012.1` (Feature 012)
+    para que el tenant sea enrutable. SQLite no reproduce el namespace por tenant,
+    asi que el invariante se acredita contra PostgreSQL 16 real.
     """
     with _base_temporal(_POSTGRES_TEST_URL) as url:
         engine = create_engine(_url_sqlalchemy(url), future=True)
@@ -177,6 +180,9 @@ def test_tenant_aprovisionado_recibe_sede_central_y_version_011_1():
             motor_control = engine.execution_options(
                 schema_translate_map={None: ESQUEMA_CONTROL}
             )
+            # Feature 012: el canonico de control vive en `BaseControl`; se crea
+            # primero para que `institucion` sea el superset (mirror + `activo`).
+            BaseControl.metadata.create_all(bind=motor_control)
             Base.metadata.create_all(bind=motor_control)
 
             sesion_control = crear_sesion_control(engine)
@@ -198,7 +204,7 @@ def test_tenant_aprovisionado_recibe_sede_central_y_version_011_1():
                 versiones = (
                     sesion_tenant.execute(select(VersionEsquema.version)).scalars().all()
                 )
-                assert versiones == ["011.1"], versiones
+                assert versiones == ["012.1"], versiones
             finally:
                 sesion_tenant.close()
         finally:

@@ -21,6 +21,7 @@ from app.api import dependencies
 from app.db.database import Base
 from app.main import app
 from app.models import (
+    BaseControl,
     Categoria,
     Departamento,
     EstadoTicket,
@@ -54,8 +55,18 @@ def motor():
         # dispara el rollback.
         conexion.execute("PRAGMA foreign_keys=ON")
 
+    # Feature 012: el canonico de control (`InstitucionControl` + `funcion_institucion`)
+    # se crea **primero**, de modo que la tabla compartida `institucion` de SQLite
+    # sea el superset (espejo tenant de dos columnas + `rut`/`direccion`/`activo`).
+    # Luego `Base.metadata` crea el resto y **se salta** `institucion` por
+    # `checkfirst`: en el contexto logico unico control y tenant comparten tabla.
+    BaseControl.metadata.create_all(motor)
     Base.metadata.create_all(motor)
     yield motor
+    # `funcion_institucion` (control-only) referencia `institucion`; se elimina
+    # antes del `drop_all` del tenant, que no conoce la tabla auxiliar y de otro
+    # modo chocaria con la FK activada.
+    BaseControl.metadata.tables["funcion_institucion"].drop(motor, checkfirst=True)
     Base.metadata.drop_all(motor)
     motor.dispose()
 
@@ -116,6 +127,11 @@ def _cliente_de_prueba(motor, **opciones):
 
     app.dependency_overrides[dependencies.get_db] = obtener_db_de_prueba
     app.dependency_overrides[dependencies.get_current_user] = identidad_de_prueba
+    # Feature 012 (D-3/AC-8): el alta local verifica el correo contra Clerk. La
+    # costura se overridea para no invocar la red (el alta no crea identidades).
+    app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
+        lambda: (lambda _correo: True)
+    )
     try:
         with TestClient(app, **opciones) as cliente_http:
             yield cliente_http
@@ -165,8 +181,6 @@ def datos_base(motor):
         institucion = Institucion(
             institucion_id="INST01",
             nombre="Instituto de Prueba",
-            rut="1-9",
-            direccion="Calle Falsa 123",
         )
         db.add(institucion)
         db.flush()
@@ -283,8 +297,6 @@ def dos_instituciones(motor, datos_base):
         institucion_ajena = Institucion(
             institucion_id="INST02",
             nombre="Instituto Ajeno",
-            rut="2-9",
-            direccion="Otra Calle 456",
         )
         db.add(institucion_ajena)
         db.flush()

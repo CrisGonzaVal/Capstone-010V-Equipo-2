@@ -29,7 +29,21 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import permisos
-from app.models import Departamento, DepartamentoEncargado, Rol, Sede, Usuario
+from app.models import (
+    Departamento,
+    DepartamentoEncargado,
+    MapaUsuarioEsquema,
+    Rol,
+    Sede,
+    Usuario,
+)
+from app.schemas.organizacion_schema import (
+    DepartamentoCrear,
+    DepartamentoEdicion,
+    SedeCrear,
+    SedeEdicion,
+)
+from app.schemas.usuario_schema import UsuarioEdicion
 from app.services import ambito_service
 from app.services.auth_service import IdentidadAutenticada
 
@@ -264,3 +278,321 @@ def retirar_encargado(
         )
     db.delete(asociacion)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# CRUD organizacional de sedes (Feature 012, T7, AC-6/AC-11/AC-13)
+# ---------------------------------------------------------------------------
+
+
+def _institucion_requerida(db: Session, identidad: IdentidadAutenticada | None) -> str:
+    """Institucion del actor para crear recursos organizacionales.
+
+    El alcance global (Superadmin) no crea recursos de tenant: la matriz ya
+    reserva estas operaciones al Administrador institucional, pero se deniega de
+    forma defensiva para no crear filas sin institucion.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    if institucion_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La operacion requiere una institucion concreta",
+        )
+    return institucion_id
+
+
+def crear_sede(
+    db: Session,
+    datos: SedeCrear,
+    identidad: IdentidadAutenticada | None = None,
+) -> Sede:
+    """Crea una sede en la institucion del Administrador (AC-6/AC-13).
+
+    El nombre es unico dentro de la institucion: una sede homonima responde
+    **409** sin crear fila, de modo que "Sede Central" no se duplica al abrir la
+    UI (AC-6). La institucion la resuelve el servidor desde la sesion.
+    """
+    institucion_id = _institucion_requerida(db, identidad)
+    existente = (
+        db.query(Sede)
+        .filter(Sede.institucion_id == institucion_id, Sede.nombre == datos.nombre)
+        .first()
+    )
+    if existente is not None:
+        raise _conflicto("Ya existe una sede con ese nombre en la institucion")
+    sede = Sede(
+        nombre=datos.nombre, direccion=datos.direccion, institucion_id=institucion_id
+    )
+    db.add(sede)
+    db.commit()
+    db.refresh(sede)
+    return sede
+
+
+def editar_sede(
+    db: Session,
+    sede_id: int,
+    datos: SedeEdicion,
+    identidad: IdentidadAutenticada | None = None,
+) -> Sede:
+    """Modifica el nombre y la direccion de una sede del tenant (AC-6).
+
+    Una sede inexistente o **ajena** responde **404** sin mutacion (patron de
+    ocultacion de la 011).
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    sede = _sede_en_alcance(db, sede_id, institucion_id)
+    sede.nombre = datos.nombre
+    sede.direccion = datos.direccion
+    db.commit()
+    db.refresh(sede)
+    return sede
+
+
+def cambiar_estado_sede(
+    db: Session,
+    sede_id: int,
+    activo: bool,
+    identidad: IdentidadAutenticada | None = None,
+) -> Sede:
+    """Activa o desactiva logicamente una sede (idempotente, AC-11).
+
+    Sin borrado fisico ni perdida de historial. Reactivar es la misma operacion
+    con `activo=True`. Una desactivacion es **idempotente** si la sede ya esta en
+    ese estado; si la desactivacion dejaria dependencias activas incompatibles
+    (departamentos activos o Bodegueros asignados a la sede) responde **409** con
+    el motivo concreto y no cambia el estado.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    sede = _sede_en_alcance(db, sede_id, institucion_id)
+    if sede.activo == activo:
+        return sede
+    if not activo:
+        motivo = _dependencias_sede(db, sede_id)
+        if motivo is not None:
+            raise _conflicto(motivo)
+    sede.activo = activo
+    db.commit()
+    db.refresh(sede)
+    return sede
+
+
+def _dependencias_sede(db: Session, sede_id: int) -> str | None:
+    """Motivo por el que desactivar la sede es insegura, o `None` si es seguro."""
+    departamento = (
+        db.query(Departamento)
+        .filter(Departamento.sede_id == sede_id, Departamento.activo.is_(True))
+        .first()
+    )
+    if departamento is not None:
+        return (
+            "No se puede desactivar la sede: hay departamentos activos asignados a "
+            "ella; reasigne su sede antes"
+        )
+    bodeguero = (
+        db.query(Usuario)
+        .join(Rol, Rol.rol_id == Usuario.rol_id)
+        .filter(Usuario.sede_id == sede_id, Rol.nombre_rol == _BODEGUERO)
+        .first()
+    )
+    if bodeguero is not None:
+        return (
+            "No se puede desactivar la sede: hay Bodegueros asignados a ella; "
+            "reasigne su sede antes"
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# CRUD organizacional de departamentos (Feature 012, T7, AC-7/AC-11/AC-13)
+# ---------------------------------------------------------------------------
+
+
+def listar_departamentos(
+    db: Session, identidad: IdentidadAutenticada | None = None
+) -> List[Departamento]:
+    """Departamentos de la institucion del actor, con su sede y estado (AC-7)."""
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    consulta = db.query(Departamento)
+    if institucion_id is not None:
+        consulta = consulta.filter(Departamento.institucion_id == institucion_id)
+    return consulta.order_by(Departamento.departamento_id).all()
+
+
+def crear_departamento(
+    db: Session,
+    datos: DepartamentoCrear,
+    identidad: IdentidadAutenticada | None = None,
+) -> Departamento:
+    """Crea un departamento en la institucion del Administrador (AC-7/AC-13).
+
+    La sede **no** es obligatoria en el alta (la precondicion de sede es
+    operativa, regla 011); se asigna despues con `PUT .../sede`.
+    """
+    institucion_id = _institucion_requerida(db, identidad)
+    departamento = Departamento(
+        nombre_dep=datos.nombre_dep,
+        descripcion=datos.descripcion,
+        institucion_id=institucion_id,
+    )
+    db.add(departamento)
+    db.commit()
+    db.refresh(departamento)
+    return departamento
+
+
+def editar_departamento(
+    db: Session,
+    departamento_id: int,
+    datos: DepartamentoEdicion,
+    identidad: IdentidadAutenticada | None = None,
+) -> Departamento:
+    """Modifica nombre y descripcion de un departamento del tenant (AC-7)."""
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    departamento = _departamento_en_alcance(db, departamento_id, institucion_id)
+    departamento.nombre_dep = datos.nombre_dep
+    departamento.descripcion = datos.descripcion
+    db.commit()
+    db.refresh(departamento)
+    return departamento
+
+
+def cambiar_estado_departamento(
+    db: Session,
+    departamento_id: int,
+    activo: bool,
+    identidad: IdentidadAutenticada | None = None,
+) -> Departamento:
+    """Activa o desactiva logicamente un departamento (idempotente, AC-11).
+
+    Sin borrado fisico. Idempotente si el departamento ya esta en ese estado; si
+    la desactivacion dejaria usuarios activos vinculados (operaciones dependientes
+    inconsistentes) responde **409** con el motivo concreto sin cambiar el estado.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    departamento = _departamento_en_alcance(db, departamento_id, institucion_id)
+    if departamento.activo == activo:
+        return departamento
+    if not activo:
+        motivo = _dependencias_departamento(db, departamento_id)
+        if motivo is not None:
+            raise _conflicto(motivo)
+    departamento.activo = activo
+    db.commit()
+    db.refresh(departamento)
+    return departamento
+
+
+def _dependencias_departamento(db: Session, departamento_id: int) -> str | None:
+    """Motivo por el que desactivar el departamento es inseguro, o `None`."""
+    usuario = (
+        db.query(Usuario).filter(Usuario.departamento_id == departamento_id).first()
+    )
+    if usuario is not None:
+        return (
+            "No se puede desactivar el departamento: tiene usuarios vinculados; "
+            "reasigne o desactive esos usuarios antes"
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Edicion y estado logico de usuarios locales (Feature 012, T7, AC-8/AC-11/AC-13)
+# ---------------------------------------------------------------------------
+
+
+def editar_usuario(
+    db: Session,
+    usuario_id: int,
+    datos: UsuarioEdicion,
+    identidad: IdentidadAutenticada | None = None,
+) -> Usuario:
+    """Modifica los atributos locales de un usuario del tenant (AC-8).
+
+    No cambia el correo (clave de identidad local) ni toca Clerk. Respeta el rol
+    asignable del creador (D-6/AC-10: el Administrador solo asignable
+    Bodeguero/Solicitante -> **403**), el ambito institucional (**404** para un
+    usuario o departamento ajeno) y el contrato (**422** en payload invalido).
+    """
+    # Import local: `usuario_service` no importa este modulo, pero se evita el
+    # acoplamiento de cabecera entre servicios de administracion.
+    from app.services.usuario_service import _validar_rol_asignable
+
+    _validar_rol_asignable(db, datos.rol_id, identidad)
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    usuario = _usuario_en_alcance(db, usuario_id, institucion_id)
+    _departamento_en_alcance(db, datos.departamento_id, institucion_id)
+    usuario.nombre = datos.nombre
+    usuario.apellido = datos.apellido
+    usuario.departamento_id = datos.departamento_id
+    usuario.rol_id = datos.rol_id
+    db.commit()
+    db.refresh(usuario)
+    return usuario
+
+
+def cambiar_estado_usuario(
+    db: Session,
+    db_control: Session,
+    usuario_id: int,
+    activo: bool,
+    identidad: IdentidadAutenticada | None = None,
+) -> MapaUsuarioEsquema:
+    """Activa o desactiva la vinculacion local de un usuario (idempotente, D-3/AC-8/AC-11).
+
+    El estado del usuario local vive en `mapa_usuario_esquema.activo` (D-3), no en
+    una columna nueva: desactivar impide que el correo resuelva al tenant sin
+    borrar la identidad de Clerk. `db` es la sesion del tenant (resuelve el usuario
+    y su ambito institucional); `db_control` es la sesion de control donde vive el
+    mapa. Una desactivacion es idempotente si ya esta inactivo; si el usuario es
+    encargado de algun departamento (dependencia activa), responde **409** con el
+    motivo concreto. Un usuario inexistente o ajeno responde **404**.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    usuario = _usuario_en_alcance(db, usuario_id, institucion_id)
+
+    mapa = db_control.get(MapaUsuarioEsquema, usuario.correo)
+    if mapa is not None and mapa.activo == activo:
+        # Idempotente: ya esta en el estado pedido.
+        return mapa
+    if not activo:
+        motivo = _dependencias_usuario(db, usuario_id)
+        if motivo is not None:
+            raise _conflicto(motivo)
+    if mapa is None:
+        institucion_usuario = ambito_service.institucion_de_usuario(db, usuario)
+        if institucion_usuario is None:
+            raise _conflicto(
+                "No se puede cambiar el estado: el usuario no resuelve a una "
+                "institucion"
+            )
+        # Import local: `tenant_service` importa `control_service`; se evita el
+        # ciclo en cabecera.
+        from app.services.tenant_service import nombre_esquema_para_institucion
+
+        mapa = MapaUsuarioEsquema(
+            correo=usuario.correo,
+            institucion_id=institucion_usuario,
+            nombre_esquema=nombre_esquema_para_institucion(institucion_usuario),
+            activo=activo,
+        )
+        db_control.add(mapa)
+    else:
+        mapa.activo = activo
+    db_control.commit()
+    return mapa
+
+
+def _dependencias_usuario(db: Session, usuario_id: int) -> str | None:
+    """Motivo por el que desactivar el usuario es inseguro, o `None`."""
+    asociacion = (
+        db.query(DepartamentoEncargado)
+        .filter(DepartamentoEncargado.usuario_id == usuario_id)
+        .first()
+    )
+    if asociacion is not None:
+        return (
+            "No se puede desactivar el usuario: es encargado de uno o mas "
+            "departamentos; retire sus asociaciones antes"
+        )
+    return None

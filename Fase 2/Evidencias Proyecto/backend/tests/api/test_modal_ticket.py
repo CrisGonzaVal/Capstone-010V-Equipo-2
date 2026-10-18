@@ -259,8 +259,6 @@ def test_catalogos_vacios_responden_listas_vacias(cliente, motor):
         institucion = Institucion(
             institucion_id="INST01",
             nombre="Instituto de Prueba",
-            rut="1-9",
-            direccion="Calle Falsa 123",
         )
         db.add(institucion)
         db.flush()

@@ -60,8 +60,6 @@ def contexto(motor, datos_base):
         institucion_ajena = Institucion(
             institucion_id="INST02",
             nombre="Instituto Ajeno",
-            rut="2-9",
-            direccion="Otra Calle 456",
         )
         db.add(institucion_ajena)
         db.flush()
@@ -120,6 +118,12 @@ def _cliente(motor, rol: str, departamento_id):
     dep = None if departamento_id is _SIN_DEPARTAMENTO else departamento_id
     app.dependency_overrides[dependencies.get_db] = _db_de_prueba
     app.dependency_overrides[dependencies.get_current_user] = lambda: _identidad(rol, dep)
+    # Feature 012 (D-3/AC-8): el alta local verifica el correo contra Clerk. La
+    # costura se overridea para no invocar la red (esta suite mide el rol
+    # asignable y el limite institucional, no la vinculacion Clerk).
+    app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
+        lambda: (lambda _correo: True)
+    )
     try:
         with TestClient(app) as cliente:
             yield cliente

@@ -20,12 +20,14 @@ los registros historicos inmutables de la auditoria (spec D-2, decision 10).
 from __future__ import annotations
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
     String,
     UniqueConstraint,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -56,6 +58,13 @@ class Sede(Base):
     direccion: Mapped[str | None] = mapped_column(String(200), nullable=True)
     institucion_id: Mapped[str] = mapped_column(
         String(20), ForeignKey("institucion.institucion_id"), nullable=False
+    )
+    #: Estado logico de la sede (Feature 012, AC-6/AC-11). `True` = operativa;
+    #: `False` = desactivada sin borrado fisico ni perdida de historial. La
+    #: obligatoriedad es de la operacion, no del DDL: una base migrada parte con
+    #: todas las sedes activas.
+    activo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
     )
 
     institucion = relationship(

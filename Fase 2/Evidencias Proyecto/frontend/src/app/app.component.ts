@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
-import { puedeAdministrar as rolPuedeAdministrar } from './core/auth/roles';
+import { puedeAdministrar as rolPuedeAdministrar, puedeVerTickets as rolPuedeVerTickets } from './core/auth/roles';
 import { AutenticacionService } from './core/services/auth.service';
 
 @Component({
@@ -62,6 +62,16 @@ export class AppComponent {
    */
   readonly puedeAdministrar = computed(() =>
     rolPuedeAdministrar(this.autenticacion.identidad()?.rol ?? null),
+  );
+
+  /**
+   * `true` si el rol puede navegar a `/tickets` (Feature 012, AC-3). El
+   * Superadmin queda fuera: su vista operativa es el portal `/control`. Solo
+   * oculta el enlace de la navegación; la ruta sigue protegida por el guard de
+   * rol, de modo que un acceso directo no depende de este control de interfaz.
+   */
+  readonly puedeVerTickets = computed(() =>
+    rolPuedeVerTickets(this.autenticacion.identidad()?.rol ?? null),
   );
 
   /**

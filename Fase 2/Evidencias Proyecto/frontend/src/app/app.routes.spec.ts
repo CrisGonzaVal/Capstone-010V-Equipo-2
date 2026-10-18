@@ -1,6 +1,6 @@
 import { routes } from './app.routes';
 import { AutenticacionGuard } from './core/guards/auth.guard';
-import { ROLES_ADMINISTRATIVOS, ROLES_TODOS } from './core/auth/roles';
+import { ROLES_ADMINISTRATIVOS, ROLES_TICKETS, ROLES_TODOS } from './core/auth/roles';
 
 /**
  * La configuración de rutas es parte del contrato de AC-1/AC-3/AC-4: las rutas
@@ -33,9 +33,17 @@ describe('app.routes', () => {
     }
   });
 
-  it('permite dashboard, inventario y tickets a los cuatro roles (AC-5)', () => {
-    for (const path of ['dashboard', 'inventario', 'tickets']) {
+  it('permite dashboard e inventario a los cuatro roles (AC-5)', () => {
+    for (const path of ['dashboard', 'inventario']) {
       expect(rolesDe(path)).withContext(path).toEqual(ROLES_TODOS);
+    }
+  });
+
+  it('excluye solo al Superadmin de /tickets y conserva a los roles de negocio (Feature 012, AC-3)', () => {
+    expect(rolesDe('tickets')).toEqual(ROLES_TICKETS);
+    expect(rolesDe('tickets')).not.toContain('Superadmin');
+    for (const rol of ['Administrador', 'Bodeguero', 'Solicitante']) {
+      expect(rolesDe('tickets')).withContext(rol).toContain(rol);
     }
   });
 

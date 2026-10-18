@@ -30,6 +30,9 @@ export const ROLES_CONTROL = ['Superadmin'] as const;
 /**
  * Roles que operan el Kanban: avanzar/retroceder estado y despachar. El
  * Solicitante consulta y crea tickets, pero no opera (AC-3, AC-6, AC-7).
+ *
+ * **No** es la lista de acceso a la vista de tickets: el Superadmin opera por
+ * API, pero desde la Feature 012 no navega a `/tickets` (ver `ROLES_TICKETS`).
  */
 export const ROLES_OPERATIVOS_TICKETS = [
   'Superadmin',
@@ -37,13 +40,67 @@ export const ROLES_OPERATIVOS_TICKETS = [
   'Bodeguero',
 ] as const;
 
+/**
+ * Roles que acceden a la vista de tickets/Kanban por navegación (Feature 012,
+ * AC-3). Es `ROLES_TODOS` menos `Superadmin`: su vista operativa es el portal
+ * `/control`, no el Kanban de una institución. El Administrador, el Bodeguero y
+ * el Solicitante conservan el acceso tal como estaba configurado.
+ *
+ * Es una lista de **navegación/UI**: no recorta la matriz de permisos del
+ * backend, que sigue siendo la frontera de seguridad real (D-2).
+ */
+export const ROLES_TICKETS = [
+  'Administrador',
+  'Bodeguero',
+  'Solicitante',
+] as const;
+
+/**
+ * Roles que un Administrador puede asignar en el alta/edición de usuarios
+ * (Feature 007, D-6/AC-10). Refleja exactamente la regla del backend
+ * (`usuario_service._validar_rol_asignable`): un Administrador solo puede
+ * asignar `Bodeguero` o `Solicitante`; `Superadmin` y `Administrador` responden
+ * 403 al intentarse.
+ *
+ * Es una constante de **presentación** para alinear los combos con esa regla,
+ * no una autorización: la frontera sigue en la API (D-2).
+ */
+export const ROLES_ASIGNABLES_ADMINISTRADOR = ['Bodeguero', 'Solicitante'] as const;
+
 function contiene(roles: readonly string[], rol: string | null): boolean {
   return rol !== null && roles.includes(rol);
+}
+
+/**
+ * `true` si `rolCreador` puede asignar `rolDestino` en el alta/edición.
+ *
+ * Réplica de la regla de dominio del backend (`_validar_rol_asignable`,
+ * D-6/AC-10): Superadmin puede asignar cualquiera de los cuatro; Administrador
+ * solo `Bodeguero`/`Solicitante`; cualquier otro rol creador, ninguno.
+ */
+export function puedeAsignarRol(
+  rolCreador: string | null,
+  rolDestino: string,
+): boolean {
+  if (rolCreador === 'Superadmin') {
+    return true;
+  }
+  if (rolCreador === 'Administrador') {
+    return (ROLES_ASIGNABLES_ADMINISTRADOR as readonly string[]).includes(
+      rolDestino,
+    );
+  }
+  return false;
 }
 
 /** `true` si el rol puede operar tickets (Kanban/estado/despacho). */
 export function puedeOperarTickets(rol: string | null): boolean {
   return contiene(ROLES_OPERATIVOS_TICKETS, rol);
+}
+
+/** `true` si el rol puede navegar a la vista de tickets/Kanban (AC-3). */
+export function puedeVerTickets(rol: string | null): boolean {
+  return contiene(ROLES_TICKETS, rol);
 }
 
 /** `true` si el rol puede acceder al área administrativa. */

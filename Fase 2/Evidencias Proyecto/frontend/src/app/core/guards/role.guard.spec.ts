@@ -9,6 +9,7 @@ import { TestBed } from '@angular/core/testing';
 
 import { IdentidadAutenticada } from '../../shared/interfaces';
 import { AutenticacionService } from '../services/auth.service';
+import { ROLES_TICKETS } from '../auth/roles';
 import { RUTA_ACCESO_DENEGADO, RolGuard } from './role.guard';
 
 /**
@@ -142,5 +143,23 @@ describe('RolGuard', () => {
     expect(url).toBe(RUTA_ACCESO_DENEGADO);
     expect(url).not.toContain('/login');
     expect(cerrarSesion).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Feature 012, AC-3: el guard que protege `/tickets` (con `ROLES_TICKETS`)
+   * deniega al Superadmin sin tocar su sesión, y mantiene el acceso de los roles
+   * de negocio. Es una decisión de navegación; la matriz del backend no cambia.
+   */
+  it('con ROLES_TICKETS deniega al Superadmin y conserva a los roles de negocio', async () => {
+    conIdentidad(crearIdentidad('Superadmin'));
+    const denegado = (await evaluar([...ROLES_TICKETS])) as UrlTree;
+    expect(router.serializeUrl(denegado)).toBe(RUTA_ACCESO_DENEGADO);
+
+    for (const rol of ['Administrador', 'Bodeguero', 'Solicitante']) {
+      conIdentidad(crearIdentidad(rol));
+      await expectAsync(evaluar([...ROLES_TICKETS]))
+        .withContext(rol)
+        .toBeResolvedTo(true);
+    }
   });
 });

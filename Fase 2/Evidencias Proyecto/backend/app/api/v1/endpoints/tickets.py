@@ -42,6 +42,9 @@ router = APIRouter(prefix="/tickets", tags=["Tickets y Solicitudes"])
         "orden del flujo), productos por nombre, solicitantes por apellido."
     ),
     responses=dependencies.respuestas_de_autorizacion(),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", "/api/v1/tickets/catalogos"))
+    ],
 )
 def obtener_catalogos(
     identidad: IdentidadAutenticada = Depends(
@@ -66,6 +69,9 @@ def obtener_catalogos(
         "todos."
     ),
     responses=dependencies.respuestas_de_autorizacion(),
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", "/api/v1/tickets/"))
+    ],
 )
 def listar_tickets(
     estado_id: int = None,
@@ -107,6 +113,9 @@ def listar_tickets(
         **dependencies.respuestas_de_autorizacion(),
         **dependencies.respuesta_recurso_oculto(),
     },
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("POST", "/api/v1/tickets/"))
+    ],
 )
 def crear_ticket(
     datos: TicketCrear,
@@ -144,6 +153,13 @@ def crear_ticket(
         **dependencies.respuesta_recurso_oculto(),
         **dependencies.respuesta_conflicto(),
     },
+    dependencies=[
+        Depends(
+            dependencies.requiere_capacidad(
+                "POST", "/api/v1/tickets/{ticket_id}/despacho"
+            )
+        )
+    ],
 )
 def despachar_ticket(
     ticket_id: int,
@@ -189,6 +205,11 @@ def despachar_ticket(
         **dependencies.respuesta_recurso_oculto(),
         **dependencies.respuesta_conflicto(),
     },
+    dependencies=[
+        Depends(
+            dependencies.requiere_capacidad("PATCH", "/api/v1/tickets/{ticket_id}/estado")
+        )
+    ],
 )
 def actualizar_estado_ticket(
     ticket_id: int,

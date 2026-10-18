@@ -39,11 +39,12 @@ _ALTA_INSTITUCION = {"Superadmin"}
 #: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
 _ORGANIZACION = {"Administrador"}
 
-#: Las 28 operaciones de negocio -> roles permitidos (matriz vigente tras el
+#: Las operaciones de negocio -> roles permitidos (matriz vigente tras el
 #: ajuste puntual de la Feature 008, la operacion `GET /dashboard/` de la 009, el
-#: alta de institucion de la 010 y las seis asignaciones organizacionales de la
-#: 011; el resto de la matriz D-3 de 007 no cambia, salvo los dos GET por objeto
-#: de catalogo que exige AC-9/AC-16 de la 008).
+#: alta de institucion de la 010, las seis asignaciones organizacionales de la
+#: 011 y las siete operaciones de control SaaS de la 012; el resto de la matriz
+#: D-3 de 007 no cambia, salvo los dos GET por objeto de catalogo que exige
+#: AC-9/AC-16 de la 008).
 MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
     ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
@@ -85,6 +86,40 @@ MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
         "DELETE",
         "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
     ): _ORGANIZACION,
+    # Feature 012 (T6, D-1/D-2/D-5/D-6/AC-1…AC-5): gestion administrativa de
+    # control SaaS (registro institucional, estado, dashboard y capacidades),
+    # exclusiva del Superadmin. Operaciones nuevas y aditivas.
+    ("GET", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    ("PUT", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/estado",
+    ): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/dashboard"): _ALTA_INSTITUCION,
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades",
+    ): _ALTA_INSTITUCION,
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades/{funcion}",
+    ): _ALTA_INSTITUCION,
+    # Feature 012 (T7, D-3/D-4/AC-6…AC-13): CRUD organizacional del Administrador
+    # institucional (sedes, departamentos y usuarios locales). Operaciones nuevas
+    # y aditivas.
+    ("POST", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/sedes/{sede_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/organizacion/sedes/{sede_id}/estado"): _ORGANIZACION,
+    ("GET", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("POST", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}"): _ORGANIZACION,
+    (
+        "PATCH",
+        "/api/v1/organizacion/departamentos/{departamento_id}/estado",
+    ): _ORGANIZACION,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -170,7 +205,7 @@ def test_cuatro_roles_exactos_sin_alias_admin():
 
 
 def test_matriz_cubre_exactamente_las_operaciones_de_d3():
-    assert len(MATRIZ_ESPERADA) == 28
+    assert len(MATRIZ_ESPERADA) == 44
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_ESPERADA

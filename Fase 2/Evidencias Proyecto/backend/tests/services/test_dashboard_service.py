@@ -95,8 +95,8 @@ def escenario(motor):
     """
     db = sessionmaker(bind=motor)()
     try:
-        inst_a = Institucion(institucion_id="INSTA", nombre="Instituto Alfa", rut="11-1")
-        inst_b = Institucion(institucion_id="INSTB", nombre="Instituto Beta", rut="22-2")
+        inst_a = Institucion(institucion_id="INSTA", nombre="Instituto Alfa")
+        inst_b = Institucion(institucion_id="INSTB", nombre="Instituto Beta")
         db.add_all([inst_a, inst_b])
         db.flush()
 

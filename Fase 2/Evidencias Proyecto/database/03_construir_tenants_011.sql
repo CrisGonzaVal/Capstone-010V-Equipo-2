@@ -14,7 +14,7 @@
 --   Antes de este script, la semilla dejaba TODOS los datos de negocio dentro de
 --   `control` y ningun esquema `tenant_*`: el sistema no podia enrutar por
 --   tenant. Ahora la base que produce el initdb es estructural y funcionalmente
---   equivalente a la `apt_erp` real migrada (control + 4 tenants en `011.1`),
+--   equivalente a la `apt_erp` real migrada (control + 4 tenants en `012.1`),
 --   con la salvedad de que las cifras provienen de la semilla QA (11 sedes
 --   repartidas 2/3/4/2, stock cuadrado) y no del historico real.
 --
@@ -160,7 +160,10 @@ $reset$;
 
 DO $construccion$
 DECLARE
-    v_version_objetivo constant text := '011.1';
+    --: Version objetivo del DDL. Sube a `012.1` con la Feature 012 (activo
+    --: institucional + capacidades), la misma que fija el codigo en
+    --: `app.core.config.VERSION_ESQUEMA_OBJETIVO`.
+    v_version_objetivo constant text := '012.1';
 
     --: Plantillas del DDL canonico ampliado (Feature 011), identicas a
     --: `database/01_esquema.sql` (mismas columnas, FKs, checks e indices
@@ -203,19 +206,38 @@ BEGIN
         END IF;
     END LOOP;
 
+    -------------------------------------------------------------------------
+    -- FASE 0b: CAPACIDADES DE CONTROL (Feature 012)
+    -------------------------------------------------------------------------
+    -- `funcion_institucion` es SOLO de control y nunca se copia a un tenant. La
+    -- semilla (02_) ya la puebla; este bloque la normaliza de forma idempotente
+    -- (una fila por pareja institucion/funcion) por si el constructor corre sobre
+    -- un control sin capacidades.
+    INSERT INTO control.funcion_institucion (institucion_id, funcion, habilitada)
+    SELECT i.institucion_id, f.funcion, TRUE
+    FROM control.institucion i
+    CROSS JOIN (
+        VALUES ('catalogo'), ('inventario'), ('tickets'),
+               ('kanban'), ('dashboard'), ('gestion_organizacional')
+    ) AS f(funcion)
+    ON CONFLICT (institucion_id, funcion) DO NOTHING;
+
     -- Plantillas del DDL canonico ampliado (Feature 011).
     v_plantillas := ARRAY[
+        --: Feature 012 (D-1): el espejo tenant de `institucion` se limita
+        --: EXACTAMENTE a dos columnas. El canonico (con `rut`, `direccion` y
+        --: `activo`) y `funcion_institucion` viven SOLO en control y nunca se
+        --: copian a un tenant.
         'CREATE TABLE %1$I.institucion ('
         'institucion_id VARCHAR(20) PRIMARY KEY, '
-        'nombre VARCHAR(150) NOT NULL, '
-        'rut VARCHAR(20), '
-        'direccion VARCHAR(200))',
+        'nombre VARCHAR(150) NOT NULL)',
 
         'CREATE TABLE %1$I.sede ('
         'sede_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, '
         'nombre VARCHAR(100) NOT NULL, '
         'direccion VARCHAR(200), '
         'institucion_id VARCHAR(20) NOT NULL, '
+        'activo BOOLEAN NOT NULL DEFAULT TRUE, '
         'CONSTRAINT sede_institucion_fk FOREIGN KEY (institucion_id) '
         'REFERENCES %1$I.institucion(institucion_id), '
         'CONSTRAINT sede_institucion_uk UNIQUE (institucion_id, sede_id))',
@@ -226,6 +248,7 @@ BEGIN
         'descripcion VARCHAR(200), '
         'institucion_id VARCHAR(20) NOT NULL, '
         'sede_id INTEGER, '
+        'activo BOOLEAN NOT NULL DEFAULT TRUE, '
         'CONSTRAINT departamento_institucion_fk FOREIGN KEY (institucion_id) '
         'REFERENCES %1$I.institucion(institucion_id), '
         'CONSTRAINT departamento_sede_fk FOREIGN KEY (sede_id) '
@@ -395,8 +418,12 @@ BEGIN
         -- (1.2) Registro institucional espejo y catalogos replicados.
         --       `rol` excluye Superadmin (vive solo en control); D-4 replica
         --       rol/prioridad/estado_ticket en cada tenant.
+        -- Espejo tenant de dos columnas (Feature 012): el canonico de control ya
+        -- no cabe en un `SELECT *` (porta `rut`/`direccion`/`activo`), asi que la
+        -- copia nombra exactamente las columnas del espejo aprobado.
         EXECUTE format(
-            'INSERT INTO %I.institucion SELECT * FROM control.institucion WHERE institucion_id = $1',
+            'INSERT INTO %I.institucion (institucion_id, nombre) '
+            'SELECT institucion_id, nombre FROM control.institucion WHERE institucion_id = $1',
             v_esquema
         ) USING v_institucion_id;
         EXECUTE format(
@@ -583,6 +610,6 @@ BEGIN
         END IF;
     END LOOP;
 
-    RAISE NOTICE '011: constructor completado. control + tenants en version %; datos de la semilla distribuidos por institucion.', v_version_objetivo;
+    RAISE NOTICE '012: constructor completado. control + tenants en version %; datos de la semilla distribuidos por institucion.', v_version_objetivo;
 END;
 $construccion$;
