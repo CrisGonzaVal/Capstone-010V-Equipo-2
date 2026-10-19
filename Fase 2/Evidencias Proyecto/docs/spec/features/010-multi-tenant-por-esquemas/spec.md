@@ -1,5 +1,15 @@
 # Feature 010: Multi-tenant por esquemas PostgreSQL
 
+> **Nota de vigencia (19/Oct/2026):** este documento describe la feature tal como
+> se cerró. Las migraciones que cita (`database/migraciones/*`) se retiraron del
+> repo en la consolidación de la base: hoy `database/` solo tiene
+> `01_esquema.sql` y `02_datos_semilla.sql`, y la base se reconstruye con
+> `docker compose down -v` + `up -d`. La evidencia y las decisiones siguen siendo
+> válidas; los nombres de archivos citados son históricos. Los tests gated
+> citados (`test_migracion_multitenant_010.py`, etc.) se consolidaron en
+> `test_esquema_postgres.py` y `test_instalacion_limpia_postgres.py`; los casos
+> de migración se retiraron junto con los scripts.
+
 **Estado:** `[ ]` No iniciada  
 **Release:** 2.0 — Sprint 5  
 **Tipo:** Aislamiento multiinstitución y aprovisionamiento

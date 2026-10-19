@@ -1,5 +1,15 @@
 # Feature 012: Gestión administrativa
 
+> **Nota de vigencia (19/Oct/2026):** este documento describe la feature tal como
+> se cerró. Las migraciones que cita (`database/migraciones/*`) se retiraron del
+> repo en la consolidación de la base: hoy `database/` solo tiene
+> `01_esquema.sql` y `02_datos_semilla.sql`, y la base se reconstruye con
+> `docker compose down -v` + `up -d`. La evidencia y las decisiones siguen siendo
+> válidas; los nombres de archivos citados son históricos. Los tests gated
+> citados (`test_gestion_administrativa_postgres_012.py` y sus casos de
+> migración) conservan solo las pruebas de instalación limpia; los casos de
+> migración se retiraron junto con los scripts.
+
 **Estado:** Cerrada (18/Oct/2026)  
 **Release:** 2.0 — Sprint 5  
 **Tipo:** Administración institucional y control SaaS

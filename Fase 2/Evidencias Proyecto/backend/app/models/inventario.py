@@ -16,8 +16,7 @@ from app.db.database import Base
 # lo puebla el servicio (T5-T7); no es un ambito independiente. Es el ancla de las
 # claves compuestas que obligan a que el departamento y el producto del inventario
 # compartan institucion (AC-2, AC-4). T9 endurecio la columna a `nullable=False`
-# para igualar el DDL de instalacion nueva (`database/01_esquema.sql`) y la
-# migracion `98_`; las fixtures de prueba pueblan la institucion de forma coherente
+# para igualar el DDL de instalacion nueva (`database/01_esquema.sql`); las fixtures de prueba pueblan la institucion de forma coherente
 # (via el servicio o sembrando el arbol institucional completo). Las relaciones se
 # fijan a los ids simples para no depender del orden de las claves compuestas.
 

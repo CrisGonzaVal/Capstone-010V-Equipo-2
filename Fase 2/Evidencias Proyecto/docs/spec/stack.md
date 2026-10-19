@@ -21,6 +21,18 @@ Todo lo que sigue es norma. Si el código actual no la cumple, la norma gana: se
 
 > **Nota de migración**: el código actual está en fase de migración a esta estructura, que es la normativa desde hoy (AGENTS.md describe la nueva estructura).
 
+> **Nota de vigencia — base consolidada (19/Oct/2026):** `database/` volvió a dos
+> scripts puros. `01_esquema.sql` crea `control` (19 tablas) y un esquema
+> `tenant_<slug>_<hash>` por institución (17 tablas de negocio) y siembra la
+> topología; `02_datos_semilla.sql` llena la semilla QA, la reparte a los tenants,
+> puebla `control.mapa_usuario_esquema` y fija la versión `013.1` con guardia
+> fail-closed. **No hay migraciones**: se retiraron `03_construir_tenants_011.sql`,
+> `98_`, `99_` y `database/migraciones/`. Los cambios de esquema se resuelven
+> recreando el volumen (`docker compose down -v` + `up -d`), nunca actualizando in
+> situ. Las menciones a migraciones, constructores de tenants y al «modelo de 12
+> entidades» que aparecen más abajo son **históricas** de las features 008–013 y
+> quedan superseded por esta nota.
+
 Para lograr un proyecto verdaderamente modular, escalable y mantenible, la estructura de carpetas debe seguir principios de arquitectura limpia (Clean Architecture) en el backend y diseño guiado por el dominio (Domain-Driven Design - DDD) en el frontend.
 
 Aquí tienes la estructura profesional definitiva, adaptada exactamente a FastAPI y Angular 18+ (Standalone).
@@ -34,9 +46,9 @@ Evidencias Proyecto/
 ├── .env                       # Variables de entorno globales (oculto en git)
 ├── docs/
 │   └── spec/                  # Metodología SDD (Constitution, Features, Tasks)
-├── database/                    # Orquestados por el prefijo: ver abajo
-│   ├── 01_esquema.sql           # DDL del modelo 3NF (12 entidades)
-│   └── 02_datos_semilla.sql     # TRUNCATE + INSERT de datos de QA
+├── database/                    # Dos scripts; initdb los corre en orden alfabético
+│   ├── 01_esquema.sql           # control + un tenant por institución (DDL)
+│   └── 02_datos_semilla.sql     # Semilla QA + reparto a tenants + mapa + versión
 ├── backend/                   # 🐍 Entorno FastAPI
 └── frontend/                  # 🅰️ Entorno Angular 18
 ```

@@ -1,5 +1,15 @@
 # Feature 013: Ciclo de vida del ticket
 
+> **Nota de vigencia (19/Oct/2026):** este documento describe la feature tal como
+> se cerró. Las migraciones que cita (`database/migraciones/*`) se retiraron del
+> repo en la consolidación de la base: hoy `database/` solo tiene
+> `01_esquema.sql` y `02_datos_semilla.sql`, y la base se reconstruye con
+> `docker compose down -v` + `up -d`. La evidencia y las decisiones siguen siendo
+> válidas; los nombres de archivos citados son históricos. Los tests gated
+> citados (`test_ciclo_vida_ticket_postgres_013.py` y sus casos de migración)
+> conservan solo las pruebas de instalación limpia y del token de versión; los
+> casos de migración se retiraron junto con los scripts.
+
 **Estado:** aprobada y cerrada (19/Oct/2026) — con las enmiendas incorporadas: D-4/AC-26 (terminalidad por nombre en cualquier catálogo) y AC-18 (403 de matriz vs 404 de ocultamiento)  
 **Release:** 2.0 — Sprint 6
 **Tipo:** Evolución del ciclo de vida del ticket y auditoría

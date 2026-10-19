@@ -549,7 +549,7 @@ def registrar_movimiento(
     esa fila dejando `inventario_id` nulo. Un `sede_id` distinto al del Bodeguero
     -de su institucion o ajeno- se oculta con **404** sin mutar; sin sede asignada
     la operacion se deniega con **409**. El camino legado por `inventario_id` se
-    conserva mientras la migracion lo retire, acotado a la institucion del actor.
+    conserva para los registros historicos, acotado a la institucion del actor.
     """
     institucion_id = ambito_service.alcance_institucional(db, identidad)
 

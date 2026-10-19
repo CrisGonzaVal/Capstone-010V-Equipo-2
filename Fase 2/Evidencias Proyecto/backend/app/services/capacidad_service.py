@@ -6,7 +6,7 @@ la matriz central: el rol autorizado por la matriz puede seguir recibiendo 403 s
 la capacidad funcional de su institucion esta apagada.
 
 Regla de ausencia de fila (diseno-tecnico.md §2): el aprovisionamiento y la
-migracion siembran **siempre** las seis filas por institucion, de modo que la
+semilla siembran **siempre** las seis filas por institucion, de modo que la
 ausencia de una fila no es una desactivacion explicita. Siguiendo D-6 ("no se
 infiere el estado a partir de datos presentes"), una fila ausente se trata como
 **habilitada**: la capacidad solo se deshabilita con `habilitada = False`

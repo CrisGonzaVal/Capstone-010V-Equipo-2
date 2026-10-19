@@ -1,9 +1,9 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: Version objetivo del DDL de tenant (stack §5). Es la constante
-#: de despliegue compartida por el codigo que resuelve el tenant y por el
-#: procedimiento de migracion: el enrutamiento exige **igualdad exacta** contra
-#: este token y se incrementa con cada cambio posterior de DDL/migracion. La
+#: de despliegue compartida por el codigo que resuelve el tenant y por la
+#: instalacion limpia: el enrutamiento exige **igualdad exacta** contra
+#: este token y se incrementa con cada cambio posterior de DDL. La
 #: Feature 011 subio el objetivo de `010.1` a `011.1`; la Feature 012 agrego el
 #: estado canonico `control.institucion.activo` y las capacidades por institucion
 #: (`control.funcion_institucion`) y el estado logico de sede/departamento, asi

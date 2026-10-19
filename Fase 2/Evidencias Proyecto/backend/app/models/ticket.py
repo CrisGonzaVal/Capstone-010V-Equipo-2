@@ -17,8 +17,8 @@ from app.db.database import Base
 # ticket; los puebla el servicio (T5-T7). Son anclas institucionales para las
 # claves compuestas, no identidad nueva: las PK simples se conservan (stack.md
 # §"Modelo relacional y particionamiento por institucion"). T9 endurecio ambas
-# columnas a `nullable=False` para igualar el DDL de instalacion nueva y la
-# migracion `98_`; las fixtures siembran la institucion de forma coherente (el
+# columnas a `nullable=False` para igualar el DDL de instalacion nueva; las
+# fixtures siembran la institucion de forma coherente (el
 # servicio la puebla en produccion). Las relaciones se fijan a los ids simples
 # para no depender del orden de las claves compuestas.
 
@@ -63,8 +63,8 @@ class Ticket(Base):
     )
     #: Instantanea de la sede del departamento al **crearse** el ticket (Feature
     #: 011, spec D-5/AC-9). El despacho rebaja esa sede aunque el departamento se
-    #: reasigne despues; los tickets legados quedan en `NULL` hasta que la
-    #: migracion les asigne sede de forma explicita.
+    #: reasigne despues; un ticket legado sin instantanea queda en `NULL` y no
+    #: se despacha (409).
     sede_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("sede.sede_id"), nullable=True
     )

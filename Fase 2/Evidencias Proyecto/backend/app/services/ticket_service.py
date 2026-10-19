@@ -929,14 +929,14 @@ def despachar_ticket(
 
     # Feature 011 (spec D-5/AC-9): el despacho usa **exclusivamente** la sede
     # almacenada en el ticket, nunca la asignacion vigente del departamento. Un
-    # ticket legado sin instantanea (migracion no aplicada) no se despacha.
+    # ticket legado sin instantanea no se despacha.
     sede_ticket = ticket.sede_id
     if sede_ticket is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "El ticket no tiene una sede asignada (instantanea); la migracion "
-                "debe resolverla antes de despacharlo"
+                "El ticket no tiene una sede asignada (instantanea); "
+                "no se puede despachar sin una sede"
             ),
         )
 

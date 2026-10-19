@@ -1,5 +1,15 @@
 # Feature 011: Modelo organizacional
 
+> **Nota de vigencia (19/Oct/2026):** este documento describe la feature tal como
+> se cerró. Las migraciones que cita (`database/migraciones/*`) y el constructor
+> `03_construir_tenants_011.sql` se retiraron del repo en la consolidación de la
+> base: hoy `database/` solo tiene `01_esquema.sql` y `02_datos_semilla.sql`, y la
+> base se reconstruye con `docker compose down -v` + `up -d`. La evidencia y las
+> decisiones siguen siendo válidas; los nombres de archivos citados son
+> históricos. Los tests gated citados (`test_migracion_modelo_organizacional_011.py`,
+> etc.) se consolidaron en `test_instalacion_limpia_postgres.py`; los casos de
+> migración se retiraron junto con los scripts.
+
 **Fecha:** 17/Oct/2026  
 **Estado:** cerrada (17/Oct/2026) — cierre formal confirmado tras recorrido en 4200 (escritura real) y 8080 (imagen reconstruida); validación reviewer: VEREDICTO APROBADO  
 **Release:** 2.0 — Sprint 5  

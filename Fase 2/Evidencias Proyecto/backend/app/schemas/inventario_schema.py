@@ -70,7 +70,7 @@ class MovimientoCrear(BaseModel):
     La Feature 011 sustituye el saldo operativo departamental: los movimientos
     **nuevos** referencian la fila de stock por sede (`stock_sede_id`) y dejan
     `inventario_id` nulo (spec D-2 y §7). `inventario_id` se conserva opcional
-    para no romper el flujo historico mientras la migracion lo retire; el
+    para no romper el flujo historico de las filas legadas; el
     servicio exige exactamente una de las dos referencias.
     """
 

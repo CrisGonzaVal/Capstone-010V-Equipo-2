@@ -22,18 +22,13 @@ def crear_sesion_control(motor: Engine | None = None) -> Session:
     """Sesion del contexto global de control, ligada **explicitamente** a `control`.
 
     La sesion de control fija su esquema con `schema_translate_map={None:
-    'control'}` (nunca `search_path`), de modo que resuelve a `control` en las dos
-    disposiciones reales de la base:
+    'control'}` (nunca `search_path`), de modo que resuelve a `control` sin
+    depender del `search_path` de la base:
 
     * **Instalacion limpia** (`01_esquema.sql`): el DDL fija
       `ALTER DATABASE ... SET search_path TO control, public`, asi que las
-      referencias sin prefijo ya resolvian a `control`; la traduccion explicita
-      produce el mismo resultado (`control.tabla`).
-    * **Base migrada** (`database/migraciones/001_migracion_multitenant_esquemas.sql`):
-      el `search_path` por defecto **no** apunta a `control` (ese ajuste solo lo
-      aplica la instalacion limpia), de modo que una sesion sin traduccion
-      resolveria contra `public` y no encontraria el control. La traduccion
-      explicita corrige ese caso sin depender del `search_path` de la base.
+      referencias sin prefijo ya resuelven a `control`; la traduccion explicita
+      produce el mismo resultado (`control.tabla`) y no depende de ese ajuste.
 
     En SQLite (suite ordinaria, AC-16) no se simulan esquemas: se devuelve una
     sesion sobre el contexto logico unico, sin traduccion de namespace.

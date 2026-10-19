@@ -72,7 +72,7 @@ class VersionEsquema(Base):
     """Version de estructura de un esquema tenant (stack §5).
 
     Exactamente una fila vigente por esquema; su marca es el checkpoint de
-    idempotencia de bootstrap, migracion y aprovisionamiento.
+    idempotencia de bootstrap y aprovisionamiento.
     """
 
     __tablename__ = "version_esquema"

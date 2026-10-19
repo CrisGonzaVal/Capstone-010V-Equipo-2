@@ -24,7 +24,7 @@ COMO ACTIVARLAS
     (`postgresql+psycopg2://...`). Se usan esquemas temporales propios con nombre
     unico; nunca se toca `apt_erp` ni un esquema existente.
 
-Al estilo de los tests gated de la Feature 008 (`test_migracion_postgres.py`):
+Al estilo de los tests gated de la Feature 008 (`test_esquema_postgres.py`):
 misma condicion de salto y evidencia reservada al motor objetivo. NO se anade
 ninguna dependencia: `psycopg2` ya esta en `requirements.txt`.
 """

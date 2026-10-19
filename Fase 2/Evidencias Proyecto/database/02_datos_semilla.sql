@@ -1,210 +1,159 @@
 -- =====================================================
--- COMPUSTOCK ERP - DATOS SEMILLA
+-- COMPUSTOCK ERP - DATOS SEMILLA + TENANTS (instalacion limpia)
 -- Base de datos: apt_erp
--- PostgreSQL
+-- PostgreSQL 16
 -- =====================================================
 --
 -- PROPOSITO
---   Pobla la base con datos de ejemplo para QA manual y pruebas.
---   Este script NO define el esquema: eso vive en `01_esquema.sql`.
---   Aqui solo hay TRUNCATE + INSERT, nunca ALTER/CREATE/DROP.
+--   Llenar la instalacion creada por `01_esquema.sql`:
+--     1. sembrar en `control` los datos de QA (capacidades, sedes,
+--        departamentos, usuarios, catalogo, stock, movimientos, tickets);
+--     2. repartir esos datos a los esquemas `tenant_*` (una institucion por
+--        esquema), dejando `control` como contexto global;
+--     3. poblar `control.mapa_usuario_esquema` y `control.version_esquema`.
 --
 -- ORDEN DE EJECUCION (no lo cambies sin leer esto)
---   Los .sql de esta carpeta los ejecuta PostgreSQL solo al crear el volumen,
---   y los recorre en ORDEN ALFABETICO. Este archivo empieza con TRUNCATE sobre
---   las 17 tablas, asi que exige que `01_esquema.sql` ya exista: por eso lleva
---   el prefijo numerico. Con los nombres viejos (`datos_semilla.sql` para la
---   semilla y `script_apt_erp.sql` —hoy `database/01_esquema.sql`— para el
---   esquema) la "d" sortea antes que la "s", la semilla corria
---   contra un esquema inexistente y, con ON_ERROR_STOP=1, abortaba todo el
---   arranque. Si renuevas un nombre, revisa que no invierta el orden.
---   Corre antes que `98_migracion_particionamiento_institucional.sql` y
---   `99_migracion_retiro_password.sql`, que son no-op sobre una base nueva.
+--   PostgreSQL ejecuta los .sql de esta carpeta solo al crear el volumen, en
+--   orden alfabetico y con ON_ERROR_STOP=1. `02_` va DESPUES de `01_`, que crea
+--   `control` y los esquemas tenant; si se invierte, la semilla aborta.
 --
--- ESQUEMA (Feature 010)
---   Las doce tablas canonicas viven en el esquema `control` (ver `01_esquema.sql`
---   seccion 0). Este script las referencia sin prefijo: el `search_path` de la
---   base apunta a `control, public`, de modo que resuelven a `control`; en una
---   base legada sin `control` seguirian resolviendo a `public`.
---
--- USO
---   Automatica: al crear el volumen por primera vez (`docker compose up -d db`
---   con el volumen vacio). No hay que correrla a mano en una maquina nueva.
---
---   RESET DEL ENTORNO DE QA: se hace RECREANDO EL VOLUMEN, no reejecutando esta
---   semilla. Desde la raiz del proyecto:
+-- ATOMICIDAD Y GUARDIA FAIL-CLOSED
+--   Todo el archivo corre en una sola transaccion (BEGIN/COMMIT). La guardia de
+--   la seccion 0 aborta ANTES de tocar nada si la base ya tiene filas de
+--   negocio; ese es el motivo por el que el reset del entorno de QA se hace
+--   recreando el volumen, no reejecutando la semilla:
 --     docker compose -f docker-compose.yml down -v
 --     docker compose -f docker-compose.yml up -d db
---   No existe un script de reset. Motivo: la GUARDIA FAIL-CLOSED de abajo
---   (seccion 0a) aborta si la base ya tiene filas, de modo que esta semilla
---   destructiva solo corre sobre una base genuinamente limpia. Recrear el
---   volumen es la unica forma inherentemente segura de volver a sembrar.
+--   No se usa TRUNCATE: la guardia garantiza que la base esta limpia y
+--   `control.institucion` (la topologia sembrada por `01_`) no se toca.
 --
---   En PowerShell el pipe (`Get-Content -Raw | docker exec -i ...`) mete el
---   contenido por la codificacion de la consola y destruye los acentos: se
---   guardan como "??". Usa `cmd /c` con la redireccion, que copia bytes crudos.
---   Este archivo es ASCII puro justamente para que el problema no aparezca.
+-- ESQUEMA (Feature 010)
+--   Las tablas canonicas se referencian sin prefijo: el `search_path` de la base
+--   apunta a `control, public`. Los tenants se referencian siempre calificados.
 --
---   El TRUNCATE inicial limpia las 17 tablas y reinicia las secuencias
---   GENERATED ALWAYS AS IDENTITY, de modo que los ids siempre son los mismos y
---   los datos son reproducibles. No es idempotente sobre una base ya sembrada:
---   la guardia aborta (ver seccion 0a).
---
--- FEATURE 008 - PARTICIONAMIENTO POR INSTITUCION
---   La semilla deja la base en estado "ya particionada", de modo que `98_` sea
---   un no-op sobre instalacion nueva (ver `01_esquema.sql` y
---   docs/spec/stack.md, seccion "Modelo relacional y particionamiento por
---   institucion"). Consecuencias en este archivo:
---     - `categoria` y `producto` llevan `institucion_id` explicito (D-1).
---     - `inventario`, `ticket` y `detalle_ticket` derivan su institucion del
---       departamento / solicitante / ticket respectivamente (D-2).
---     - Ninguna referencia cruza instituciones: todo producto de una
---       institucion se inventaria en un departamento de ESA institucion, y todo
---       ticket/detalle usa solicitante y productos de su misma institucion.
---       Las FK compuestas del DDL rechazarian lo contrario.
---     - `rol`, `prioridad` y `estado_ticket` NO llevan institucion: siguen
---       globales y compartidos por las cuatro instituciones (D-5, AC-3).
---   Se conservan las CUATRO instituciones y sus departamentos/usuarios. Las
---   instituciones INST-001 y INST-002 quedan "completas" (departamentos,
---   usuarios, catalogo, stock, movimientos y tickets). INST-003 e INST-004
---   conservan sus departamentos y usuarios. Los nombres repetidos entre
---   instituciones ("Papeleria", "Resma Carta 75g A4", ...) son HOMONIMOS
---   DELIBERADOS: filas independientes con ids y stock distintos (AC-1).
---
--- FEATURE 011 - MODELO ORGANIZACIONAL (sede, stock por sede y encargados)
---   La semilla deja la base en estado "ya organizada por sedes". Consecuencias
---   en este archivo:
---     - `sede` recibe el reparto fijo de D-7: INST-001 -> 2 sedes,
---       INST-002 -> 3, INST-003 -> 4, INST-004 -> 2.
---     - Cada departamento queda asignado a UNA sede por la regla determinista:
---       departamentos por `departamento_id` ascendente, sedes por `sede_id`
---       ascendente, indice `i mod N` (spec D-7). Sin excepciones.
---     - Los usuarios con rol Bodeguero llevan `usuario.sede_id` igual a la sede de
---       su departamento; el resto lo deja en NULL.
---     - `stock_sede` es el saldo vigente: el saldo de cada fila departamental de
---       `inventario` (que queda como registro legado) se consolida integro en la
---       sede asignada a ESE departamento, de modo que por cada producto la suma
---       de sus sedes es EXACTAMENTE la suma departamental previa (D-7/AC-10).
---     - `ticket.sede_id` guarda la instantanea de la sede del departamento del
---       solicitante (spec D-5/AC-9).
---     - `departamento_encargado` asocia cada departamento que tiene un usuario
---       Solicitante con ese usuario (relacion N:N; varios encargados son validos).
---   Ninguna referencia cruza instituciones: las FK compuestas de `stock_sede`
---   rechazarian lo contrario. Justificacion en docs/spec/stack.md seccion
---   "Evolucion del modelo organizacional e inventario por sede (Feature 011)".
+-- DATOS
+--   Cuatro instituciones (INST-001..INST-004). INST-001 e INST-002 quedan
+--   completas (departamentos, usuarios, catalogo, stock, movimientos y
+--   tickets); INST-003 e INST-004 conservan sus departamentos y usuarios. Los
+--   homonimos entre instituciones ("Papeleria", "Resma Carta 75g A4", ...) son
+--   DELIBERADOS: filas independientes con ids y stock distintos.
+--   El reparto de sedes es el de la Feature 011: INST-001 -> 2, INST-002 -> 3,
+--   INST-003 -> 4, INST-004 -> 2; cada departamento va a UNA sede por
+--   round-robin sobre ids ascendentes. `stock_sede` es el saldo vigente;
+--   `inventario` queda como registro legado.
 --
 -- CONVENCION DE IDs
 --   Los INSERT declaran el id de forma explicita (`OVERRIDING SYSTEM VALUE`)
 --   para que el QA manual pueda referenciar filas concretas. Eso obliga a
---   sincronizar las secuencias al final (seccion 14): si no, el primer POST
---   autogenerado choca con el id 1 y devuelve HTTP 500.
+--   sincronizar las secuencias de control (seccion 13) y de cada tenant (lo
+--   hace `resetear_identidades` en el bloque de reparto).
 --
 -- RESTRICCION - estado_ticket
---   El servicio de tickets reconoce el estado de cierre por NOMBRE
---   (`nombre.casefold() == "cerrado"`), nunca por un id fijo (Feature 004):
---   mover "Cerrado" de estado_id no rompe el sellado de `ticket.fecha_cierre`.
---   El id explicito de estos INSERTs se conserva solo para que el QA manual
---   pueda referenciar filas concretas.
+--   El servicio de tickets reconoce los estados terminales por NOMBRE
+--   (`Cerrado`, `Anulado`), nunca por un id fijo. `Anulado` queda FUERA de la
+--   secuencia lineal y solo se alcanza por anulacion o rechazo con motivo.
 --
--- RESTRICCION - inventario
---   `inventario` tiene UNIQUE (departamento_id, producto_id): cada producto se
---   ubica en un departamento distinto dentro de su institucion.
---
+-- VERSION OBJETIVO DEL DDL
+--   013.1 (`VERSION_ESQUEMA_OBJETIVO` en backend/app/core/config.py).
 -- =====================================================
 
--- =====================================================
--- 0a. GUARDIA FAIL-CLOSED (Feature 010, T10)
--- =====================================================
--- Esta semilla es destructiva (TRUNCATE + INSERT). Para no confundir una base
--- real o ya sembrada con un entorno descartable, ABORTA antes del primer
--- TRUNCATE si detecta cualquier fila en las tablas canonicas (las doce de 3NF mas
--- `sede`, `stock_sede` y `departamento_encargado` de la Feature 011,
--- `funcion_institucion` de la Feature 012 y `historial_transicion_ticket` de la
--- Feature 013), en
--- `mapa_usuario_esquema` o en `version_esquema` (criterio aprobado en
--- T8a-hallazgos-docker-initdb.md section 5). La condicion es una propiedad de
--- la base calculada en el servidor: no la aporta el cliente ni un parametro, y
--- ante duda cierra (aborta). El reset de QA de una base existente NO se hace
--- con esta semilla, sino recreando el volumen (`docker compose down -v`).
+BEGIN;
 
 SET search_path TO control, public;
 
+-- Nombre determinista del esquema tenant: espejo EXACTO en SQL de
+-- `app.services.tenant_service.nombre_esquema_para_institucion`.
+-- Identica a la de 01_esquema.sql; se repite aqui porque pg_temp no se comparte
+-- entre archivos.
+CREATE OR REPLACE FUNCTION pg_temp.nombre_esquema_tenant(p_institucion_id text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $nombre$
+    SELECT 'tenant_'
+        || left(
+             btrim(
+               regexp_replace(
+                 lower(
+                   regexp_replace(
+                     normalize(btrim(p_institucion_id), NFKD),
+                     '[^[:ascii:]]', '', 'g'
+                   )
+                 ),
+                 '[^a-z0-9]', '_', 'g'
+               ),
+               '_'
+             ),
+             47
+           )
+        || '_'
+        || substr(encode(sha256(convert_to(btrim(p_institucion_id), 'UTF8')), 'hex'), 1, 8);
+$nombre$;
+
+-- =====================================================
+-- 0. GUARDIA FAIL-CLOSED
+-- =====================================================
+-- Aborta antes de tocar nada si `control` o cualquier tenant ya tienen filas de
+-- negocio. `control.institucion` se excluye: esas cuatro filas son la topologia
+-- que siembra `01_esquema.sql`. Si alguna tabla esperada no existe, tambien
+-- aborta (cierra por defecto).
 DO $guardia$
 DECLARE
-    v_total  bigint;
+    v_institucion_id text;
+    v_esquema text;
+    v_tabla text;
     v_conteo bigint;
-    v_registro regclass;
+    v_total bigint := 0;
+    v_instituciones integer;
 BEGIN
-    -- Diecisiete tablas canonicas: se cuentan sin prefijo (resuelven a `control`
-    -- o, en una base legada, a `public`). Si alguna no existiera, la consulta
-    -- falla y el arranque aborta: tambien cierra.
-    SELECT
-        (SELECT count(*) FROM detalle_ticket)
-      + (SELECT count(*) FROM funcion_institucion)
-      + (SELECT count(*) FROM movimiento_inventario)
-      + (SELECT count(*) FROM historial_transicion_ticket)
-      + (SELECT count(*) FROM stock_sede)
-      + (SELECT count(*) FROM ticket)
-      + (SELECT count(*) FROM inventario)
-      + (SELECT count(*) FROM producto)
-      + (SELECT count(*) FROM categoria)
-      + (SELECT count(*) FROM departamento_encargado)
-      + (SELECT count(*) FROM usuario)
-      + (SELECT count(*) FROM rol)
-      + (SELECT count(*) FROM departamento)
-      + (SELECT count(*) FROM sede)
-      + (SELECT count(*) FROM prioridad)
-      + (SELECT count(*) FROM estado_ticket)
-      + (SELECT count(*) FROM institucion)
-    INTO v_total;
-
-    -- Auxiliares: se suman solo si existen en la base (en una base legada
-    -- anterior a la Feature 010 pueden no estar).
-    v_registro := to_regclass('mapa_usuario_esquema');
-    IF v_registro IS NOT NULL THEN
-        EXECUTE format('SELECT count(*) FROM %s', v_registro) INTO v_conteo;
-        v_total := v_total + v_conteo;
+    SELECT count(*) INTO v_instituciones FROM control.institucion;
+    IF v_instituciones <> 4 THEN
+        RAISE EXCEPTION
+            'Semilla QA abortada: control.institucion tiene % fila(s); se esperan 4 (01_ no corrio o la topologia cambio).',
+            v_instituciones;
     END IF;
 
-    v_registro := to_regclass('version_esquema');
-    IF v_registro IS NOT NULL THEN
-        EXECUTE format('SELECT count(*) FROM %s', v_registro) INTO v_conteo;
+    FOREACH v_tabla IN ARRAY ARRAY[
+        'funcion_institucion', 'sede', 'departamento', 'rol', 'usuario',
+        'departamento_encargado', 'categoria', 'producto', 'inventario',
+        'stock_sede', 'movimiento_inventario', 'prioridad', 'estado_ticket',
+        'ticket', 'detalle_ticket', 'historial_transicion_ticket',
+        'mapa_usuario_esquema', 'version_esquema'
+    ] LOOP
+        EXECUTE format('SELECT count(*) FROM control.%I', v_tabla) INTO v_conteo;
         v_total := v_total + v_conteo;
-    END IF;
+    END LOOP;
+
+    FOR v_institucion_id IN SELECT institucion_id FROM control.institucion ORDER BY institucion_id LOOP
+        v_esquema := pg_temp.nombre_esquema_tenant(v_institucion_id);
+        IF to_regnamespace(v_esquema) IS NULL THEN
+            RAISE EXCEPTION 'Semilla QA abortada: falta el esquema tenant % (01_ no lo creo).', v_esquema;
+        END IF;
+
+        FOREACH v_tabla IN ARRAY ARRAY[
+            'institucion', 'sede', 'departamento', 'rol', 'usuario',
+            'departamento_encargado', 'categoria', 'producto', 'inventario',
+            'stock_sede', 'movimiento_inventario', 'prioridad', 'estado_ticket',
+            'ticket', 'detalle_ticket', 'historial_transicion_ticket',
+            'version_esquema'
+        ] LOOP
+            IF to_regclass(format('%I.%I', v_esquema, v_tabla)) IS NULL THEN
+                RAISE EXCEPTION 'Semilla QA abortada: falta la tabla %.% en el tenant.', v_esquema, v_tabla;
+            END IF;
+            EXECUTE format('SELECT count(*) FROM %I.%I', v_esquema, v_tabla) INTO v_conteo;
+            v_total := v_total + v_conteo;
+        END LOOP;
+    END LOOP;
 
     IF v_total > 0 THEN
         RAISE EXCEPTION
-            'Semilla QA abortada: la base ya contiene % fila(s) de negocio/control/version; no se ejecuta ningun TRUNCATE. Reset QA = recrear el volumen (docker compose down -v).',
+            'Semilla QA abortada: la base ya contiene % fila(s) de negocio; no se ejecuta ningun cambio. Reset QA = recrear el volumen (docker compose down -v).',
             v_total;
     END IF;
 
-    RAISE NOTICE 'Semilla QA: base limpia (0 filas de negocio/control/version), se permite continuar.';
+    RAISE NOTICE 'Semilla QA: base limpia (4 instituciones, tenants vacios), se permite continuar.';
 END;
 $guardia$;
-
--- =====================================================
--- 0. LIMPIEZA (orden inverso de dependencias)
--- =====================================================
--- CASCADE evita tener que declarar el orden a mano; RESTART IDENTITY
--- reinicia las secucciones GENERATED ALWAYS AS IDENTITY de Postgres 16.
-
-TRUNCATE TABLE detalle_ticket, movimiento_inventario, stock_sede,
-    historial_transicion_ticket, ticket,
-    inventario, departamento_encargado, producto, categoria, usuario, rol,
-    departamento, sede, prioridad, estado_ticket, institucion, funcion_institucion
-RESTART IDENTITY CASCADE;
-
--- =====================================================
--- 1. INSTITUCION  (PK VARCHAR, no identity -> valor fijo)
--- =====================================================
--- Varias sedes decentralizadas: el caso de uso que motiva el proyecto.
--- Las cuatro se conservan (AC-1). INST-001 e INST-002 quedan completas.
-
-INSERT INTO institucion (institucion_id, nombre, rut, direccion) VALUES
-('INST-001', 'Instituto Profesional Los Alpes', '65.432.100-9', 'Av. Providencia 1234, Santiago'),
-('INST-002', 'Centro de Salud Familiar Norte', '65.887.230-1', 'Calle Los Robles 45, Maipu'),
-('INST-003', 'Corporacion Educacional Cordillera', '77.120.540-3', 'Camino La Ladera 890, Lo Barnechea'),
-('INST-004', 'Municipalidad de Talagante', '65.998.720-K', 'Plaza de Armas s/n, Talagante');
 
 -- =====================================================
 -- 1a. FUNCION_INSTITUCION  (24 filas = 4 x 6)  [Feature 012, auxiliar]
@@ -562,3 +511,299 @@ SELECT setval(pg_get_serial_sequence('prioridad',              'prioridad_id'), 
 SELECT setval(pg_get_serial_sequence('estado_ticket',          'estado_id'),                 COALESCE((SELECT MAX(estado_id)                 FROM estado_ticket),          1));
 SELECT setval(pg_get_serial_sequence('ticket',                 'ticket_id'),                 COALESCE((SELECT MAX(ticket_id)                 FROM ticket),                 1));
 SELECT setval(pg_get_serial_sequence('detalle_ticket',         'detalle_ticket_id'),         COALESCE((SELECT MAX(detalle_ticket_id)         FROM detalle_ticket),         1));
+
+-- =====================================================
+-- REPARTO A TENANTS
+-- =====================================================
+-- Los esquemas y las tablas ya existen: los creo 01_esquema.sql. Este
+-- bloque copia los datos de control a cada tenant, resetea sus secuencias,
+-- marca la version objetivo y verifica el cuadre. `control` se vacia al
+-- final (seccion FASE 3), conservando la topologia y el contexto global.
+
+CREATE OR REPLACE FUNCTION pg_temp.resetear_identidades(p_esq text)
+RETURNS void
+LANGUAGE plpgsql
+AS $reset$
+DECLARE
+    pares text[] := ARRAY[
+        'sede:sede_id',
+        'stock_sede:stock_sede_id',
+        'departamento:departamento_id',
+        'departamento_encargado:departamento_encargado_id',
+        'rol:rol_id',
+        'usuario:usuario_id',
+        'categoria:categoria_id',
+        'producto:producto_id',
+        'inventario:inventario_id',
+        'movimiento_inventario:movimiento_id',
+        'prioridad:prioridad_id',
+        'estado_ticket:estado_id',
+        'ticket:ticket_id',
+        'detalle_ticket:detalle_ticket_id',
+        'historial_transicion_ticket:historial_transicion_id'
+    ];
+    par text;
+    v_tabla text;
+    v_columna text;
+    v_registro text;
+BEGIN
+    FOREACH par IN ARRAY pares LOOP
+        v_tabla := split_part(par, ':', 1);
+        v_columna := split_part(par, ':', 2);
+        v_registro := format('%I.%I', p_esq, v_tabla);
+        IF to_regclass(v_registro) IS NULL THEN
+            CONTINUE;
+        END IF;
+        EXECUTE format(
+            'SELECT setval(pg_get_serial_sequence(%L, %L), '
+            'COALESCE((SELECT max(%I) FROM %I.%I), 0) + 1, false)',
+            v_registro, v_columna, v_columna, p_esq, v_tabla
+        );
+    END LOOP;
+END;
+$reset$;
+
+DO $construccion$
+DECLARE
+    v_version_objetivo constant text := '013.1';
+    v_institucion_id text;
+    v_esquema text;
+    v_plantilla text;
+    v_conteo integer;
+    v_esperado integer;
+    v_mapa_esperado integer;
+    v_obtenido integer;
+BEGIN
+    -- Preflight: los tenants ya deben existir (los creo 01_).
+    FOR v_institucion_id IN SELECT institucion_id FROM control.institucion ORDER BY institucion_id LOOP
+        v_esquema := pg_temp.nombre_esquema_tenant(v_institucion_id);
+        IF to_regnamespace(v_esquema) IS NULL THEN
+            RAISE EXCEPTION '02: falta el esquema tenant % (01_ no lo creo).', v_esquema;
+        END IF;
+    END LOOP;
+
+    -- FASE 1: UN ESQUEMA TENANT POR INSTITUCION (estructura + datos)
+    -------------------------------------------------------------------------
+    FOR v_institucion_id IN SELECT institucion_id FROM control.institucion ORDER BY institucion_id LOOP
+        v_esquema := pg_temp.nombre_esquema_tenant(v_institucion_id);
+
+
+        -- (1.2) Registro institucional espejo y catalogos replicados.
+        --       `rol` excluye Superadmin (vive solo en control); D-4 replica
+        --       rol/prioridad/estado_ticket en cada tenant.
+        -- Espejo tenant de dos columnas (Feature 012): el canonico de control ya
+        -- no cabe en un `SELECT *` (porta `rut`/`direccion`/`activo`), asi que la
+        -- copia nombra exactamente las columnas del espejo aprobado.
+        EXECUTE format(
+            'INSERT INTO %I.institucion (institucion_id, nombre) '
+            'SELECT institucion_id, nombre FROM control.institucion WHERE institucion_id = $1',
+            v_esquema
+        ) USING v_institucion_id;
+        EXECUTE format(
+            'INSERT INTO %I.rol OVERRIDING SYSTEM VALUE '
+            'SELECT * FROM control.rol WHERE nombre_rol <> ''Superadmin''', v_esquema
+        );
+        EXECUTE format('INSERT INTO %1$I.prioridad OVERRIDING SYSTEM VALUE SELECT * FROM control.prioridad', v_esquema);
+        EXECUTE format('INSERT INTO %1$I.estado_ticket OVERRIDING SYSTEM VALUE SELECT * FROM control.estado_ticket', v_esquema);
+
+        -- (1.3) Datos organizacionales: sede, departamento y usuario.
+        EXECUTE format(
+            'INSERT INTO %I.sede OVERRIDING SYSTEM VALUE '
+            'SELECT * FROM control.sede WHERE institucion_id = $1', v_esquema
+        ) USING v_institucion_id;
+        EXECUTE format(
+            'INSERT INTO %I.departamento OVERRIDING SYSTEM VALUE '
+            'SELECT * FROM control.departamento WHERE institucion_id = $1', v_esquema
+        ) USING v_institucion_id;
+        -- usuario se asigna por el departamento; el Superadmin no se replica.
+        EXECUTE format(
+            'INSERT INTO %I.usuario OVERRIDING SYSTEM VALUE '
+            'SELECT u.* FROM control.usuario u '
+            'JOIN control.departamento d ON d.departamento_id = u.departamento_id '
+            'WHERE d.institucion_id = $1 '
+            'AND u.rol_id NOT IN (SELECT rol_id FROM control.rol WHERE nombre_rol = ''Superadmin'')',
+            v_esquema
+        ) USING v_institucion_id;
+        -- Encargados: por la institucion de su departamento.
+        EXECUTE format(
+            'INSERT INTO %I.departamento_encargado OVERRIDING SYSTEM VALUE '
+            'SELECT de.* FROM control.departamento_encargado de '
+            'JOIN control.departamento d ON d.departamento_id = de.departamento_id '
+            'WHERE d.institucion_id = $1', v_esquema
+        ) USING v_institucion_id;
+
+        -- (1.4) Catalogo y stock, con institucion_id directo.
+        FOREACH v_plantilla IN ARRAY ARRAY['categoria', 'producto', 'inventario', 'stock_sede'] LOOP
+            EXECUTE format(
+                'INSERT INTO %I.%I OVERRIDING SYSTEM VALUE '
+                'SELECT * FROM control.%I WHERE institucion_id = $1',
+                v_esquema, v_plantilla, v_plantilla
+            ) USING v_institucion_id;
+        END LOOP;
+
+        -- (1.5) Movimientos (por el inventario) y tickets/detalles (institucion directa).
+        EXECUTE format(
+            'INSERT INTO %I.movimiento_inventario OVERRIDING SYSTEM VALUE '
+            'SELECT m.* FROM control.movimiento_inventario m '
+            'JOIN control.inventario i ON i.inventario_id = m.inventario_id '
+            'WHERE i.institucion_id = $1', v_esquema
+        ) USING v_institucion_id;
+        FOREACH v_plantilla IN ARRAY ARRAY['ticket', 'detalle_ticket'] LOOP
+            EXECUTE format(
+                'INSERT INTO %I.%I OVERRIDING SYSTEM VALUE '
+                'SELECT * FROM control.%I WHERE institucion_id = $1',
+                v_esquema, v_plantilla, v_plantilla
+            ) USING v_institucion_id;
+        END LOOP;
+
+        -- (1.6) Secuencias continuas (la copia con OVERRIDING no las avanza).
+        PERFORM pg_temp.resetear_identidades(v_esquema);
+
+        -- (1.7) Version objetivo SOLO al final, tras poblar el tenant.
+        EXECUTE format(
+            'INSERT INTO %I.version_esquema (version) VALUES (%L)',
+            v_esquema, v_version_objetivo
+        );
+
+        -- (1.8) Verificacion local antes de continuar (fail-closed).
+        --       (1.8.1) Espejo institucional exactamente una fila.
+        EXECUTE format('SELECT count(*) FROM %I.institucion', v_esquema) INTO v_obtenido;
+        IF v_obtenido <> 1 THEN
+            RAISE EXCEPTION '02: espejo institucion en % -> % (esperado 1).', v_esquema, v_obtenido;
+        END IF;
+        --       (1.8.2) Una unica fila de version objetivo.
+        EXECUTE format(
+            'SELECT count(*) FROM %I.version_esquema WHERE version = %L', v_esquema, v_version_objetivo
+        ) INTO v_obtenido;
+        IF v_obtenido <> 1 THEN
+            RAISE EXCEPTION '02: % no tiene una fila de version % (tiene %).', v_esquema, v_version_objetivo, v_obtenido;
+        END IF;
+        --       (1.8.3) Conteos de negocio == los de control para esta institucion.
+        EXECUTE format('SELECT count(*) FROM control.departamento WHERE institucion_id = $1', v_esquema)
+            INTO v_esperado USING v_institucion_id;
+        EXECUTE format('SELECT count(*) FROM %I.departamento', v_esquema) INTO v_obtenido;
+        IF v_esperado <> v_obtenido THEN
+            RAISE EXCEPTION '02: % departamento(s) esperados en %, obtenidos %.', v_esperado, v_esquema, v_obtenido;
+        END IF;
+        EXECUTE format('SELECT count(*) FROM control.sede WHERE institucion_id = $1', v_esquema)
+            INTO v_esperado USING v_institucion_id;
+        EXECUTE format('SELECT count(*) FROM %I.sede', v_esquema) INTO v_obtenido;
+        IF v_esperado <> v_obtenido THEN
+            RAISE EXCEPTION '02: % sede(s) esperadas en %, obtenidas %.', v_esperado, v_esquema, v_obtenido;
+        END IF;
+        --       (1.8.4) Ningun usuario huerfano (todo usuario tiene departamento).
+        EXECUTE format(
+            'SELECT count(*) FROM %I.usuario u '
+            'LEFT JOIN %I.departamento d ON d.departamento_id = u.departamento_id '
+            'WHERE d.departamento_id IS NULL', v_esquema, v_esquema
+        ) INTO v_obtenido;
+        IF v_obtenido <> 0 THEN
+            RAISE EXCEPTION '02: % usuario(s) huerfano(s) en %.', v_obtenido, v_esquema;
+        END IF;
+        --       (1.8.5) Cuadre de stock por producto entre inventario y stock_sede.
+        EXECUTE format(
+            'SELECT count(*) FROM ('
+            '  SELECT i.producto_id, sum(i.stock_actual) AS departamental, '
+            '         coalesce((SELECT sum(s.stock_actual) FROM %1$I.stock_sede s '
+            '                   WHERE s.producto_id = i.producto_id), 0) AS por_sede '
+            '  FROM %1$I.inventario i GROUP BY i.producto_id'
+            ') t WHERE t.departamental <> t.por_sede', v_esquema
+        ) INTO v_obtenido;
+        IF v_obtenido <> 0 THEN
+            RAISE EXCEPTION '02: % producto(s) no cuadran entre inventario y stock_sede en %.', v_obtenido, v_esquema;
+        END IF;
+    END LOOP;
+    -------------------------------------------------------------------------
+    -- FASE 2: MAPA `correo -> esquema` DE TODOS LOS USUARIOS LOCALES
+    -------------------------------------------------------------------------
+    -- La identidad Superadmin se asocia al esquema reservado `control` (stack
+    -- 4/7); el resto apunta a su tenant derivado. Se puebla ANTES de vaciar
+    -- `control.usuario`.
+    SELECT count(*) INTO v_mapa_esperado FROM control.usuario;
+
+    INSERT INTO control.mapa_usuario_esquema (correo, institucion_id, nombre_esquema, activo)
+    SELECT u.correo,
+           d.institucion_id,
+           CASE WHEN r.nombre_rol = 'Superadmin'
+                THEN 'control'
+                ELSE pg_temp.nombre_esquema_tenant(d.institucion_id)
+           END,
+           TRUE
+    FROM control.usuario u
+    JOIN control.departamento d ON d.departamento_id = u.departamento_id
+    JOIN control.rol r ON r.rol_id = u.rol_id
+    ON CONFLICT (correo) DO NOTHING;
+
+    -------------------------------------------------------------------------
+    -- FASE 3: DEJAR `control` COMO CONTEXTO GLOBAL
+    -------------------------------------------------------------------------
+    -- Se conservan `institucion` (registro canonico, destino de la FK del mapa),
+    -- `rol` (incluido Superadmin) y `mapa_usuario_esquema`. Se VACIAN las tablas
+    -- de negocio tras copiarlas: su lugar es cada tenant. El orden respeta las FK.
+    -- Excepcion de la Feature 013: `estado_ticket` conserva la fila `Anulado`
+    -- (presencia obligatoria en toda instalacion; stack.md Feature 013); es el espejo
+    -- exacto del estado que el backend espera encontrar en `control` de una
+    -- instalacion limpia. El resto del catalogo (y `prioridad`) se vacia como antes.
+    DELETE FROM control.detalle_ticket;
+    DELETE FROM control.movimiento_inventario;
+    DELETE FROM control.stock_sede;
+    DELETE FROM control.ticket;
+    DELETE FROM control.inventario;
+    DELETE FROM control.departamento_encargado;
+    DELETE FROM control.producto;
+    DELETE FROM control.categoria;
+    DELETE FROM control.usuario;
+    DELETE FROM control.departamento;
+    DELETE FROM control.sede;
+    DELETE FROM control.prioridad;
+    DELETE FROM control.estado_ticket WHERE nombre <> 'Anulado';
+
+    -- Version objetivo de control (una sola fila vigente).
+    IF EXISTS (SELECT 1 FROM control.version_esquema) THEN
+        UPDATE control.version_esquema
+        SET version = v_version_objetivo, actualizada_en = CURRENT_TIMESTAMP;
+    ELSE
+        INSERT INTO control.version_esquema (version) VALUES (v_version_objetivo);
+    END IF;
+
+    -------------------------------------------------------------------------
+    -- FASE 4: VERIFICACION GLOBAL (fail-closed)
+    -------------------------------------------------------------------------
+    SELECT count(*) INTO v_conteo
+    FROM control.version_esquema WHERE version = v_version_objetivo;
+    IF v_conteo <> 1 THEN
+        RAISE EXCEPTION '02: control no tiene una unica fila de version %.', v_version_objetivo;
+    END IF;
+
+    FOR v_institucion_id IN SELECT institucion_id FROM control.institucion ORDER BY institucion_id LOOP
+        v_esquema := pg_temp.nombre_esquema_tenant(v_institucion_id);
+        IF to_regclass(format('%I.version_esquema', v_esquema)) IS NULL THEN
+            RAISE EXCEPTION '02: el tenant % no existe.', v_esquema;
+        END IF;
+        EXECUTE format(
+            'SELECT count(*) FROM %I.version_esquema WHERE version = %L', v_esquema, v_version_objetivo
+        ) INTO v_conteo;
+        IF v_conteo <> 1 THEN
+            RAISE EXCEPTION '02: el tenant % no tiene una unica fila de version %.', v_esquema, v_version_objetivo;
+        END IF;
+    END LOOP;
+
+    RAISE NOTICE '02: semilla y tenants completados. control + tenants en version %; datos distribuidos por institucion.', v_version_objetivo;
+
+    -- Chequeo final de control: contexto global sin negocio.
+    IF (SELECT count(*) FROM control.usuario) <> 0 THEN
+        RAISE EXCEPTION '02: control.usuario no quedo vacio.';
+    END IF;
+    IF (SELECT count(*) FROM control.ticket) <> 0 OR (SELECT count(*) FROM control.detalle_ticket) <> 0 THEN
+        RAISE EXCEPTION '02: quedaron tickets en control.';
+    END IF;
+    IF (SELECT count(*) FROM control.estado_ticket) <> 1 THEN
+        RAISE EXCEPTION '02: control.estado_ticket debe conservar solo Anulado.';
+    END IF;
+    IF (SELECT count(*) FROM control.mapa_usuario_esquema) <> v_mapa_esperado THEN
+        RAISE EXCEPTION '02: el mapa de usuarios no coincide con los usuarios sembrados.';
+    END IF;
+END;
+$construccion$;
+
+COMMIT;
