@@ -1,14 +1,17 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-#: Version objetivo del DDL de tenant (Feature 012, stack §5). Es la constante
+#: Version objetivo del DDL de tenant (stack §5). Es la constante
 #: de despliegue compartida por el codigo que resuelve el tenant y por el
 #: procedimiento de migracion: el enrutamiento exige **igualdad exacta** contra
 #: este token y se incrementa con cada cambio posterior de DDL/migracion. La
-#: Feature 011 subio el objetivo de `010.1` a `011.1`; la Feature 012 agrega el
+#: Feature 011 subio el objetivo de `010.1` a `011.1`; la Feature 012 agrego el
 #: estado canonico `control.institucion.activo` y las capacidades por institucion
 #: (`control.funcion_institucion`) y el estado logico de sede/departamento, asi
-#: que el objetivo sube de `011.1` a `012.1` (spec 012, AC-1/AC-2/AC-5/AC-13).
-VERSION_ESQUEMA_OBJETIVO = "012.1"
+#: que el objetivo subio de `011.1` a `012.1`; la Feature 013 agrega el estado
+#: `Anulado` al catalogo replicado y la tabla `historial_transicion_ticket` en
+#: control y en cada tenant, de modo que el objetivo sube de `012.1` a `013.1`
+#: (spec 013, AC-20/AC-21).
+VERSION_ESQUEMA_OBJETIVO = "013.1"
 
 
 class Settings(BaseSettings):

@@ -21,7 +21,13 @@ from app.models.organizacion import DepartamentoEncargado
 from app.models.producto import Categoria, Producto
 from app.models.rol import Rol
 from app.models.sede import Sede, StockSede
-from app.models.ticket import DetalleTicket, EstadoTicket, Prioridad, Ticket
+from app.models.ticket import (
+    DetalleTicket,
+    EstadoTicket,
+    HistorialTransicionTicket,
+    Prioridad,
+    Ticket,
+)
 from app.models.usuario import Usuario
 
 __all__ = [
@@ -34,6 +40,7 @@ __all__ = [
     "DetalleTicket",
     "EstadoTicket",
     "FuncionInstitucion",
+    "HistorialTransicionTicket",
     "Institucion",
     "InstitucionControl",
     "Inventario",

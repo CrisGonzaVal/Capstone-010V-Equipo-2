@@ -47,6 +47,11 @@ _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 _ALTA_INSTITUCION = {"Superadmin"}
 #: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
 _ORGANIZACION = {"Administrador"}
+#: Ciclo de vida del ticket (Feature 013, AC-17): anulacion y edicion las opera
+#: el dueño del ticket (Solicitante) junto con el Administrador institucional.
+_ANULACION_Y_EDICION = {"Administrador", "Solicitante"}
+#: Ciclo de vida del ticket (Feature 013, AC-17): rechazo, operativo de bodega.
+_RECHAZO = {"Administrador", "Bodeguero"}
 
 #: Operación contractual del alta de institución (plan §1).
 OPERACION_ALTA: tuple[str, str] = ("POST", "/api/v1/control/instituciones/")
@@ -133,14 +138,28 @@ MATRIZ_009: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/dashboard/"): _TODOS,
 }
 
-#: Matriz vigente tras añadir el alta de institución y las seis asignaciones
-#: organizacionales de la 011 (28 operaciones).
+#: Operaciones nuevas del ciclo de vida de la Feature 013 (T6, AC-17): la
+#: anulacion y la edicion las opera el dueño del ticket (Solicitante) mas el
+#: Administrador; el rechazo, el Bodeguero mas el Administrador; detalle e
+#: historial son lectura de los cuatro roles. Superadmin queda sin escritura.
+OPERACIONES_013: dict[tuple[str, str], set[str]] = {
+    ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): _ANULACION_Y_EDICION,
+    ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): _RECHAZO,
+    ("PUT", "/api/v1/tickets/{ticket_id}"): _ANULACION_Y_EDICION,
+    ("GET", "/api/v1/tickets/{ticket_id}"): _TODOS,
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _TODOS,
+}
+
+#: Matriz vigente tras añadir el alta de institución, las seis asignaciones
+#: organizacionales de la 011 y las cinco operaciones de ciclo de vida de la 013
+#: (49 operaciones).
 MATRIZ_010: dict[tuple[str, str], set[str]] = {
     **MATRIZ_009,
     OPERACION_ALTA: _ALTA_INSTITUCION,
     **OPERACIONES_011,
     **OPERACIONES_012_CONTROL,
     **OPERACIONES_012_ORGANIZACION,
+    **OPERACIONES_013,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -220,7 +239,10 @@ def _cliente(app_sonda: FastAPI, motor, rol: str | None = None, *, autenticar=Fa
 
 def test_matriz_010_transcrita_tiene_28_operaciones():
     assert len(MATRIZ_010) == (
-        28 + len(OPERACIONES_012_CONTROL) + len(OPERACIONES_012_ORGANIZACION)
+        28
+        + len(OPERACIONES_012_CONTROL)
+        + len(OPERACIONES_012_ORGANIZACION)
+        + len(OPERACIONES_013)
     )
     assert len(MATRIZ_009) == 21
 
@@ -238,6 +260,7 @@ def test_alta_institucion_es_la_unica_operacion_agregada_por_010():
         - set(OPERACIONES_011)
         - set(OPERACIONES_012_CONTROL)
         - set(OPERACIONES_012_ORGANIZACION)
+        - set(OPERACIONES_013)
         == {OPERACION_ALTA}
     )
     assert MATRIZ_010[OPERACION_ALTA] == _ALTA_INSTITUCION

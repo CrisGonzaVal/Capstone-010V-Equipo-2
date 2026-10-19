@@ -174,6 +174,25 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
         "DELETE",
         "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
     ): _ORGANIZACION,
+    # Feature 013 (AC-17, plan §2): ciclo de vida del ticket. Son las cinco
+    # operaciones nuevas **aditivas** de la 013 (matriz 44 -> 49): ninguna
+    # entrada previa se modifica ni se retira. Los roles son exactamente los
+    # del AC-17: anulacion y edicion las opera el dueño del ticket (Solicitante)
+    # junto con el Administrador institucional; el rechazo es operativo de
+    # bodega (Bodeguero) mas el Administrador; detalle e historial son lectura
+    # de los cuatro roles. Superadmin queda fuera de toda escritura (D-8) y
+    # conserva la lectura de detalle e historial (AC-19).
+    ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): frozenset(
+        {_ADMINISTRADOR, _SOLICITANTE}
+    ),
+    ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): frozenset(
+        {_ADMINISTRADOR, _BODEGUERO}
+    ),
+    ("PUT", "/api/v1/tickets/{ticket_id}"): frozenset(
+        {_ADMINISTRADOR, _SOLICITANTE}
+    ),
+    ("GET", "/api/v1/tickets/{ticket_id}"): _TODOS,
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _TODOS,
 }
 
 

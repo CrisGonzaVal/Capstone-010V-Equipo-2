@@ -38,13 +38,19 @@ _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 _ALTA_INSTITUCION = {"Superadmin"}
 #: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
 _ORGANIZACION = {"Administrador"}
+#: Ciclo de vida del ticket (Feature 013, AC-17): anulacion y edicion las opera
+#: el dueño del ticket (Solicitante) junto con el Administrador institucional.
+_ANULACION_Y_EDICION = {"Administrador", "Solicitante"}
+#: Ciclo de vida del ticket (Feature 013, AC-17): rechazo, operativo de bodega.
+_RECHAZO = {"Administrador", "Bodeguero"}
 
 #: Las operaciones de negocio -> roles permitidos (matriz vigente tras el
 #: ajuste puntual de la Feature 008, la operacion `GET /dashboard/` de la 009, el
 #: alta de institucion de la 010, las seis asignaciones organizacionales de la
-#: 011 y las siete operaciones de control SaaS de la 012; el resto de la matriz
-#: D-3 de 007 no cambia, salvo los dos GET por objeto de catalogo que exige
-#: AC-9/AC-16 de la 008).
+#: 011, las siete operaciones de control SaaS y las nueve organizacionales de la
+#: 012 y las cinco de ciclo de vida de la 013 (49 operaciones); el resto de la
+#: matriz D-3 de 007 no cambia, salvo los dos GET por objeto de catalogo que
+#: exige AC-9/AC-16 de la 008).
 MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
     ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
@@ -120,6 +126,15 @@ MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ): _ORGANIZACION,
     ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
     ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+    # Feature 013 (T6, AC-17): ciclo de vida del ticket. Cinco operaciones
+    # nuevas y aditivas (44 -> 49): anulacion y edicion (el dueño del ticket y
+    # el Administrador), rechazo (Bodeguero y Administrador), y detalle e
+    # historial (los cuatro roles); Superadmin queda fuera de toda escritura.
+    ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): _ANULACION_Y_EDICION,
+    ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): _RECHAZO,
+    ("PUT", "/api/v1/tickets/{ticket_id}"): _ANULACION_Y_EDICION,
+    ("GET", "/api/v1/tickets/{ticket_id}"): _TODOS,
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _TODOS,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -197,15 +212,16 @@ def test_cuatro_roles_exactos_sin_alias_admin():
 
 
 # ---------------------------------------------------------------------------
-# AC-9: la matriz central es exactamente la de D-3 (28 operaciones vigentes
-# tras las Features 008, 009, 010 y 011: las 18 de 007 mas los dos GET por objeto
-# de catalogo de la 008, el GET consolidado del dashboard de la 009, el alta de
-# institucion de la 010 y las seis asignaciones organizacionales de la 011)
+# AC-9: la matriz central es exactamente la de D-3 (49 operaciones vigentes
+# tras las Features 008, 009, 010, 011, 012 y 013: las 18 de 007 mas los dos GET
+# por objeto de catalogo de la 008, el GET consolidado del dashboard de la 009,
+# el alta de institucion de la 010, las seis asignaciones organizacionales de la
+# 011, las dieciseis de la 012 y las cinco de ciclo de vida de la 013)
 # ---------------------------------------------------------------------------
 
 
 def test_matriz_cubre_exactamente_las_operaciones_de_d3():
-    assert len(MATRIZ_ESPERADA) == 44
+    assert len(MATRIZ_ESPERADA) == 49
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_ESPERADA

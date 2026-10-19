@@ -1,12 +1,18 @@
 import {
   ROLES_ADMINISTRATIVOS,
+  ROLES_ANULACION_TICKETS,
   ROLES_ASIGNABLES_ADMINISTRADOR,
+  ROLES_EDICION_TICKETS,
   ROLES_OPERATIVOS_TICKETS,
+  ROLES_RECHAZO_TICKETS,
   ROLES_TICKETS,
   ROLES_TODOS,
   puedeAdministrar,
+  puedeAnularTicket,
   puedeAsignarRol,
+  puedeEditarTicket,
   puedeOperarTickets,
+  puedeRechazarTicket,
   puedeVerTickets,
 } from './roles';
 
@@ -107,5 +113,44 @@ describe('roles', () => {
     expect(puedeAsignarRol('Solicitante', 'Solicitante')).toBe(false);
     expect(puedeAsignarRol(null, 'Bodeguero')).toBe(false);
     expect(puedeAsignarRol('Admin', 'Bodeguero')).toBe(false);
+  });
+
+  // --- Ciclo de vida del ticket (Feature 013, AC-17/AC-24) ---
+
+  it('los conjuntos de roles del ciclo de vida son los exactos del AC-17', () => {
+    expect(ROLES_ANULACION_TICKETS).toEqual(['Administrador', 'Solicitante']);
+    expect(ROLES_RECHAZO_TICKETS).toEqual(['Administrador', 'Bodeguero']);
+    expect(ROLES_EDICION_TICKETS).toEqual(['Administrador', 'Solicitante']);
+    // El Superadmin no opera ninguna escritura de ticket (403 por matriz).
+    expect(ROLES_ANULACION_TICKETS as readonly string[]).not.toContain('Superadmin');
+    expect(ROLES_RECHAZO_TICKETS as readonly string[]).not.toContain('Superadmin');
+    expect(ROLES_EDICION_TICKETS as readonly string[]).not.toContain('Superadmin');
+  });
+
+  it('puedeAnularTicket concede solo a Administrador y Solicitante dueños', () => {
+    expect(puedeAnularTicket('Administrador')).toBe(true);
+    expect(puedeAnularTicket('Solicitante')).toBe(true);
+    expect(puedeAnularTicket('Bodeguero')).toBe(false);
+    expect(puedeAnularTicket('Superadmin')).toBe(false);
+    expect(puedeAnularTicket('Admin')).toBe(false);
+    expect(puedeAnularTicket(null)).toBe(false);
+  });
+
+  it('puedeRechazarTicket concede solo a Administrador y Bodeguero', () => {
+    expect(puedeRechazarTicket('Administrador')).toBe(true);
+    expect(puedeRechazarTicket('Bodeguero')).toBe(true);
+    expect(puedeRechazarTicket('Solicitante')).toBe(false);
+    expect(puedeRechazarTicket('Superadmin')).toBe(false);
+    expect(puedeRechazarTicket('Admin')).toBe(false);
+    expect(puedeRechazarTicket(null)).toBe(false);
+  });
+
+  it('puedeEditarTicket concede solo a Administrador y Solicitante', () => {
+    expect(puedeEditarTicket('Administrador')).toBe(true);
+    expect(puedeEditarTicket('Solicitante')).toBe(true);
+    expect(puedeEditarTicket('Bodeguero')).toBe(false);
+    expect(puedeEditarTicket('Superadmin')).toBe(false);
+    expect(puedeEditarTicket('Admin')).toBe(false);
+    expect(puedeEditarTicket(null)).toBe(false);
   });
 });

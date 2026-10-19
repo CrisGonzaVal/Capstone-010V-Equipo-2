@@ -1,0 +1,450 @@
+<div class="max-w-5xl mx-auto space-y-6">
+  <a
+    routerLink="/tickets"
+    class="inline-flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900"
+  >
+    &larr; Volver al tablero
+  </a>
+
+  @if (cargando()) {
+    <div class="py-16 text-center text-sm text-slate-500">Cargando ticket…</div>
+  } @else if (errorCarga()) {
+    <div class="bg-rose-50 border border-rose-200 rounded-xl px-6 py-8 text-center space-y-4">
+      <p role="alert" class="text-sm text-rose-800">{{ errorCarga() }}</p>
+      <button
+        type="button"
+        (click)="reintentar()"
+        class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg"
+      >
+        Reintentar
+      </button>
+    </div>
+  } @else {
+    @if (ticket(); as ticket) {
+    <!-- Cabecera: asunto, prioridad, estado, solicitante, departamento, sede y fechas (AC-23) -->
+    <div class="bg-white border border-slate-200 rounded-xl px-6 py-5 space-y-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="space-y-1">
+          <p class="text-xs text-slate-400">Ticket #{{ ticket.ticket_id }}</p>
+          <h2 class="text-2xl font-bold text-slate-800">{{ ticket.asunto }}</h2>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-semibold px-2 py-0.5 rounded" [class]="clasePrioridad()">
+            {{ etiquetaPrioridad() }}
+          </span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded" [class]="claseEstado()">
+            {{ etiquetaEstado() }}
+          </span>
+        </div>
+      </div>
+
+      @if (ticket.descripcion) {
+        <p class="text-sm text-slate-600">{{ ticket.descripcion }}</p>
+      }
+
+      <dl class="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+        <div>
+          <dt class="text-xs font-semibold text-slate-500">Solicitante</dt>
+          <dd class="text-slate-800">{{ etiquetaSolicitante() }}</dd>
+          @if (correoSolicitante(); as correo) {
+            <dd class="text-xs text-slate-400">{{ correo }}</dd>
+          }
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-slate-500">Departamento</dt>
+          <dd class="text-slate-800">
+            {{ etiquetaDepartamento() ?? 'Sin departamento registrado' }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-slate-500">Sede</dt>
+          <dd class="text-slate-800">{{ etiquetaSede() }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-slate-500">Creado</dt>
+          <dd class="text-slate-800">{{ ticket.fecha_creacion | date: 'medium' }}</dd>
+        </div>
+        @if (ticket.fecha_cierre; as fechaCierre) {
+          <div>
+            <dt class="text-xs font-semibold text-slate-500">Cerrado</dt>
+            <dd class="text-emerald-700">{{ fechaCierre | date: 'medium' }}</dd>
+          </div>
+        }
+      </dl>
+    </div>
+
+    <!-- Avisos de operación: éxito (status) y error accesible (alert) -->
+    @if (mensajeExito(); as exito) {
+      <p
+        role="status"
+        class="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-4 py-3 rounded-lg"
+      >
+        {{ exito }}
+      </p>
+    }
+    @if (errorAccion(); as mensajeAccion) {
+      <p
+        role="alert"
+        class="bg-rose-50 border border-rose-200 text-rose-800 text-sm px-4 py-3 rounded-lg"
+      >
+        {{ mensajeAccion }}
+      </p>
+    }
+
+    <!-- Barra de acciones por estado y rol (AC-24); sin doble envío mientras hay una en vuelo -->
+    @if (hayAcciones()) {
+      <div
+        class="bg-white border border-slate-200 rounded-xl px-6 py-4 flex flex-wrap items-center gap-3"
+      >
+        @if (acciones().retroceder) {
+          <button
+            type="button"
+            (click)="retroceder()"
+            [disabled]="enOperacion()"
+            aria-label="Retroceder un paso en el flujo"
+            class="text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:hover:bg-slate-100 px-3 py-2 rounded-lg transition"
+          >
+            &larr; Retroceder
+          </button>
+        }
+        @if (acciones().avanzar) {
+          <button
+            type="button"
+            (click)="avanzar()"
+            [disabled]="enOperacion()"
+            aria-label="Avanzar un paso en el flujo"
+            class="text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-3 py-2 rounded-lg transition"
+          >
+            Avanzar &rarr;
+          </button>
+        }
+
+        <div class="flex-1"></div>
+
+        @if (acciones().editar) {
+          <button
+            type="button"
+            (click)="iniciarEdicion()"
+            [disabled]="enOperacion()"
+            class="text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:hover:bg-slate-100 px-3 py-2 rounded-lg transition"
+          >
+            Editar
+          </button>
+        }
+        @if (acciones().rechazar) {
+          <button
+            type="button"
+            (click)="solicitarRechazo()"
+            [disabled]="enOperacion()"
+            class="text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 disabled:hover:bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg transition"
+          >
+            Rechazar
+          </button>
+        }
+        @if (acciones().anular) {
+          <button
+            type="button"
+            (click)="solicitarAnulacion()"
+            [disabled]="enOperacion()"
+            class="text-xs font-medium text-rose-700 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 disabled:hover:bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg transition"
+          >
+            Anular
+          </button>
+        }
+      </div>
+    } @else {
+      @if (notaAcciones(); as nota) {
+        <p class="bg-slate-50 border border-slate-200 text-slate-600 text-sm px-4 py-3 rounded-lg">
+          {{ nota }}
+        </p>
+      }
+    }
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Ítems con cantidades solicitadas y entregadas (AC-23) -->
+      <section class="bg-white border border-slate-200 rounded-xl">
+        <h3 class="font-bold text-slate-800 px-6 py-4 border-b border-slate-200">
+          Ítems solicitados
+        </h3>
+        @if (ticket.detalles.length === 0) {
+          <p class="text-sm text-slate-500 px-6 py-6">
+            Este ticket no tiene ítems registrados.
+          </p>
+        } @else {
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs font-semibold text-slate-500 border-b border-slate-200">
+                <th class="px-6 py-2">Producto</th>
+                <th class="px-3 py-2 text-right">Solicitado</th>
+                <th class="px-6 py-2 text-right">Entregado</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (detalle of ticket.detalles; track detalle.detalle_ticket_id) {
+                <tr class="border-b border-slate-100 last:border-0">
+                  <td class="px-6 py-2 text-slate-800">
+                    {{ detalle.producto?.nombre ?? 'Producto #' + detalle.producto_id }}
+                  </td>
+                  <td class="px-3 py-2 text-right text-slate-700">
+                    {{ detalle.cantidad_solicitada }}
+                  </td>
+                  <td
+                    class="px-6 py-2 text-right"
+                    [class]="
+                      detalle.cantidad_entregada > 0 ? 'text-emerald-700' : 'text-slate-400'
+                    "
+                  >
+                    {{ detalle.cantidad_entregada }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </section>
+
+      <!-- Historial completo: actor, instante, de→a y motivo (AC-23) -->
+      <section class="bg-white border border-slate-200 rounded-xl">
+        <h3 class="font-bold text-slate-800 px-6 py-4 border-b border-slate-200">
+          Historial de transiciones
+        </h3>
+        @if (filasHistorial().length === 0) {
+          <p class="text-sm text-slate-500 px-6 py-6">
+            Sin transiciones registradas: el historial comienza con las mutaciones
+            posteriores a la auditoría del ciclo de vida.
+          </p>
+        } @else {
+          <ol class="divide-y divide-slate-100">
+            @for (fila of filasHistorial(); track fila.historial_transicion_id) {
+              <li class="px-6 py-3 space-y-1 text-sm">
+                <p class="font-medium text-slate-800">{{ fila.origen }} &rarr; {{ fila.destino }}</p>
+                <p class="text-xs text-slate-500">
+                  {{ fila.actor }} &middot; {{ fila.fecha | date: 'medium' }}
+                </p>
+                @if (fila.motivo; as motivo) {
+                  <p class="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                    Motivo: {{ motivo }}
+                  </p>
+                }
+              </li>
+            }
+          </ol>
+        }
+      </section>
+      </div>
+    }
+  }
+
+  <!-- Confirmación de anulación/rechazo: motivo obligatorio antes de enviar (D-6, AC-24) -->
+  <dialog
+    #dialogoConfirmacion
+    (close)="cancelarConfirmacion()"
+    class="bg-transparent backdrop:bg-slate-900/50 backdrop:backdrop-blur-sm p-0 max-w-md w-full"
+  >
+    <div class="bg-white rounded-xl shadow-xl border border-slate-200">
+      <div class="border-b border-slate-200 px-6 py-4">
+        <h3 class="text-lg font-bold text-slate-800">
+          {{ confirmando() === 'rechazo' ? 'Rechazar ticket' : 'Anular ticket' }}
+        </h3>
+        <p class="text-xs text-slate-500 mt-1">
+          El ticket pasará al estado «Anulado», que es terminal. El motivo queda
+          registrado en el historial para trazabilidad.
+        </p>
+      </div>
+
+      <form [formGroup]="motivoForm" (ngSubmit)="confirmar()" class="px-6 py-5 space-y-4">
+        <label class="block space-y-1">
+          <span class="text-xs font-semibold text-slate-700">Motivo (obligatorio)</span>
+          <textarea
+            formControlName="motivo"
+            rows="3"
+            maxlength="500"
+            placeholder="Explica por qué se anula o rechaza este ticket"
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm resize-y"
+          ></textarea>
+          @if (motivoForm.controls.motivo.touched && motivoForm.controls.motivo.invalid) {
+            <span class="text-xs text-rose-600 block">
+              El motivo es obligatorio (máximo 500 caracteres).
+            </span>
+          }
+        </label>
+
+        @if (errorAccion(); as mensajeAccion) {
+          <p
+            role="alert"
+            class="bg-rose-50 border border-rose-200 text-rose-800 text-sm px-4 py-3 rounded-lg"
+          >
+            {{ mensajeAccion }}
+          </p>
+        }
+
+        <div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <button
+            type="button"
+            (click)="cancelarConfirmacion()"
+            class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            [disabled]="enOperacion()"
+            class="px-4 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:hover:bg-rose-600 rounded-lg"
+          >
+            {{
+              enOperacion()
+                ? 'Procesando…'
+                : confirmando() === 'rechazo'
+                  ? 'Confirmar rechazo'
+                  : 'Confirmar anulación'
+            }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Edición en Pendiente: cabecera + ítems completos, reemplazo atómico (D-9) -->
+  <dialog
+    #dialogoEdicion
+    (close)="cancelarEdicion()"
+    class="bg-transparent backdrop:bg-slate-900/50 backdrop:backdrop-blur-sm p-0 max-w-2xl w-full"
+  >
+    <div class="bg-white rounded-xl shadow-xl border border-slate-200">
+      <div class="flex justify-between items-start border-b border-slate-200 px-6 py-4">
+        <div>
+          <h3 class="text-lg font-bold text-slate-800">Editar ticket #{{ ticketId() }}</h3>
+          <p class="text-xs text-slate-500 mt-1">
+            Solo editable mientras el ticket está en Pendiente: los ítems se
+            reemplazan por completo.
+          </p>
+        </div>
+        <button
+          type="button"
+          (click)="cancelarEdicion()"
+          aria-label="Cerrar"
+          class="text-slate-400 hover:text-slate-600 text-xl leading-none px-2"
+        >
+          &times;
+        </button>
+      </div>
+
+      <form [formGroup]="formularioEdicion" (ngSubmit)="guardarEdicion()" class="px-6 py-5 space-y-5">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <label class="block space-y-1">
+            <span class="text-xs font-semibold text-slate-700">Asunto</span>
+            <input
+              type="text"
+              formControlName="asunto"
+              maxlength="150"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+            />
+            @if (formularioEdicion.controls.asunto.touched && formularioEdicion.controls.asunto.invalid) {
+              <span class="text-xs text-rose-600 block">
+                El asunto es obligatorio (entre 3 y 150 caracteres).
+              </span>
+            }
+          </label>
+
+          <label class="block space-y-1">
+            <span class="text-xs font-semibold text-slate-700">Prioridad</span>
+            <select
+              formControlName="prioridad_id"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+            >
+              <option [ngValue]="null">Selecciona una prioridad</option>
+              @for (prioridad of prioridades(); track prioridad.prioridad_id) {
+                <option [ngValue]="prioridad.prioridad_id">{{ prioridad.nombre }}</option>
+              }
+            </select>
+            @if (formularioEdicion.controls.prioridad_id.touched && formularioEdicion.controls.prioridad_id.invalid) {
+              <span class="text-xs text-rose-600 block">Selecciona una prioridad.</span>
+            }
+          </label>
+        </div>
+
+        <label class="block space-y-1">
+          <span class="text-xs font-semibold text-slate-700">Descripción (opcional)</span>
+          <textarea
+            formControlName="descripcion"
+            rows="2"
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm resize-y"
+          ></textarea>
+        </label>
+
+        <div class="space-y-3">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-semibold text-slate-700">Ítems solicitados</span>
+            <button
+              type="button"
+              (click)="agregarDetalleEdicion()"
+              class="text-xs font-medium text-blue-700 hover:text-blue-800 px-2 py-1 rounded"
+            >
+              + Agregar ítem
+            </button>
+          </div>
+
+          <div formArrayName="detalles" class="space-y-2">
+            @for (fila of detallesEdicion.controls; track $index; let i = $index) {
+              <div class="flex items-start gap-2" [formGroupName]="i">
+                <select
+                  formControlName="producto_id"
+                  class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                >
+                  <option [ngValue]="null">Selecciona un producto</option>
+                  @for (producto of productos(); track producto.producto_id) {
+                    <option [ngValue]="producto.producto_id">
+                      {{ producto.nombre }} &middot; {{ producto.categoria_nombre }}
+                    </option>
+                  }
+                </select>
+                <input
+                  type="number"
+                  formControlName="cantidad_solicitada"
+                  min="1"
+                  aria-label="Cantidad"
+                  class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  (click)="quitarDetalleEdicion(i)"
+                  [disabled]="!puedeQuitarDetalleEdicion()"
+                  aria-label="Quitar ítem"
+                  class="text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:hover:text-slate-400 px-2 py-2"
+                >
+                  &times;
+                </button>
+              </div>
+            }
+          </div>
+        </div>
+
+        @if (errorAccion(); as mensajeAccion) {
+          <p
+            role="alert"
+            class="bg-rose-50 border border-rose-200 text-rose-800 text-sm px-4 py-3 rounded-lg"
+          >
+            {{ mensajeAccion }}
+          </p>
+        }
+
+        <div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <button
+            type="button"
+            (click)="cancelarEdicion()"
+            class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            [disabled]="enOperacion()"
+            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 rounded-lg"
+          >
+            {{ enOperacion() ? 'Guardando…' : 'Guardar cambios' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+</div>

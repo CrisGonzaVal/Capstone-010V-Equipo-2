@@ -42,6 +42,15 @@ MAPA_OPERACION_CAPACIDAD: dict[tuple[str, str], str] = {
     # --- kanban: tablero operativo de estado/despacho ---
     ("POST", "/api/v1/tickets/{ticket_id}/despacho"): "kanban",
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): "kanban",
+    # --- ciclo de vida 013 (plan §2): anulacion y rechazo son mutaciones del
+    # ciclo de vida, la misma familia que despacho/estado -> `kanban`; edicion,
+    # detalle e historial son gestion/consulta del ticket -> `tickets`. Sin
+    # capacidad nueva: el conjunto cerrado de la 012 queda intacto. ---
+    ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): "kanban",
+    ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): "kanban",
+    ("PUT", "/api/v1/tickets/{ticket_id}"): "tickets",
+    ("GET", "/api/v1/tickets/{ticket_id}"): "tickets",
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): "tickets",
     # --- dashboard: dashboard analitico del tenant ---
     ("GET", "/api/v1/dashboard/"): "dashboard",
     # --- gestion_organizacional: sedes, departamentos, usuarios y encargados ---

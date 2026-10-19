@@ -41,12 +41,16 @@ _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 _ALTA_INSTITUCION = {"Superadmin"}
 #: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
 _ORGANIZACION = {"Administrador"}
+#: Ciclo de vida del ticket (Feature 013, AC-17): anulacion y edicion las opera
+#: el dueño del ticket (Solicitante) junto con el Administrador institucional.
+_ANULACION_Y_EDICION = {"Administrador", "Solicitante"}
+#: Ciclo de vida del ticket (Feature 013, AC-17): rechazo, operativo de bodega.
+_RECHAZO = {"Administrador", "Bodeguero"}
 
 #: Matriz completa vigente tras el ajuste de la 008, la operacion `GET
-#: /dashboard/` de la 009, el alta de institucion de la 010 y las seis
-#: asignaciones organizacionales de la 011 (28 operaciones: las 18 de 007, los dos
-#: GET por objeto de catalogo que exige AC-9/AC-16 de la 008, el dashboard
-#: consolidado de la 009, el aprovisionamiento de la 010 y la organizacion 011).
+#: /dashboard/` de la 009, el alta de institucion de la 010, las seis
+#: asignaciones organizacionales de la 011, las dieciseis operaciones de la 012
+#: y las cinco de ciclo de vida de la 013 (49 operaciones).
 MATRIZ_008: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
     ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
@@ -118,6 +122,13 @@ MATRIZ_008: dict[tuple[str, str], set[str]] = {
     ): _ORGANIZACION,
     ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
     ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+    # Feature 013 (T6, AC-17): ciclo de vida del ticket. Cinco operaciones
+    # nuevas y aditivas (44 -> 49); Superadmin queda fuera de toda escritura.
+    ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): _ANULACION_Y_EDICION,
+    ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): _RECHAZO,
+    ("PUT", "/api/v1/tickets/{ticket_id}"): _ANULACION_Y_EDICION,
+    ("GET", "/api/v1/tickets/{ticket_id}"): _TODOS,
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _TODOS,
 }
 
 #: Las 5 operaciones exactamente afectadas por el ajuste 008.
@@ -207,7 +218,7 @@ def test_matriz_central_es_la_esperada_para_008():
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_008
-    assert len(MATRIZ_008) == 44
+    assert len(MATRIZ_008) == 49
 
 
 def test_ajuste_008_es_minimo_y_acotado():

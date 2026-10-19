@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api import dependencies
 from app.core import permisos
+from app.core.config import VERSION_ESQUEMA_OBJETIVO
 from app.main import app
 from app.models import Departamento, EstadoTicket, MovimientoInventario, Ticket, Usuario
 from app.services.auth_service import IdentidadAutenticada
@@ -73,9 +74,9 @@ RUTA_MOVIMIENTOS = "/api/v1/inventario/movimientos"
 RUTA_TICKETS = "/api/v1/tickets/"
 RUTA_DASHBOARD = "/api/v1/dashboard/"
 
-#: Version objetivo del DDL vigente (Feature 012: sube a `012.1` con el modelo
-#: administrativo; antes `011.1`, Feature 011).
-VERSION_OBJETIVO_011 = "012.1"
+#: Version objetivo del DDL vigente: la constante de despliegue compartida, no
+#: un literal (la Feature 012 la subio a `012.1`, antes `011.1`; la 013 la subira).
+VERSION_OBJETIVO_011 = VERSION_ESQUEMA_OBJETIVO
 
 #: Nombre de la sede inicial que recibe un tenant recien aprovisionado (spec D-5).
 NOMBRE_SEDE_CENTRAL = "Sede Central"

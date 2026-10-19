@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from app.api import dependencies
+from app.core.config import VERSION_ESQUEMA_OBJETIVO
 from app.services.tenant_service import ContextoSolicitud
 
 #: Asociacion operacion -> capacidad (fuente de verdad independiente).
@@ -126,7 +127,7 @@ def _contexto() -> ContextoSolicitud:
         correo="admin@inst01.cl",
         institucion_id="INST01",
         nombre_esquema="tenant_inst01",
-        version="012.1",
+        version=VERSION_ESQUEMA_OBJETIVO,
     )
 
 

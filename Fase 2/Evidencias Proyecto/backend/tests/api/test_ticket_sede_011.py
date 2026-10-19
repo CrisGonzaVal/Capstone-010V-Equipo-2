@@ -122,8 +122,13 @@ def test_crear_ticket_almacena_la_sede_del_departamento(motor, datos_base):
     sede_id = crear_sede(motor, institucion_id=datos_base["institucion_id"])
     asignar_sede_a_departamento(motor, datos_base["departamento_id"], sede_id)
 
+    # Actor autenticado persistido: la 013 registra la creacion en el historial
+    # con FK a `usuario` (AC-9); la sonda sintetica 9999 no existe en la BD.
     with cliente(
-        motor, "Administrador", departamento_id=datos_base["departamento_id"]
+        motor,
+        "Administrador",
+        departamento_id=datos_base["departamento_id"],
+        usuario_id=datos_base["usuario_id"],
     ) as cliente_http:
         respuesta = _crear_ticket(
             cliente_http,
@@ -189,7 +194,10 @@ def test_ticket_abierto_despacha_desde_la_sede_almacenada(motor, datos_base):
     asignar_sede_a_departamento(motor, datos_base["departamento_id"], sede_a)
 
     with cliente(
-        motor, "Administrador", departamento_id=datos_base["departamento_id"]
+        motor,
+        "Administrador",
+        departamento_id=datos_base["departamento_id"],
+        usuario_id=datos_base["usuario_id"],
     ) as cliente_http:
         alta = _crear_ticket(
             cliente_http,
@@ -242,7 +250,10 @@ def test_stock_insuficiente_en_la_sede_del_ticket_responde_409(motor, datos_base
     auditorias_antes = contar_movimientos(motor)
 
     with cliente(
-        motor, "Administrador", departamento_id=datos_base["departamento_id"]
+        motor,
+        "Administrador",
+        departamento_id=datos_base["departamento_id"],
+        usuario_id=datos_base["usuario_id"],
     ) as cliente_http:
         alta = _crear_ticket(
             cliente_http,
@@ -278,7 +289,10 @@ def test_despacho_registra_movimiento_por_stock_sede(motor, datos_base):
     asignar_sede_a_departamento(motor, datos_base["departamento_id"], sede_id)
 
     with cliente(
-        motor, "Administrador", departamento_id=datos_base["departamento_id"]
+        motor,
+        "Administrador",
+        departamento_id=datos_base["departamento_id"],
+        usuario_id=datos_base["usuario_id"],
     ) as cliente_http:
         alta = _crear_ticket(
             cliente_http,

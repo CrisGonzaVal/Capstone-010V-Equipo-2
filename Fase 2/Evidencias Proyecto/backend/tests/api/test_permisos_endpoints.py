@@ -44,10 +44,11 @@ from app.models import (
 from app.services.auth_service import IdentidadAutenticada
 
 # ---------------------------------------------------------------------------
-# Fuente de verdad independiente: la matriz D-3 transcrita a mano (35 filas:
+# Fuente de verdad independiente: la matriz D-3 transcrita a mano (49 filas:
 # las 20 de 007/008 mas el GET consolidado del dashboard que exige AC-13/AC-14
 # de la 009, el alta de institucion de la 010, las seis asignaciones
-# organizacionales de la 011 y las siete operaciones de control SaaS de la 012)
+# organizacionales de la 011, las siete operaciones de control SaaS de la 012
+# y las cinco del ciclo de vida de la 013)
 # ---------------------------------------------------------------------------
 
 _TODOS = {"Superadmin", "Administrador", "Bodeguero", "Solicitante"}
@@ -62,6 +63,11 @@ _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
 _ALTA_INSTITUCION = {"Superadmin"}
 #: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
 _ORGANIZACION = {"Administrador"}
+#: Ciclo de vida del ticket (Feature 013, AC-17): anulacion y edicion las opera
+#: el dueño Solicitante con el Administrador; el rechazo, el Bodeguero con el
+#: Administrador. Superadmin queda fuera de toda escritura (D-8).
+_CICLO_VIDA_DUENO = {"Administrador", "Solicitante"}
+_CICLO_VIDA_BODEGA = {"Administrador", "Bodeguero"}
 
 MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
@@ -138,6 +144,13 @@ MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     ): _ORGANIZACION,
     ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
     ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+    # Feature 013 (AC-17, plan §2): ciclo de vida del ticket. Cinco operaciones
+    # aditivas (matriz 44 -> 49) con los roles exactos del AC-17.
+    ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): _CICLO_VIDA_DUENO,
+    ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): _CICLO_VIDA_BODEGA,
+    ("PUT", "/api/v1/tickets/{ticket_id}"): _CICLO_VIDA_DUENO,
+    ("GET", "/api/v1/tickets/{ticket_id}"): _TODOS,
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _TODOS,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -264,6 +277,15 @@ def _ruta_concreta(metodo: str, ruta: str, datos: dict) -> str:
         return ruta.replace("{ticket_id}", str(datos["ticket_despacho_id"]))
     if ruta == "/api/v1/tickets/{ticket_id}/estado":
         return ruta.replace("{ticket_id}", str(datos["ticket_estado_id"]))
+    # Feature 013 (T9): las cinco operaciones del ciclo de vida usan un ticket
+    # propio en `Pendiente` (admite anulacion/rechazo con 200 y edicion valida).
+    if ruta in (
+        "/api/v1/tickets/{ticket_id}",
+        "/api/v1/tickets/{ticket_id}/anulacion",
+        "/api/v1/tickets/{ticket_id}/rechazo",
+        "/api/v1/tickets/{ticket_id}/historial",
+    ):
+        return ruta.replace("{ticket_id}", str(datos["ticket_ciclo_id"]))
     if ruta == "/api/v1/inventario/productos/{producto_id}":
         return ruta.replace("{producto_id}", str(datos["producto_id"]))
     if ruta == "/api/v1/inventario/categorias/{categoria_id}":
@@ -359,6 +381,21 @@ def _cuerpo(metodo: str, ruta: str, datos: dict):
         return {"usuario_id": datos["usuario_id"]}
     if (metodo, ruta) == ("PATCH", "/api/v1/tickets/{ticket_id}/estado"):
         return {"estado_id": datos["estado_en_curso_id"]}
+    # Feature 013 (T9): payloads del ciclo de vida.
+    if (metodo, ruta) in (
+        ("POST", "/api/v1/tickets/{ticket_id}/anulacion"),
+        ("POST", "/api/v1/tickets/{ticket_id}/rechazo"),
+    ):
+        return {"motivo": "Motivo valido de autorizacion"}
+    if (metodo, ruta) == ("PUT", "/api/v1/tickets/{ticket_id}"):
+        return {
+            "asunto": "Ticket editado en la autorizacion",
+            "descripcion": "Edicion valida para probar la autorizacion.",
+            "prioridad_id": datos["prioridad_id"],
+            "detalles": [
+                {"producto_id": datos["producto_id"], "cantidad_solicitada": 2}
+            ],
+        }
     # Feature 011 (T7): payloads de la gestion organizacional.
     if ruta in (
         "/api/v1/organizacion/departamentos/{departamento_id}/sede",
@@ -426,18 +463,21 @@ def _cuerpo(metodo: str, ruta: str, datos: dict):
 
 @pytest.fixture
 def datos_autorizacion(motor, datos_base):
-    """`datos_base` + los cuatro estados canonicos y dos tickets de trabajo.
+    """`datos_base` + el catalogo canonico de la 013 y tickets de trabajo.
 
     `ticket_estado_id` esta en `EnRevision` para que `PATCH /estado` avance un
     paso contiguo a `EnCurso` (200); `ticket_despacho_id` ya esta en `EnCurso`
-    con una linea del producto que tiene inventario, para un despacho 200.
+    con una linea del producto que tiene inventario, para un despacho 200; y
+    `ticket_ciclo_id` esta en `Pendiente` (propio del usuario base) para que
+    anulacion, rechazo y edicion de la 013 respondan 200 (Feature 013, T9). El
+    catalogo incluye `Anulado` al final, como lo siembra la 013.
     """
     db = sessionmaker(bind=motor)()
     try:
         db.query(EstadoTicket).delete()
         db.flush()
         ids: dict[str, int] = {}
-        for nombre in ("Pendiente", "EnRevision", "EnCurso", "Cerrado"):
+        for nombre in ("Pendiente", "EnRevision", "EnCurso", "Cerrado", "Anulado"):
             estado = EstadoTicket(nombre=nombre, descripcion=f"Estado {nombre}")
             db.add(estado)
             db.flush()
@@ -495,6 +535,9 @@ def datos_autorizacion(motor, datos_base):
 
         ticket_estado = _ticket(ids["EnRevision"], "Cambio de estado autorizado")
         ticket_despacho = _ticket(ids["EnCurso"], "Despacho autorizado")
+        # Feature 013 (T9): ticket propio en `Pendiente` para anulacion,
+        # rechazo y edicion (todas admiten 200 desde ese estado).
+        ticket_ciclo = _ticket(ids["Pendiente"], "Ciclo de vida autorizado")
 
         # Feature 011 (T7): recursos para medir la autorizacion organizacional.
         # Una sede de INST01 (200 en las asignaciones), un Bodeguero (destino
@@ -552,8 +595,10 @@ def datos_autorizacion(motor, datos_base):
             "estado_en_revision_id": ids["EnRevision"],
             "estado_en_curso_id": ids["EnCurso"],
             "estado_cerrado_id": ids["Cerrado"],
+            "estado_anulado_id": ids["Anulado"],
             "ticket_estado_id": ticket_estado.ticket_id,
             "ticket_despacho_id": ticket_despacho.ticket_id,
+            "ticket_ciclo_id": ticket_ciclo.ticket_id,
             "rol_bodeguero_id": rol_bodeguero.rol_id,
             "rol_solicitante_id": rol_solicitante.rol_id,
             "sede_id": sede.sede_id,
@@ -571,7 +616,7 @@ def datos_autorizacion(motor, datos_base):
 
 
 def test_inventario_de_rutas_igual_a_la_matriz_d3():
-    """El `app` publica exactamente las 28 operaciones de negocio de la matriz.
+    """El `app` publica exactamente las 49 operaciones de negocio de la matriz.
 
     Falla si una ruta de negocio queda sin autorizacion declarada o si la matriz
     inventa una operacion que el contrato no expone.
@@ -793,6 +838,12 @@ REFERENCIAS_ESPERADAS = {
     ): "DepartamentoEstadoRespuesta",
     ("PUT", "/api/v1/usuarios/{usuario_id}"): "UsuarioRespuesta",
     ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): "UsuarioEstadoRespuesta",
+    # Feature 013 (T9): DTOs del ciclo de vida del ticket.
+    ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): "TicketRespuesta",
+    ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): "TicketRespuesta",
+    ("PUT", "/api/v1/tickets/{ticket_id}"): "TicketRespuesta",
+    ("GET", "/api/v1/tickets/{ticket_id}"): "TicketDetalleRespuesta",
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): "HistorialTransicionRespuesta",
 }
 
 

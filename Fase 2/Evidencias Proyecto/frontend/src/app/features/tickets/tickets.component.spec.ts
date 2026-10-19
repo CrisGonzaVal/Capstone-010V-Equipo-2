@@ -1,11 +1,10 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { WritableSignal, signal } from '@angular/core';
+import { Router, UrlTree, provideRouter } from '@angular/router';
 
 import { URL_API } from '../../shared/config/url-api';
-import { AutenticacionService } from '../../core/services/auth.service';
-import { CatalogosTicket, IdentidadAutenticada, Ticket } from '../../shared/interfaces';
+import { CatalogosTicket, Ticket } from '../../shared/interfaces';
 import { TicketsComponent } from './tickets.component';
 
 const RUTA_CATALOGOS = `${URL_API}/tickets/catalogos`;
@@ -63,6 +62,23 @@ const CATALOGOS: CatalogosTicket = {
   ],
 };
 
+/**
+ * Catalogo completo de la Feature 013 (D-1/D-2): los cuatro estados operativos
+ * del flujo lineal mas el terminal `Anulado` al final, tal como lo siembra y
+ * lo migra el backend. La columna del tablero y la exclusion del alta se
+ * prueban contra este catalogo, nunca contra ids fijos.
+ */
+const CATALOGOS_013: CatalogosTicket = {
+  ...CATALOGOS,
+  estados: [
+    { estado_id: 1, nombre: 'Pendiente', descripcion: 'Sin revisar' },
+    { estado_id: 2, nombre: 'EnRevision', descripcion: 'En revision' },
+    { estado_id: 3, nombre: 'EnCurso', descripcion: 'En preparacion' },
+    { estado_id: 4, nombre: 'Cerrado', descripcion: 'Cerrado' },
+    { estado_id: 5, nombre: 'Anulado', descripcion: 'Anulado o rechazado' },
+  ],
+};
+
 // Fecha compartida por los tickets 3 y 4: ejercita el empate que se resuelve
 // por `ticket_id` descendente. El ticket 4 ademas trae `fecha_cierre`.
 const FECHA_EMPATE = '2026-10-02T10:00:00';
@@ -116,6 +132,38 @@ const TICKETS: Ticket[] = [
     descripcion: null,
     fecha_creacion: FECHA_EMPATE,
     fecha_cierre: FECHA_CIERRE,
+    detalles: [],
+  },
+];
+
+/**
+ * Fixture de T11: la de T6 mas un ticket en cada **terminal** del catalogo 013
+ * —cerrado (5, con `fecha_cierre`) y anulado (6, con `fecha_cierre` nula)—
+ * para probar que ambas columnas pintan tarjetas y que toda tarjeta ofrece
+ * «Gestionar» sin importar su estado.
+ */
+const TICKETS_013: Ticket[] = [
+  ...TICKETS,
+  {
+    ticket_id: 5,
+    usuario_id: 5,
+    prioridad_id: 1,
+    estado_id: 4,
+    asunto: 'Ticket cerrado por despacho',
+    descripcion: null,
+    fecha_creacion: '2026-10-04T10:00:00',
+    fecha_cierre: FECHA_CIERRE,
+    detalles: [],
+  },
+  {
+    ticket_id: 6,
+    usuario_id: 1,
+    prioridad_id: 2,
+    estado_id: 5,
+    asunto: 'Ticket anulado con motivo',
+    descripcion: null,
+    fecha_creacion: '2026-10-05T10:00:00',
+    fecha_cierre: null,
     detalles: [],
   },
 ];
@@ -199,100 +247,6 @@ const TICKETS_FILTROS: Ticket[] = [
 ];
 
 /**
- * Fixture de T8 (transiciones): la de T6/T7 mas un ticket en el estado
- * **terminal** (Cerrado, id 4), que la de T6 deja a proposito vacio. Asi AC-11
- * se prueba sin alterar los conteos que T6/T7 ya verifican.
- */
-const TICKETS_TRANSICION: Ticket[] = [
-  ...TICKETS,
-  {
-    ticket_id: 5,
-    usuario_id: 5,
-    prioridad_id: 1,
-    estado_id: 4,
-    asunto: 'Ticket terminal',
-    descripcion: null,
-    fecha_creacion: '2026-10-04T10:00:00',
-    fecha_cierre: '2026-10-05T10:00:00',
-    detalles: [],
-  },
-];
-
-/**
- * Fixture de T10 (Feature 005): catalogo con `EnCurso` (3) y `Cerrado` (4), el
- * flujo canonico completo. La 004 no tenia `EnCurso`, asi que este es el unico
- * catalogo con el que se puede probar la regla de no avanzar desde esa columna.
- */
-const CATALOGOS_005: CatalogosTicket = {
-  ...CATALOGOS,
-  estados: [
-    { estado_id: 1, nombre: 'Pendiente', descripcion: 'Sin revisar' },
-    { estado_id: 2, nombre: 'EnRevision', descripcion: 'En revision' },
-    { estado_id: 3, nombre: 'EnCurso', descripcion: 'En preparacion' },
-    { estado_id: 4, nombre: 'Cerrado', descripcion: 'Cerrado' },
-  ],
-};
-
-/** Tickets de T10: reusa los de T8 (transiciones) y agrega uno en `EnCurso` (3). */
-const TICKETS_005: Ticket[] = [
-  ...TICKETS_TRANSICION,
-  {
-    ticket_id: 6,
-    usuario_id: 5,
-    prioridad_id: 1,
-    estado_id: 3,
-    asunto: 'Preparando pedido',
-    descripcion: null,
-    fecha_creacion: '2026-10-06T10:00:00',
-    fecha_cierre: null,
-    detalles: [],
-  },
-];
-
-/**
- * Catalogo degenerado de T10: `EnCurso` duplicado con el **menor id en posicion
- * media** (el 3 va despues del 4). El canonico es el de menor `estado_id` (3),
- * no el primero del arreglo; el duplicado (4) conserva sus controles segun su
- * posicion, igual que cualquier otra columna.
- */
-const CATALOGOS_EN_CURSO_DUPLICADO: CatalogosTicket = {
-  ...CATALOGOS_005,
-  estados: [
-    { estado_id: 1, nombre: 'Pendiente', descripcion: 'Sin revisar' },
-    { estado_id: 2, nombre: 'EnRevision', descripcion: 'En revision' },
-    { estado_id: 4, nombre: 'EnCurso', descripcion: 'Duplicado no canonico' },
-    { estado_id: 3, nombre: 'EnCurso', descripcion: 'En preparacion' },
-    { estado_id: 5, nombre: 'Cerrado', descripcion: 'Cerrado' },
-  ],
-};
-
-/** Un ticket en cada `EnCurso` del catalogo duplicado: el canonico y el no canonico. */
-const TICKETS_EN_CURSO_DUPLICADO: Ticket[] = [
-  {
-    ticket_id: 7,
-    usuario_id: 5,
-    prioridad_id: 1,
-    estado_id: 3,
-    asunto: 'En el EnCurso canonico',
-    descripcion: null,
-    fecha_creacion: '2026-10-06T10:00:00',
-    fecha_cierre: null,
-    detalles: [],
-  },
-  {
-    ticket_id: 8,
-    usuario_id: 1,
-    prioridad_id: 2,
-    estado_id: 4,
-    asunto: 'En el EnCurso duplicado',
-    descripcion: null,
-    fecha_creacion: '2026-10-06T11:00:00',
-    fecha_cierre: null,
-    detalles: [],
-  },
-];
-
-/**
  * Respuesta completa de `POST /tickets/` (T9): el componente consume el
  * `Ticket` entero, no un `{ ticket_id }` parcial, asi que los tests del modal
  * tienen que responder con esta forma.
@@ -315,21 +269,6 @@ describe('TicketsComponent', () => {
   let fixture: ComponentFixture<TicketsComponent>;
   let componente: TicketsComponent;
   let httpMock: HttpTestingController;
-
-  /** Identidad local (`/auth/me`) que el componente lee para condicionar la UI. */
-  let identidad: WritableSignal<IdentidadAutenticada | null>;
-
-  function crearIdentidad(rol: string): IdentidadAutenticada {
-    return {
-      usuario_id: 9,
-      sub: 'user_operativo',
-      nombre: 'Bruno',
-      apellido: 'Soto',
-      correo: 'bruno.soto@losalpes.cl',
-      rol,
-      institucion: { institucion_id: 'inst-los-alpes', nombre: 'Los Alpes' },
-    };
-  }
 
   /** Responde las dos peticiones del arranque del tablero. */
   function responderArranque(
@@ -362,16 +301,15 @@ describe('TicketsComponent', () => {
   }
 
   beforeEach(async () => {
-    // El componente condiciona la UI al rol de la identidad local. Se inyecta un
-    // doble con `identidad` como señal para no arrancar Clerk (ni red) en Karma.
-    identidad = signal<IdentidadAutenticada | null>(crearIdentidad('Bodeguero'));
-
+    // El tablero ya no condiciona su UI al rol (D-14: sin controles de
+    // mutación que ocultar), asi que el TestBed no necesita el doble de
+    // `AutenticacionService` que si usaba antes de la 013.
     await TestBed.configureTestingModule({
       imports: [TicketsComponent],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: AutenticacionService, useValue: { identidad } },
+        provideRouter([]),
       ],
     }).compileComponents();
 
@@ -787,6 +725,227 @@ describe('TicketsComponent', () => {
     });
   });
 
+  /**
+   * D-14 / AC-24 (013): el tablero es de solo lectura. Deroganse en la capa de
+   * UI los AC-9, AC-10, AC-12, AC-19 y AC-20 de la 004 (transiciones por
+   * botón en el tablero y su feedback): la unica accion por tarjeta es
+   * «Gestionar», que abre la vista de detalle, donde vive todo el ciclo de
+   * vida. Aqui se verifica tanto el comportamiento nuevo como la **ausencia**
+   * de la logica de transiciones que la 004 exibia.
+   */
+  describe('tablero de solo lectura (D-14, AC-24)', () => {
+    /** Busca una tarjeta por el id de su ticket, aplanando las columnas. */
+    function tarjetaDe(ticketId: number) {
+      return componente
+        .columnas()
+        .flatMap((columna) => columna.tarjetas)
+        .find((tarjeta) => tarjeta.ticket.ticket_id === ticketId);
+    }
+
+    /** Los enlaces «Gestionar» que el DOM pinta, uno por tarjeta. */
+    function enlacesGestionar() {
+      return fixture.nativeElement.querySelectorAll(
+        'a[aria-label^="Gestionar ticket #"]'
+      ) as NodeListOf<HTMLAnchorElement>;
+    }
+
+    beforeEach(() => responderArranque(CATALOGOS_013, TICKETS_013));
+
+    it('ofrece exactamente una acción «Gestionar» por tarjeta, sin controles de transición', () => {
+      // Una por tarjeta, sin importar su estado.
+      expect(enlacesGestionar().length).toBe(TICKETS_013.length);
+
+      // Ni botones de avanzar/retroceder ni su texto en el tablero.
+      expect(
+        fixture.nativeElement.querySelector('button[aria-label^="Avanzar ticket"]')
+      ).toBeNull();
+      expect(
+        fixture.nativeElement.querySelector('button[aria-label^="Retroceder ticket"]')
+      ).toBeNull();
+      const texto = fixture.nativeElement.textContent ?? '';
+      expect(texto).not.toContain('Avanzar');
+      expect(texto).not.toContain('Retroceder');
+
+      // Ningún `PATCH /estado` sale del tablero: la única red del arranque fue
+      // catálogos + lista.
+      httpMock.expectNone(RUTA_ESTADO(1));
+      httpMock.expectNone(RUTA_ESTADO(6));
+    });
+
+    it('ofrece «Gestionar» también en la columna terminal y en la de Anulado', () => {
+      expect(tarjetaDe(5)).toBeTruthy(); // Cerrado (terminal)
+      expect(tarjetaDe(6)).toBeTruthy(); // Anulado (terminal)
+
+      expect(
+        fixture.nativeElement.querySelector('a[aria-label="Gestionar ticket #5"]')
+      ).not.toBeNull();
+      expect(
+        fixture.nativeElement.querySelector('a[aria-label="Gestionar ticket #6"]')
+      ).not.toBeNull();
+    });
+
+    it('no conserva lógica de transición en el componente ni en la tarjeta (sin código muerto)', () => {
+      // Nada de la UI de movimientos de la 004 sobrevive en la clase.
+      for (const nombre of [
+        'mover',
+        'moverSiguiente',
+        'moverAnterior',
+        'errorMovimiento',
+        'enProceso',
+        'puedeGestionarKanban',
+        'idEstadoEnCurso',
+      ]) {
+        expect(nombre in componente).withContext(nombre).toBe(false);
+      }
+
+      // Ni en la tarjeta, que ya no resuelve controles de mutación.
+      const tarjeta = tarjetaDe(1)!;
+      for (const nombre of [
+        'puedeAvanzar',
+        'puedeRetroceder',
+        'estadoSiguienteId',
+        'estadoAnteriorId',
+        'enProceso',
+      ]) {
+        expect(nombre in tarjeta).withContext(nombre).toBe(false);
+      }
+    });
+
+    it('la acción «Gestionar» navega a la ruta de detalle del ticket', () => {
+      const router = TestBed.inject(Router);
+      const navegacion = spyOn(router, 'navigateByUrl').and.returnValue(
+        Promise.resolve(true)
+      );
+
+      const enlace = fixture.nativeElement.querySelector(
+        'a[aria-label="Gestionar ticket #1"]'
+      ) as HTMLAnchorElement;
+      expect(enlace).not.toBeNull();
+      // La ruta hija `tickets/:ticketId` del T10.
+      expect(enlace.getAttribute('href')).toBe('/tickets/1');
+
+      enlace.click();
+
+      // El click entra al Router (no a una navegación del navegador) y su
+      // destino es la ruta de detalle del ticket.
+      expect(navegacion).toHaveBeenCalledTimes(1);
+      const destino = navegacion.calls.mostRecent().args[0] as UrlTree;
+      expect(router.serializeUrl(destino)).toBe('/tickets/1');
+      // La navegación no consulta nada: el detalle carga en su propio componente.
+      expect(httpMock.match(() => true).length).toBe(0);
+    });
+
+    it('no pinta el banner de «solo consulta» de la 004 (derogado con D-14)', () => {
+      // El tablero ya no muta para nadie: no hay UI condicionada al rol que
+      // avisar ni controles que ocultar.
+      expect(fixture.nativeElement.textContent).not.toContain('Vista de solo consulta');
+      expect('rolActual' in componente).toBe(false);
+    });
+
+    it('hace exactamente dos peticiones al arranque y ninguna por tarjeta (sin N+1)', () => {
+      // `responderArranque` ya descargo catálogos y lista: el render de cinco
+      // columnas con seis tarjetas no añade peticiones…
+      expect(enlacesGestionar().length).toBe(TICKETS_013.length);
+
+      // …ni los filtros, que son de cliente sobre el conjunto cargado…
+      componente.cambiarPrioridad('1');
+      fixture.detectChanges();
+      componente.actualizarBusqueda('papel');
+      fixture.detectChanges();
+
+      // …ni la navegación al detalle.
+      (fixture.nativeElement.querySelector(
+        'a[aria-label="Gestionar ticket #3"]'
+      ) as HTMLAnchorElement).click();
+      fixture.detectChanges();
+
+      expect(httpMock.match(() => true).length).toBe(0);
+    });
+  });
+
+  /**
+   * D-1 / D-14 (013): el tablero añade la columna `Anulado`; no hay ids fijos,
+   * la columna surge del catálogo igual que las demás.
+   */
+  describe('columna Anulado (D-1/D-14)', () => {
+    it('surge del catálogo junto a las demás, con sus tarjetas', () => {
+      responderArranque(CATALOGOS_013, TICKETS_013);
+
+      const columnas = componente.columnas();
+      expect(columnas.map((columna) => columna.estado_id)).toEqual([1, 2, 3, 4, 5]);
+
+      const anulado = columnas.find((columna) => columna.estado === 'Anulado')!;
+      expect(anulado.estado_id).toBe(5);
+      expect(anulado.tarjetas.map((tarjeta) => tarjeta.ticket.ticket_id)).toEqual([6]);
+    });
+
+    it('un ticket anulado queda solo en la columna de Anulado', () => {
+      responderArranque(CATALOGOS_013, TICKETS_013);
+
+      const conElTicket = componente
+        .columnas()
+        .filter((columna) =>
+          columna.tarjetas.some((tarjeta) => tarjeta.ticket.ticket_id === 6)
+        );
+
+      expect(conElTicket.length).toBe(1);
+      expect(conElTicket[0].estado).toBe('Anulado');
+      // `fecha_cierre` nula en el anulado (D-5): la tarjeta no pinta cierre.
+      expect(conElTicket[0].tarjetas[0].fechaCierre).toBeNull();
+    });
+  });
+
+  /**
+   * D-11 (013): un ticket nuevo no puede nacer en `Anulado`. El backend ya
+   * responde 409; el modal espeja esa regla excluyendo `Anulado` de la
+   * elección de estado inicial, resuelto por nombre (como el resto del
+   * catalogo), sin ids fijos.
+   */
+  describe('alta sin Anulado como estado inicial (D-11)', () => {
+    it('excluye Anulado de la elección de estado inicial', () => {
+      abrirConCatalogos(CATALOGOS_013);
+
+      expect(componente.estadosAlta().map((estado) => estado.nombre)).toEqual([
+        'Pendiente',
+        'EnRevision',
+        'EnCurso',
+        'Cerrado',
+      ]);
+      expect(componente.estadoInicial()).toBe(1);
+      expect(componente.formulario.controls.estado_id.value).toBe(1);
+    });
+
+    it('el desplegable del modal no ofrece Anulado', () => {
+      abrirConCatalogos(CATALOGOS_013);
+
+      const opciones = fixture.nativeElement.querySelectorAll(
+        'dialog select[formcontrolname="estado_id"] option'
+      );
+      expect(opciones.length).toBe(4);
+      const textos = [...opciones].map((opcion) => (opcion as HTMLOptionElement).textContent?.trim());
+      expect(textos).not.toContain('Anulado');
+    });
+
+    it('resuelve la exclusión por nombre canónico, no por posición ni id', () => {
+      // Catálogo degenerado: `anulado` en minúsculas y **primero** del arreglo.
+      // La exclusión es por nombre normalizado, asi que el estado inicial sigue
+      // siendo el primer operativo del flujo (Pendiente, id 1).
+      const catalogoAnuladoPrimero: CatalogosTicket = {
+        ...CATALOGOS_013,
+        estados: [
+          { estado_id: 9, nombre: 'anulado', descripcion: 'Minuscula y primero' },
+          ...CATALOGOS_013.estados.filter((estado) => estado.nombre !== 'Anulado'),
+        ],
+      };
+      abrirConCatalogos(catalogoAnuladoPrimero);
+
+      expect(componente.estadosAlta().map((estado) => estado.estado_id)).toEqual([
+        1, 2, 3, 4,
+      ]);
+      expect(componente.estadoInicial()).toBe(1);
+    });
+  });
+
   describe('filtros del tablero', () => {
     /** Todos los tickets que el tablero pinta, aplanando las columnas. */
     function tarjetasVisibles() {
@@ -917,7 +1076,7 @@ describe('TicketsComponent', () => {
     });
   });
 
-  describe('transiciones del tablero', () => {
+  describe('alta reflejada en el tablero', () => {
     /** Busca una tarjeta por el id de su ticket, aplanando las columnas. */
     function tarjetaDe(ticketId: number) {
       return componente
@@ -931,281 +1090,7 @@ describe('TicketsComponent', () => {
       return componente.columnas().find((c) => c.estado_id === estadoId)!;
     }
 
-    beforeEach(() => responderArranque(CATALOGOS, TICKETS_TRANSICION));
-
-    it('AC-12: en el primer estado no hay retroceso y si hay avance', () => {
-      const primero = tarjetaDe(1)!; // estado 1, indice 0
-
-      expect(primero.puedeRetroceder).toBe(false);
-      expect(primero.estadoAnteriorId).toBeNull();
-      expect(primero.puedeAvanzar).toBe(true);
-      expect(primero.estadoSiguienteId).toBe(2);
-    });
-
-    it('AC-11: en el estado terminal no se ofrece ningun control', () => {
-      const terminal = tarjetaDe(5)!; // estado 4, ultimo del catalogo
-
-      expect(terminal.puedeAvanzar).toBe(false);
-      expect(terminal.puedeRetroceder).toBe(false);
-      expect(terminal.estadoSiguienteId).toBeNull();
-      expect(terminal.estadoAnteriorId).toBeNull();
-
-      // Ni un boton de transicion en la tarjeta terminal.
-      expect(
-        fixture.nativeElement.querySelectorAll('button[aria-label$="#5"]').length
-      ).toBe(0);
-    });
-
-    it('AC-9/AC-19: moverSiguiente emite un PATCH y mueve la tarjeta sin recargar', () => {
-      const tarjeta = tarjetaDe(1)!;
-      expect(tarjeta.enProceso).toBe(false);
-      expect(columna(1).tarjetas.length).toBe(2);
-      expect(columna(2).tarjetas.length).toBe(2);
-
-      componente.moverSiguiente(tarjeta);
-
-      const peticion = httpMock.expectOne(RUTA_ESTADO(1));
-      expect(peticion.request.method).toBe('PATCH');
-      expect(peticion.request.body).toEqual({ estado_id: 2 });
-
-      peticion.flush({ ...TICKETS[0], estado_id: 2 });
-      fixture.detectChanges();
-
-      expect(tarjetaDe(1)!.ticket.estado_id).toBe(2);
-      expect(columna(2).tarjetas.some((t) => t.ticket.ticket_id === 1)).toBe(true);
-      expect(columna(1).tarjetas.length).toBe(1);
-      expect(columna(2).tarjetas.length).toBe(3);
-      // Sin recarga: no se reconsulto el tablero.
-      httpMock.expectNone(RUTA_TICKETS);
-    });
-
-    it('AC-10: moverAnterior emite el PATCH al estado anterior y mueve la tarjeta', () => {
-      const tarjeta = tarjetaDe(3)!; // estado 2, indice 1
-      expect(tarjeta.estadoAnteriorId).toBe(1);
-
-      componente.moverAnterior(tarjeta);
-
-      const peticion = httpMock.expectOne(RUTA_ESTADO(3));
-      expect(peticion.request.body).toEqual({ estado_id: 1 });
-
-      peticion.flush({ ...TICKETS[2], estado_id: 1 });
-      fixture.detectChanges();
-
-      expect(tarjetaDe(3)!.ticket.estado_id).toBe(1);
-      expect(columna(1).tarjetas.some((t) => t.ticket.ticket_id === 3)).toBe(true);
-    });
-
-    it('AC-19: con un PATCH pendiente el control queda deshabilitado y no hay doble envio', () => {
-      componente.moverSiguiente(tarjetaDe(1)!);
-
-      expect(tarjetaDe(1)!.enProceso).toBe(true);
-
-      // Segundo intento con el primero aun en vuelo: no debe salir otra peticion.
-      componente.moverSiguiente(tarjetaDe(1)!);
-      const peticiones = httpMock.match(RUTA_ESTADO(1));
-      expect(peticiones.length).toBe(1);
-
-      peticiones[0].flush({ ...TICKETS[0], estado_id: 2 });
-      fixture.detectChanges();
-
-      expect(tarjetaDe(1)!.enProceso).toBe(false);
-    });
-
-    it('AC-12: los ids ofrecidos son los contiguos del catalogo, sin saltos', () => {
-      const primero = tarjetaDe(1)!; // indice 0
-      expect(primero.estadoAnteriorId).toBeNull();
-      expect(primero.estadoSiguienteId).toBe(2);
-
-      const medio = tarjetaDe(3)!; // indice 1
-      expect(medio.estadoAnteriorId).toBe(1);
-      expect(medio.estadoSiguienteId).toBe(4);
-
-      const terminal = tarjetaDe(5)!; // indice 2 (ultimo)
-      expect(terminal.estadoAnteriorId).toBeNull();
-      expect(terminal.estadoSiguienteId).toBeNull();
-    });
-  });
-
-  describe('regla de despacho: sin avance desde EnCurso (AC-16)', () => {
-    /** Busca una tarjeta por el id de su ticket, aplanando las columnas. */
-    function tarjetaDe(ticketId: number) {
-      return componente
-        .columnas()
-        .flatMap((columna) => columna.tarjetas)
-        .find((tarjeta) => tarjeta.ticket.ticket_id === ticketId);
-    }
-
-    it('AC-16: la tarjeta del EnCurso canónico no ofrece avanzar y sí retroceder', () => {
-      responderArranque(CATALOGOS_005, TICKETS_005);
-
-      const enCurso = tarjetaDe(6)!; // estado 3, canónico
-      expect(enCurso.puedeAvanzar).toBe(false);
-      expect(enCurso.estadoSiguienteId).toBeNull();
-      // El retroceso no se toca: sigue apuntando al estado anterior del flujo.
-      expect(enCurso.puedeRetroceder).toBe(true);
-      expect(enCurso.estadoAnteriorId).toBe(2);
-    });
-
-    it('AC-16: el DOM no pinta el botón de avanzar en EnCurso pero sí el de retroceder', () => {
-      responderArranque(CATALOGOS_005, TICKETS_005);
-
-      expect(
-        fixture.nativeElement.querySelector('button[aria-label="Avanzar ticket #6"]')
-      ).toBeNull();
-      expect(
-        fixture.nativeElement.querySelector('button[aria-label="Retroceder ticket #6"]')
-      ).not.toBeNull();
-    });
-
-    it('AC-16: intentar avanzar desde EnCurso no emite ningún PATCH', () => {
-      responderArranque(CATALOGOS_005, TICKETS_005);
-
-      // `estadoSiguienteId` es `null`, así que `moverSiguiente` sale sin tocar
-      // la red aunque el usuario invoque la acción.
-      componente.moverSiguiente(tarjetaDe(6)!);
-
-      httpMock.expectNone(RUTA_ESTADO(6));
-      expect(componente.errorMovimiento()).toBeNull();
-    });
-
-    it('AC-16: las demás columnas conservan sus controles', () => {
-      responderArranque(CATALOGOS_005, TICKETS_005);
-
-      const pendiente = tarjetaDe(1)!; // estado 1, primer estado
-      expect(pendiente.puedeRetroceder).toBe(false);
-      expect(pendiente.puedeAvanzar).toBe(true);
-      expect(pendiente.estadoSiguienteId).toBe(2);
-
-      const enRevision = tarjetaDe(3)!; // estado 2, intermedio
-      expect(enRevision.puedeRetroceder).toBe(true);
-      expect(enRevision.estadoAnteriorId).toBe(1);
-      expect(enRevision.puedeAvanzar).toBe(true);
-      expect(enRevision.estadoSiguienteId).toBe(3);
-
-      const cerrado = tarjetaDe(5)!; // estado 4, terminal
-      expect(cerrado.puedeAvanzar).toBe(false);
-      expect(cerrado.puedeRetroceder).toBe(false);
-      expect(cerrado.estadoSiguienteId).toBeNull();
-      expect(cerrado.estadoAnteriorId).toBeNull();
-    });
-
-    it('AC-16: resuelve EnCurso sin distinguir mayúsculas', () => {
-      const catalogosMinuscula: CatalogosTicket = {
-        ...CATALOGOS_005,
-        estados: CATALOGOS_005.estados.map((estado) => ({
-          ...estado,
-          nombre: estado.nombre.toLowerCase(),
-        })),
-      };
-      responderArranque(catalogosMinuscula, TICKETS_005);
-
-      const enCurso = tarjetaDe(6)!;
-      expect(enCurso.puedeAvanzar).toBe(false);
-      expect(enCurso.estadoSiguienteId).toBeNull();
-      // El retroceso se conserva también con el nombre en minúsculas.
-      expect(enCurso.puedeRetroceder).toBe(true);
-    });
-
-    it('AC-16: con EnCurso duplicado solo el de menor id oculta el avance', () => {
-      responderArranque(CATALOGOS_EN_CURSO_DUPLICADO, TICKETS_EN_CURSO_DUPLICADO);
-
-      // El canónico es el de menor `estado_id` (3), aunque no sea el primero del
-      // arreglo.
-      const canonico = tarjetaDe(7)!; // estado 3
-      expect(canonico.puedeAvanzar).toBe(false);
-      expect(canonico.estadoSiguienteId).toBeNull();
-
-      // La columna duplicada (4) no es el canónico: conserva su avance.
-      const duplicado = tarjetaDe(8)!; // estado 4
-      expect(duplicado.puedeAvanzar).toBe(true);
-      expect(duplicado.estadoSiguienteId).toBe(3);
-    });
-  });
-
-  describe('rechazos del tablero', () => {
-    /** Busca una tarjeta por el id de su ticket, aplanando las columnas. */
-    function tarjetaDe(ticketId: number) {
-      return componente
-        .columnas()
-        .flatMap((columna) => columna.tarjetas)
-        .find((tarjeta) => tarjeta.ticket.ticket_id === ticketId);
-    }
-
-    /** La columna de un estado del catalogo. */
-    function columna(estadoId: number) {
-      return componente.columnas().find((c) => c.estado_id === estadoId)!;
-    }
-
-    it('AC-20: un 409 deja la tarjeta quieta, muestra alerta y reconsulta', () => {
-      responderArranque(CATALOGOS, TICKETS_TRANSICION);
-
-      componente.moverSiguiente(tarjetaDe(1)!);
-
-      httpMock
-        .expectOne(RUTA_ESTADO(1))
-        .flush(
-          { detail: 'Transición no permitida por el flujo' },
-          { status: 409, statusText: 'Conflict' }
-        );
-      fixture.detectChanges();
-
-      // Alerta accesible con el mensaje del backend.
-      expect(componente.errorMovimiento()).toBe('Transición no permitida por el flujo');
-      expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeTruthy();
-      expect(fixture.nativeElement.textContent).toContain('Transición no permitida por el flujo');
-
-      // La tarjeta no se movio: sigue en su columna de origen.
-      expect(columna(1).tarjetas.some((t) => t.ticket.ticket_id === 1)).toBe(true);
-      expect(columna(2).tarjetas.some((t) => t.ticket.ticket_id === 1)).toBe(false);
-
-      // Una sola reconsulta, y es la que fija la posicion final.
-      httpMock
-        .expectOne(RUTA_TICKETS)
-        .flush(
-          TICKETS_TRANSICION.map((t) => (t.ticket_id === 1 ? { ...t, estado_id: 2 } : t))
-        );
-      fixture.detectChanges();
-
-      expect(tarjetaDe(1)!.ticket.estado_id).toBe(2);
-      expect(columna(2).tarjetas.some((t) => t.ticket.ticket_id === 1)).toBe(true);
-    });
-
-    it('AC-20: un 404 deja la tarjeta quieta, muestra alerta y reconsulta', () => {
-      responderArranque(CATALOGOS, TICKETS_TRANSICION);
-
-      componente.moverSiguiente(tarjetaDe(1)!);
-
-      httpMock
-        .expectOne(RUTA_ESTADO(1))
-        .flush({ detail: 'Ticket no encontrado' }, { status: 404, statusText: 'Not Found' });
-      fixture.detectChanges();
-
-      expect(componente.errorMovimiento()).toBe('Ticket no encontrado');
-      expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeTruthy();
-      expect(columna(1).tarjetas.some((t) => t.ticket.ticket_id === 1)).toBe(true);
-
-      httpMock.expectOne(RUTA_TICKETS).flush(TICKETS_TRANSICION);
-      fixture.detectChanges();
-    });
-
-    it('AC-20: la ausencia de respuesta deja la tarjeta quieta, muestra alerta y reconsulta', () => {
-      responderArranque(CATALOGOS, TICKETS_TRANSICION);
-
-      componente.moverSiguiente(tarjetaDe(1)!);
-
-      httpMock.expectOne(RUTA_ESTADO(1)).error(new ProgressEvent('error'));
-      fixture.detectChanges();
-
-      expect(componente.errorMovimiento()).toContain('No se pudo cambiar el estado');
-      expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeTruthy();
-      expect(columna(1).tarjetas.some((t) => t.ticket.ticket_id === 1)).toBe(true);
-      expect(columna(2).tarjetas.some((t) => t.ticket.ticket_id === 1)).toBe(false);
-
-      httpMock.expectOne(RUTA_TICKETS).flush(TICKETS_TRANSICION);
-      fixture.detectChanges();
-    });
-
-    it('AC-8: el ticket creado aparece en el tablero sin recargar', () => {
+    it('el ticket creado aparece en el tablero sin recargar', () => {
       abrirConCatalogos();
 
       completarFormulario();
@@ -1222,7 +1107,7 @@ describe('TicketsComponent', () => {
       httpMock.expectNone(RUTA_TICKETS);
     });
 
-    it('AC-8: el ticket creado no aparece si los filtros no lo admiten (D-6)', () => {
+    it('el ticket creado no aparece si los filtros no lo admiten (D-6)', () => {
       abrirConCatalogos();
 
       componente.cambiarPrioridad('2');
@@ -1243,52 +1128,6 @@ describe('TicketsComponent', () => {
           columna.tarjetas.some((t) => t.ticket.ticket_id === 42)
         )
       ).toBe(false);
-    });
-  });
-
-  /**
-   * AC-3: el Solicitante consulta sus tickets pero no opera el Kanban (avanzar,
-   * retroceder, despachar). Es comodidad de interfaz: la frontera de seguridad
-   * real está en la API (D-2).
-   */
-  describe('capacidades por rol (AC-3)', () => {
-    it('oculta las operaciones de Kanban al Solicitante', () => {
-      identidad.set(crearIdentidad('Solicitante'));
-      responderArranque(CATALOGOS, TICKETS_TRANSICION);
-
-      expect(componente.puedeGestionarKanban()).toBe(false);
-      expect(
-        fixture.nativeElement.querySelector('button[aria-label^="Avanzar ticket"]')
-      ).toBeNull();
-      expect(
-        fixture.nativeElement.querySelector('button[aria-label^="Retroceder ticket"]')
-      ).toBeNull();
-    });
-
-    it('ofrece las operaciones de Kanban a Bodeguero, Administrador y Superadmin', () => {
-      responderArranque(CATALOGOS, TICKETS_TRANSICION);
-
-      for (const rol of ['Bodeguero', 'Administrador', 'Superadmin']) {
-        identidad.set(crearIdentidad(rol));
-        fixture.detectChanges();
-
-        expect(componente.puedeGestionarKanban()).withContext(rol).toBe(true);
-        expect(
-          fixture.nativeElement.querySelector('button[aria-label^="Avanzar ticket"]')
-        )
-          .withContext(rol)
-          .not.toBeNull();
-      }
-    });
-
-    it('no ofrece operaciones ante un rol alias o ausente', () => {
-      responderArranque();
-
-      identidad.set(crearIdentidad('Admin'));
-      expect(componente.puedeGestionarKanban()).toBe(false);
-
-      identidad.set(null);
-      expect(componente.puedeGestionarKanban()).toBe(false);
     });
   });
 

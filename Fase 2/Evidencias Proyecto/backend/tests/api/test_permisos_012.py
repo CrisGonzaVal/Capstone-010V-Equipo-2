@@ -156,10 +156,19 @@ def test_matriz_central_conserva_las_28_operaciones():
 
 
 def test_matriz_central_es_la_esperada_para_012():
+    """La matriz vigente conserva las 44 filas de la 012 idénticas.
+
+    Tras la 013 (matriz 44 -> 49, aditiva) la igualdad exacta contra el
+    contrato vivo la asume el modulo de la 013
+    (`test_ciclo_vida_autorizacion_013.py`, que exige 49 operaciones); aqui se
+    verifica que ninguna fila de la 012 se retira ni se relaja.
+    """
     _exigir_nuevas()
-    assert {
+    vigente = {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
-    } == MATRIZ_012
+    }
+    for clave, roles in MATRIZ_012.items():
+        assert vigente.get(clave) == roles, clave
 
 
 def test_operaciones_control_012_son_solo_superadmin():

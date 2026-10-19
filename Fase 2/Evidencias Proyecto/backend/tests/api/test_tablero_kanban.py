@@ -462,54 +462,65 @@ def test_una_transicion_no_reservada_desde_en_curso_sigue_siendo_200(
 
 
 def test_el_sellado_no_distingue_mayusculas(cliente, datos_flujo_cerrado_minuscula):
-    """El terminal se llama `CERRADO`; aun asi debe sellar (D-3, AC-18)."""
+    """El terminal se llama `CERRADO`; aun asi la alta sella (D-3, AC-18).
+
+    Ajustado por la enmienda D-4 de la 013 (AC-26): `PATCH /estado` ya no
+    puede entrar en `Cerrado` en **ningun** catalogo (el unico camino a ese
+    estado es el despacho transaccional de la 005), de modo que el
+    `casefold()` del sellado se verifica por el alta directa, camino vigente
+    junto con el despacho.
+    """
     ticket_id = crear_ticket_con_estado(
         cliente,
         datos_flujo_cerrado_minuscula,
-        datos_flujo_cerrado_minuscula["estado_en_revision_id"],
+        datos_flujo_cerrado_minuscula["estado_cerrado_id"],
     )
 
-    respuesta = cambiar_estado(
-        cliente, ticket_id, datos_flujo_cerrado_minuscula["estado_cerrado_id"]
-    )
+    ticket = ticket_en_api(cliente, ticket_id)
 
-    assert respuesta.status_code == 200, respuesta.text
-    assert respuesta.json()["fecha_cierre"] is not None, (
+    assert ticket["fecha_cierre"] is not None, (
         "CERRADO, Cerrado y cerrado valen lo mismo"
     )
+    assert ticket["estado_id"] == datos_flujo_cerrado_minuscula["estado_cerrado_id"]
 
 
-def test_reentrar_en_cerrado_conserva_la_fecha_original(
+def test_salir_de_cerrado_responde_409_y_conserva_la_fecha_sellada(
     cliente, datos_flujo_cerrado_no_terminal
 ):
-    """D-3: con catalogo degenerado se entra dos veces; nunca se sobrescribe."""
+    """D-4 enmienda 013 (AC-26): `Cerrado` no admite salida ni en medio del
+    catalogo; esa peticion responde hoy **409**.
+
+    Sustituye al derogado `test_reentrar_en_cerrado_conserva_la_fecha_original`
+    (espec 013 D-4/§8), que exigia `Cerrado → Archivado` = 200: la
+    terminalidad se resuelve por nombre canonico y no por posición, de modo
+    que un `Cerrado` que no es el ultimo del catalogo sigue sin salida. La
+    intencion de cobertura que queda viva se conserva aqui: `fecha_cierre`
+    se sella en el alta (AC-17) y ni el intento de salida ni nada posterior
+    la borran ni la sobrescriben.
+    """
     ticket_id = crear_ticket_con_estado(
         cliente,
         datos_flujo_cerrado_no_terminal,
-        datos_flujo_cerrado_no_terminal["estado_en_revision_id"],
+        datos_flujo_cerrado_no_terminal["estado_cerrado_id"],
     )
-
-    primera = cambiar_estado(
-        cliente, ticket_id, datos_flujo_cerrado_no_terminal["estado_cerrado_id"]
-    )
-    assert primera.status_code == 200, primera.text
-    fecha_sellada = primera.json()["fecha_cierre"]
-    assert fecha_sellada is not None, "la primera entrada en Cerrado debe sellar"
+    fecha_sellada = ticket_en_api(cliente, ticket_id)["fecha_cierre"]
+    assert fecha_sellada is not None, "la alta en Cerrado debe sellar la fecha"
 
     fuera = cambiar_estado(
         cliente, ticket_id, datos_flujo_cerrado_no_terminal["estado_archivado_id"]
     )
-    assert fuera.status_code == 200, fuera.text
-    assert fuera.json()["fecha_cierre"] == fecha_sellada, (
-        "salir de Cerrado no puede borrar la fecha"
-    )
 
-    segunda = cambiar_estado(
-        cliente, ticket_id, datos_flujo_cerrado_no_terminal["estado_cerrado_id"]
+    assert fuera.status_code == 409, fuera.text
+    assert "despacho" in fuera.json()["detail"].lower(), (
+        "el 409 de salida desde Cerrado declara que el cierre es definitivo y "
+        f"que el despacho es el unico camino a el: {fuera.text}"
     )
-    assert segunda.status_code == 200, segunda.text
-    assert segunda.json()["fecha_cierre"] == fecha_sellada, (
-        "la reentrada en Cerrado debe conservar la fecha original, no sellar otra"
+    despues = ticket_en_api(cliente, ticket_id)
+    assert despues["estado_id"] == datos_flujo_cerrado_no_terminal[
+        "estado_cerrado_id"
+    ], "un 409 no puede mover el ticket"
+    assert despues["fecha_cierre"] == fecha_sellada, (
+        "el intento de salida no puede borrar ni sobrescribir la fecha sellada"
     )
 
 

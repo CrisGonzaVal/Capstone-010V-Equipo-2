@@ -575,7 +575,12 @@ def test_crear_ticket_con_solicitante_ajeno_404_sin_parcial(motor, particion):
 
 
 def test_crear_ticket_puebla_institucion_en_ticket_y_detalle(motor, particion):
-    with _cliente(motor, "Administrador", particion["departamento_id"]) as cliente:
+    # El actor autenticado debe ser un usuario persistido: desde la 013 cada
+    # mutacion del ciclo de vida inserta su fila de historial con FK a
+    # `usuario` (AC-9), y la identidad sintetica 9999 no existe en la BD.
+    with _cliente(
+        motor, "Administrador", particion["departamento_id"], particion["usuario_id"]
+    ) as cliente:
         respuesta = cliente.post(
             RUTA_TICKETS,
             json=_payload(
@@ -689,7 +694,11 @@ def test_despacho_falta_stock_409_sin_efectos(motor, particion):
 
 
 def test_despacho_valido_actualiza_stock_entrega_estado_y_auditoria(motor, particion):
-    with _cliente(motor, "Bodeguero", particion["departamento_id"]) as cliente:
+    # Actor persistido: el despacho registra su fila de historial con FK a
+    # `usuario` (013, AC-9); la sonda sintetica 9999 no existe en la BD.
+    with _cliente(
+        motor, "Bodeguero", particion["departamento_id"], particion["usuario_id"]
+    ) as cliente:
         stock_inicial = _stock_sede(
             motor, particion["sede_propia_id"], particion["producto_propio_id"]
         )
@@ -733,7 +742,13 @@ def test_despacho_revierte_todo_si_el_commit_falla(motor, particion):
     """
     from sqlalchemy.orm import Session
 
-    with _cliente(motor, "Bodeguero", particion["departamento_id"]) as cliente_previo:
+    # Actor persistido para la fila de historial del despacho (013, AC-9).
+    with _cliente(
+        motor,
+        "Bodeguero",
+        particion["departamento_id"],
+        particion["usuario_id"],
+    ) as cliente_previo:
         stock_inicial = _stock_sede(
             motor, particion["sede_propia_id"], particion["producto_propio_id"]
         )

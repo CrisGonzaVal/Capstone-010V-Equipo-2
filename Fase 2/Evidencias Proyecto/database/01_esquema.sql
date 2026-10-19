@@ -15,6 +15,16 @@
 -- `stock_sede_id`. Justificacion aprobada en docs/spec/stack.md §"Evolucion del
 -- modelo organizacional e inventario por sede (Feature 011)".
 --
+-- Feature 013 (ciclo de vida del ticket): se agrega la entidad de dominio
+-- `historial_transicion_ticket` (seccion 12b), tabla de historial inmutable
+-- por esquema tenant que aqui se crea en `control` por paridad estructural del
+-- DDL canonico; el constructor de tenants y la migracion operacional `013.1` la
+-- replican a cada esquema. El DDL de `estado_ticket` no cambia: la quinta fila
+-- del catalogo (`Anulado`) la siembra `02_datos_semilla.sql`. Sin columna
+-- `institucion_id` (su aislamiento es el de su esquema). Justificacion
+-- aprobada en docs/spec/stack.md §"Ciclo de vida del ticket: estado `Anulado` e
+-- historial de transiciones (Feature 013)".
+--
 -- Feature 008: pertenencia institucional explicitamente (categoria.institucion_id,
 -- producto.institucion_id) o derivada (inventario/ticket/detalle_ticket). Se
 -- conservan las PK simples y se agregan claves unicas compuestas como destino de
@@ -470,6 +480,52 @@ CREATE TABLE control.detalle_ticket (
 
     CONSTRAINT detalle_cantidad_entregada_ck
         CHECK (cantidad_entregada >= 0)
+);
+
+-- =====================================================
+-- 12b. HISTORIAL_TRANSICION_TICKET  (Feature 013)
+-- =====================================================
+-- Una fila por transicion del ciclo de vida del ticket (spec D-10, AC-9):
+-- creacion (estado_origen_id nulo), cambio de estado de la 004, despacho de la
+-- 005 y anulacion/rechazo de la 013. Es inmutable y de solo lectura por API: no
+-- hay operacion de creacion/edicion/borrado fuera de las transiciones mismas, y
+-- cada fila se escribe en la MISMA transaccion que el cambio que representa
+-- (constitucion.md §3). Tabla de negocio por esquema tenant; aqui se crea en
+-- `control` por paridad estructural del DDL canonico (el constructor de
+-- tenants y la migracion `013.1` la replican a cada tenant). Sin columna
+-- `institucion_id`: su aislamiento es el de su esquema, con la misma defensa
+-- que `movimiento_inventario` (anclada por su ticket, que ya porta la
+-- institucion). Justificacion aprobada en docs/spec/stack.md §"Ciclo de vida
+-- del ticket: estado `Anulado` e historial de transiciones (Feature 013)".
+
+CREATE TABLE control.historial_transicion_ticket (
+    historial_transicion_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ticket_id INTEGER NOT NULL,
+    -- Nulo SOLO en la fila de creacion del ticket (Feature 013, AC-9).
+    estado_origen_id INTEGER,
+    estado_destino_id INTEGER NOT NULL,
+    -- Actor autenticado de la transicion.
+    usuario_id INTEGER NOT NULL,
+    fecha_transicion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Escala de `ticket.descripcion`. Nullable: la anulacion y el rechazo lo
+    -- exigen no vacio, pero esa validacion vive en el servicio, no en el DDL.
+    motivo VARCHAR(500),
+
+    CONSTRAINT historial_transicion_ticket_ticket_fk
+        FOREIGN KEY (ticket_id)
+        REFERENCES ticket(ticket_id),
+
+    CONSTRAINT historial_transicion_ticket_estado_origen_fk
+        FOREIGN KEY (estado_origen_id)
+        REFERENCES estado_ticket(estado_id),
+
+    CONSTRAINT historial_transicion_ticket_estado_destino_fk
+        FOREIGN KEY (estado_destino_id)
+        REFERENCES estado_ticket(estado_id),
+
+    CONSTRAINT historial_transicion_ticket_usuario_fk
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(usuario_id)
 );
 
 -- =====================================================

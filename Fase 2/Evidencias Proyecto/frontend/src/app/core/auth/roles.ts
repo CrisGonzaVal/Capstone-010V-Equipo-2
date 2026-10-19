@@ -67,6 +67,24 @@ export const ROLES_TICKETS = [
  */
 export const ROLES_ASIGNABLES_ADMINISTRADOR = ['Bodeguero', 'Solicitante'] as const;
 
+/**
+ * Roles que anulan tickets (Feature 013, AC-17: `POST /tickets/{id}/anulacion`).
+ * En la vista de detalle, el Solicitante además debe ser el dueño del ticket.
+ */
+export const ROLES_ANULACION_TICKETS = ['Administrador', 'Solicitante'] as const;
+
+/**
+ * Roles que rechazan tickets (Feature 013, AC-17: `POST /tickets/{id}/rechazo`).
+ * El Bodeguero opera tickets de su institución; no se exige condición de dueño.
+ */
+export const ROLES_RECHAZO_TICKETS = ['Administrador', 'Bodeguero'] as const;
+
+/**
+ * Roles que editan tickets (Feature 013, AC-17: `PUT /tickets/{id}`). En la
+ * vista de detalle, el Solicitante además debe ser el dueño del ticket.
+ */
+export const ROLES_EDICION_TICKETS = ['Administrador', 'Solicitante'] as const;
+
 function contiene(roles: readonly string[], rol: string | null): boolean {
   return rol !== null && roles.includes(rol);
 }
@@ -101,6 +119,36 @@ export function puedeOperarTickets(rol: string | null): boolean {
 /** `true` si el rol puede navegar a la vista de tickets/Kanban (AC-3). */
 export function puedeVerTickets(rol: string | null): boolean {
   return contiene(ROLES_TICKETS, rol);
+}
+
+/**
+ * `true` si el rol puede anular tickets (Feature 013, AC-17/AC-24).
+ *
+ * Espejo de la matriz: Administrador y Solicitante; en la vista de detalle el
+ * Solicitante además debe ser el dueño (la vista lo exige junto a esto).
+ * Presentación pura: la autorización real la decide la API (D-2).
+ */
+export function puedeAnularTicket(rol: string | null): boolean {
+  return contiene(ROLES_ANULACION_TICKETS, rol);
+}
+
+/**
+ * `true` si el rol puede rechazar tickets (Feature 013, AC-17/AC-24).
+ *
+ * Espejo de la matriz: Administrador y Bodeguero, sin condición de dueño.
+ */
+export function puedeRechazarTicket(rol: string | null): boolean {
+  return contiene(ROLES_RECHAZO_TICKETS, rol);
+}
+
+/**
+ * `true` si el rol puede editar tickets (Feature 013, AC-17/AC-24).
+ *
+ * Espejo de la matriz: Administrador y Solicitante; en la vista de detalle el
+ * Solicitante además debe ser el dueño.
+ */
+export function puedeEditarTicket(rol: string | null): boolean {
+  return contiene(ROLES_EDICION_TICKETS, rol);
 }
 
 /** `true` si el rol puede acceder al área administrativa. */

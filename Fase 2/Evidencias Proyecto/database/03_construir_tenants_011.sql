@@ -14,9 +14,10 @@
 --   Antes de este script, la semilla dejaba TODOS los datos de negocio dentro de
 --   `control` y ningun esquema `tenant_*`: el sistema no podia enrutar por
 --   tenant. Ahora la base que produce el initdb es estructural y funcionalmente
---   equivalente a la `apt_erp` real migrada (control + 4 tenants en `012.1`),
---   con la salvedad de que las cifras provienen de la semilla QA (11 sedes
---   repartidas 2/3/4/2, stock cuadrado) y no del historico real.
+--   equivalente a la `apt_erp` real migrada (control + 4 tenants en la version
+--   objetivo, hoy `013.1`), con la salvedad de que las cifras provienen de la
+--   semilla QA (11 sedes repartidas 2/3/4/2, stock cuadrado) y no del historico
+--   real.
 --
 -- POR QUE UN .sql Y NO UN .sh
 --   PostgreSQL ejecuta los archivos de /docker-entrypoint-initdb.d en orden
@@ -131,7 +132,8 @@ DECLARE
         'prioridad:prioridad_id',
         'estado_ticket:estado_id',
         'ticket:ticket_id',
-        'detalle_ticket:detalle_ticket_id'
+        'detalle_ticket:detalle_ticket_id',
+        'historial_transicion_ticket:historial_transicion_id'
     ];
     par text;
     v_tabla text;
@@ -160,10 +162,10 @@ $reset$;
 
 DO $construccion$
 DECLARE
-    --: Version objetivo del DDL. Sube a `012.1` con la Feature 012 (activo
-    --: institucional + capacidades), la misma que fija el codigo en
-    --: `app.core.config.VERSION_ESQUEMA_OBJETIVO`.
-    v_version_objetivo constant text := '012.1';
+    --: Version objetivo del DDL. Sube a `013.1` con la Feature 013 (estado
+    --: `Anulado` + tabla `historial_transicion_ticket`), la misma que fija el
+    --: codigo en `app.core.config.VERSION_ESQUEMA_OBJETIVO`.
+    v_version_objetivo constant text := '013.1';
 
     --: Plantillas del DDL canonico ampliado (Feature 011), identicas a
     --: `database/01_esquema.sql` (mismas columnas, FKs, checks e indices
@@ -397,6 +399,27 @@ BEGIN
         'CONSTRAINT detalle_cantidad_solicitada_ck CHECK (cantidad_solicitada > 0), '
         'CONSTRAINT detalle_cantidad_entregada_ck CHECK (cantidad_entregada >= 0))',
 
+        --: Feature 013: tabla 17 del modelo ampliado, replica de
+        --: `database/01_esquema.sql` seccion 12b. Sin `institucion_id` (su
+        --: aislamiento es el de su esquema, como `movimiento_inventario`); las
+        --: cuatro FKs van calificadas al mismo esquema.
+        'CREATE TABLE %1$I.historial_transicion_ticket ('
+        'historial_transicion_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, '
+        'ticket_id INTEGER NOT NULL, '
+        'estado_origen_id INTEGER, '
+        'estado_destino_id INTEGER NOT NULL, '
+        'usuario_id INTEGER NOT NULL, '
+        'fecha_transicion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, '
+        'motivo VARCHAR(500), '
+        'CONSTRAINT historial_transicion_ticket_ticket_fk '
+        'FOREIGN KEY (ticket_id) REFERENCES %1$I.ticket(ticket_id), '
+        'CONSTRAINT historial_transicion_ticket_estado_origen_fk '
+        'FOREIGN KEY (estado_origen_id) REFERENCES %1$I.estado_ticket(estado_id), '
+        'CONSTRAINT historial_transicion_ticket_estado_destino_fk '
+        'FOREIGN KEY (estado_destino_id) REFERENCES %1$I.estado_ticket(estado_id), '
+        'CONSTRAINT historial_transicion_ticket_usuario_fk '
+        'FOREIGN KEY (usuario_id) REFERENCES %1$I.usuario(usuario_id))',
+
         'CREATE TABLE %1$I.version_esquema ('
         'version_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, '
         'version VARCHAR(20) NOT NULL, '
@@ -409,7 +432,8 @@ BEGIN
     FOR v_institucion_id IN SELECT institucion_id FROM control.institucion ORDER BY institucion_id LOOP
         v_esquema := pg_temp.nombre_esquema_tenant(v_institucion_id);
 
-        -- (1.1) Schema y DDL canonico ampliado (16 tablas, incluida version_esquema).
+        -- (1.1) Schema y DDL canonico ampliado (17 tablas, incluida
+        --       historial_transicion_ticket y version_esquema).
         EXECUTE format('CREATE SCHEMA %I', v_esquema);
         FOREACH v_plantilla IN ARRAY v_plantillas LOOP
             EXECUTE format(v_plantilla, v_esquema);
@@ -566,6 +590,10 @@ BEGIN
     -- Se conservan `institucion` (registro canonico, destino de la FK del mapa),
     -- `rol` (incluido Superadmin) y `mapa_usuario_esquema`. Se VACIAN las tablas
     -- de negocio tras copiarlas: su lugar es cada tenant. El orden respeta las FK.
+    -- Excepcion de la Feature 013: `estado_ticket` conserva la fila `Anulado`
+    -- (presencia obligatoria en toda instalacion, stack §2 013); es el espejo
+    -- exacto de lo que deja la migracion `004_...013.sql` en control de una base
+    -- real. El resto del catalogo (y `prioridad`) se vacia como antes.
     DELETE FROM control.detalle_ticket;
     DELETE FROM control.movimiento_inventario;
     DELETE FROM control.stock_sede;
@@ -578,7 +606,7 @@ BEGIN
     DELETE FROM control.departamento;
     DELETE FROM control.sede;
     DELETE FROM control.prioridad;
-    DELETE FROM control.estado_ticket;
+    DELETE FROM control.estado_ticket WHERE nombre <> 'Anulado';
 
     -- Version objetivo de control (una sola fila vigente).
     IF EXISTS (SELECT 1 FROM control.version_esquema) THEN
@@ -610,6 +638,6 @@ BEGIN
         END IF;
     END LOOP;
 
-    RAISE NOTICE '012: constructor completado. control + tenants en version %; datos de la semilla distribuidos por institucion.', v_version_objetivo;
+    RAISE NOTICE '013: constructor completado. control + tenants en version %; datos de la semilla distribuidos por institucion.', v_version_objetivo;
 END;
 $construccion$;

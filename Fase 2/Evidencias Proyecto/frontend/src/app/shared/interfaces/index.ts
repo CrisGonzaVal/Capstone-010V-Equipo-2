@@ -157,6 +157,85 @@ export interface CatalogosTicket {
   solicitantes: Solicitante[];
 }
 
+// --- Ciclo de vida del ticket (Feature 013) ---
+
+/**
+ * Payload de anulación y rechazo (`TicketMotivo` del backend, T8).
+ *
+ * El backend valida el motivo en el servicio (no vacío, ≤ 500) y responde 422;
+ * aquí viaja como texto crudo para que ese 422 sea observable por API.
+ */
+export interface TicketMotivo {
+  motivo: string;
+}
+
+/**
+ * Fila del historial de transiciones (`GET /tickets/{id}/historial`).
+ *
+ * Los siete primeros campos son el contrato congelado de
+ * `backend/tests/api/_soporte_ciclo_vida_013.py` (`CAMPOS_HISTORIAL`): ids, no
+ * textos. Los campos `*_nombre` son los de presentación que
+ * `HistorialTransicionRespuesta` (T9) debe poblar para que la vista pueda
+ * mostrar el historial completo (AC-23: actor, de→a) sin cruzar catálogos ni
+ * resolver usuarios; son opcionales y la vista degrada si faltan.
+ */
+export interface HistorialTransicion {
+  historial_transicion_id: number;
+  ticket_id: number;
+  /** `null` solo en la fila de creación (AC-9). */
+  estado_origen_id: number | null;
+  estado_destino_id: number;
+  usuario_id: number;
+  fecha_transicion: string;
+  motivo: string | null;
+  estado_origen_nombre?: string | null;
+  estado_destino_nombre?: string | null;
+  usuario_nombre?: string | null;
+  usuario_apellido?: string | null;
+}
+
+/**
+ * Detalle completo del ticket (`GET /tickets/{id}`, spec §6).
+ *
+ * Refleja el `TicketDetalleRespuesta` previsto por el plan §4 (T9): la
+ * cabecera del `TicketRespuesta` vigente más los campos resueltos que la vista
+ * necesita para AC-23 (estado, prioridad, solicitante con departamento y
+ * sede). Los resueltos son opcionales porque el schema del backend se define
+ * en T9; la vista degrada a los catálogos y a etiquetas `#id` si faltan.
+ */
+export interface TicketDetalle {
+  ticket_id: number;
+  usuario_id: number;
+  prioridad_id: number;
+  estado_id: number;
+  asunto: string;
+  descripcion: string | null;
+  fecha_creacion: string;
+  fecha_cierre: string | null;
+  sede_id: number | null;
+  detalles: DetalleTicket[];
+  estado_nombre?: string | null;
+  prioridad_nombre?: string | null;
+  solicitante_nombre?: string | null;
+  solicitante_apellido?: string | null;
+  solicitante_correo?: string | null;
+  departamento_nombre?: string | null;
+  sede_nombre?: string | null;
+}
+
+/**
+ * Payload de `PUT /tickets/{ticket_id}` (`TicketEditar`, T8): edición del
+ * ticket en `Pendiente` con el **conjunto completo** de ítems (reemplazo
+ * atómico, D-9). No viajan estado, solicitante, sede ni institución: no son
+ * editables.
+ */
+export interface TicketEditar {
+  asunto: string;
+  descripcion: string | null;
+  prioridad_id: number;
+  detalles: DetalleTicketCrear[];
+}
+
 // --- Autenticación ---
 
 /**

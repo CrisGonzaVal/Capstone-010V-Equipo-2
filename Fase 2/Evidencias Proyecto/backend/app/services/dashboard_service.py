@@ -68,10 +68,12 @@ from app.services import ambito_service
 from app.services import global_service
 from app.services.auth_service import IdentidadAutenticada
 from app.services.inventario_service import es_stock_critico
-#: Nombre literal del unico estado de ticket que NO cuenta como activo. La
-#: comparacion es sensible a mayusculas y sin normalizacion (D-4 #2, AC-2): solo
-#: el nombre exacto "Cerrado" se excluye; "cerrado" o "CERRADO" si cuentan.
-NOMBRE_ESTADO_CERRADO = "Cerrado"
+#: Nombres literales de los estados que NO cuentan como tickets activos. La
+#: comparacion es sensible a mayusculas y sin normalizacion (009 D-4 #2, que la
+#: 013 conserva; AC-22/D-12): solo los nombres exactos "Cerrado" y "Anulado" se
+#: excluyen; "cerrado", "CERRADO" o "anulado" (minusculas) si cuentan. Sin ids
+#: fijos: la exclusion se resuelve por nombre en cualquier catalogo.
+NOMBRES_ESTADOS_NO_ACTIVOS = ("Cerrado", "Anulado")
 
 #: Filas de la actividad reciente. Limite fijo del contrato de consulta (D-5,
 #: AC-6): no es paginacion ni historial editable.
@@ -103,19 +105,22 @@ def _sumar_unidades_en_stock(db: Session, institucion_id: str | None) -> int:
 def _contar_tickets_activos(
     db: Session, identidad: IdentidadAutenticada | None, institucion_id: str | None
 ) -> int:
-    """KPI «Tickets activos»: tickets cuyo estado no es exactamente «Cerrado».
+    """KPI «Tickets activos»: tickets cuyo estado no es `Cerrado` ni `Anulado`.
 
-    El conteo es agregado en SQL (nunca se descargan los tickets a Python). El
-    alcance por rol replica la regla vigente de tickets (D-3/AC-9): Superadmin,
-    global; Administrador/Bodeguero, los de su institucion via
-    `ticket → usuario → departamento`; Solicitante, solo los propios por
-    `usuario_id`.
+    El conteo es agregado en SQL (nunca se descargan los tickets a Python). La
+    exclusion es por **nombre exacto** de los dos estados terminales
+    (`NOMBRES_ESTADOS_NO_ACTIVOS`), sin ids fijos y sin insensibilidad al
+    casing, conservando la semantica documentada en la 009 (Feature 013,
+    spec D-12/AC-22). El alcance por rol replica la regla vigente de tickets
+    (D-3/AC-9): Superadmin, global; Administrador/Bodeguero, los de su
+    institucion via `ticket → usuario → departamento`; Solicitante, solo los
+    propios por `usuario_id`.
     """
     consulta = (
         select(func.count())
         .select_from(Ticket)
         .join(EstadoTicket, Ticket.estado_id == EstadoTicket.estado_id)
-        .where(EstadoTicket.nombre != NOMBRE_ESTADO_CERRADO)
+        .where(EstadoTicket.nombre.notin_(NOMBRES_ESTADOS_NO_ACTIVOS))
     )
 
     if _es_solicitante(identidad):

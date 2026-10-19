@@ -9,7 +9,8 @@ se acredita contra PostgreSQL 16 real:
     `(institucion_id, funcion)` y el conjunto cerrado de seis capacidades;
   * el espejo tenant `institucion` tiene **exactamente** dos columnas
     (`institucion_id`, `nombre`) y **no** materializa capacidades;
-  * la version objetivo de control y de cada tenant es `012.1`;
+  * la version objetivo de control y de cada tenant es la vigente
+    (`VERSION_ESQUEMA_OBJETIVO`; la 012 la subio a `012.1`);
   * la migracion `003_...012.sql` es idempotente.
 
 COMO ACTIVARLAS
@@ -39,6 +40,8 @@ try:  # `psycopg2` es dependencia declarada; el guard evita un error de coleccio
 except ImportError:  # pragma: no cover - entorno sin la dependencia
     _PSYCOPG2_DISPONIBLE = False
 
+from app.core.config import VERSION_ESQUEMA_OBJETIVO
+
 _POSTGRES_TEST_URL = os.environ.get("POSTGRES_TEST_URL")
 
 pytestmark = pytest.mark.skipif(
@@ -58,7 +61,12 @@ MIGRACION_012 = (
     RAIZ / "database" / "migraciones" / "003_migracion_gestion_administrativa_012.sql"
 )
 
-VERSION_OBJETIVO = "012.1"
+#: Version objetivo vigente: la constante de despliegue, no un literal (el bump
+#: de T5 la subira a `013.1` y el constructor seguira automaticamente).
+VERSION_OBJETIVO = VERSION_ESQUEMA_OBJETIVO
+#: Fase de la cadena de migraciones: el script `003_...012.sql` fija `012.1`
+#: para siempre; las pruebas de migracion la ejercitan como destino de ese salto.
+VERSION_MIGRACION_012 = "012.1"
 CAPACIDADES = {
     "catalogo",
     "inventario",
@@ -243,6 +251,9 @@ def test_migracion_012_es_idempotente():
         _ejecutar_script(conexion, ESQUEMA_SQL)
         _ejecutar_script(conexion, SEMILLA_SQL)
         _ejecutar_script(conexion, CONSTRUCTOR_SQL)
+        # El constructor nace en la version objetivo vigente (013.1 desde la
+        # Feature 013); la 003 ejercita su propia fase de la cadena.
+        _degradar_a_012_1(conexion)
 
         _ejecutar_script(conexion, MIGRACION_012)
         antes = _un_escalar(conexion, "SELECT count(*) FROM control.funcion_institucion")
@@ -250,7 +261,7 @@ def test_migracion_012_es_idempotente():
         despues = _un_escalar(conexion, "SELECT count(*) FROM control.funcion_institucion")
         assert antes == despues, "la segunda ejecucion no debe duplicar capacidades"
         assert _ejecutar(conexion, "SELECT version FROM control.version_esquema") == [
-            (VERSION_OBJETIVO,)
+            (VERSION_MIGRACION_012,)
         ]
 
         for institucion_id in _instituciones(conexion):
@@ -322,6 +333,30 @@ def _degradar_a_011_1(conexion) -> None:
     )
 
 
+def _degradar_a_012_1(conexion) -> None:
+    """Deja la base con la **forma** de una instalacion 012.1 existente.
+
+    El constructor vigente nace en la version objetivo (hoy `013.1`, Feature
+    013), pero la migracion 003 de esta suite ejercita su propia fase de la
+    cadena (`012.1`, `VERSION_MIGRACION_012`); devuelve control y cada tenant a
+    ese token conservando la estructura 012 completa. Las estructuras 013
+    (estado `Anulado`, `historial_transicion_ticket`) no molestan: la 003 no las
+    conoce ni las toca.
+    """
+    for institucion_id in _instituciones(conexion):
+        esquema = _esquema_de_institucion(institucion_id)
+        _ejecutar(
+            conexion,
+            f'UPDATE "{esquema}".version_esquema SET version = %s',
+            (VERSION_MIGRACION_012,),
+        )
+    _ejecutar(
+        conexion,
+        "UPDATE control.version_esquema SET version = %s",
+        (VERSION_MIGRACION_012,),
+    )
+
+
 def test_migracion_012_transiciona_una_instalacion_011_1_preservando_datos():
     """AC-1/AC-2/AC-5/AC-13: 011.1 -> 012.1 con datos, mapas y espejo intactos."""
     _existe_archivo(MIGRACION_012)
@@ -340,13 +375,14 @@ def test_migracion_012_transiciona_una_instalacion_011_1_preservando_datos():
 
         _ejecutar_script(conexion, MIGRACION_012)
 
-        # (control) activo, seis capacidades por institucion y version 012.1.
+        # (control) activo, seis capacidades por institucion y la version que
+        # fija la migracion 003 (`VERSION_MIGRACION_012`, fase de la cadena).
         assert "activo" in _columnas_de_tabla(conexion, "control", "institucion")
         assert _un_escalar(conexion, "SELECT count(*) FROM control.funcion_institucion") == (
             len(instituciones) * CAPACIDADES_POR_INSTITUCION
         )
         assert _ejecutar(conexion, "SELECT version FROM control.version_esquema") == [
-            (VERSION_OBJETIVO,)
+            (VERSION_MIGRACION_012,)
         ]
 
         for institucion_id in instituciones:
@@ -358,7 +394,7 @@ def test_migracion_012_transiciona_una_instalacion_011_1_preservando_datos():
             assert "activo" in _columnas_de_tabla(conexion, esquema, "sede")
             assert "activo" in _columnas_de_tabla(conexion, esquema, "departamento")
             assert _ejecutar(conexion, f'SELECT version FROM "{esquema}".version_esquema') == [
-                (VERSION_OBJETIVO,)
+                (VERSION_MIGRACION_012,)
             ]
             # datos de negocio preservados fila a fila.
             assert _conteos_negocio(conexion, esquema) == antes[institucion_id], institucion_id
@@ -373,6 +409,9 @@ def test_migracion_012_aborta_ante_estado_parcial_sin_marcar_version():
         _ejecutar_script(conexion, ESQUEMA_SQL)
         _ejecutar_script(conexion, SEMILLA_SQL)
         _ejecutar_script(conexion, CONSTRUCTOR_SQL)
+        # El constructor nace en la version objetivo vigente (013.1 desde la
+        # Feature 013); la 003 ejercita su propia fase de la cadena.
+        _degradar_a_012_1(conexion)
 
         institucion_id = _instituciones(conexion)[0]
         esquema = _esquema_de_institucion(institucion_id)
@@ -390,7 +429,7 @@ def test_migracion_012_aborta_ante_estado_parcial_sin_marcar_version():
 
         # Ninguna version queda parcialmente marcada.
         assert _ejecutar(conexion, "SELECT version FROM control.version_esquema") == [
-            (VERSION_OBJETIVO,)
+            (VERSION_MIGRACION_012,)
         ]
         assert _un_escalar(
             conexion, f'SELECT version FROM "{esquema}".version_esquema'

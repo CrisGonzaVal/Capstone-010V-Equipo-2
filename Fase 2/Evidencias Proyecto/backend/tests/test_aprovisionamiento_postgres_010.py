@@ -40,6 +40,7 @@ except ImportError:  # pragma: no cover - entorno sin la dependencia
 from sqlalchemy import create_engine, select
 from sqlalchemy.schema import CreateSchema
 
+from app.core.config import VERSION_ESQUEMA_OBJETIVO
 from app.db.database import Base, ESQUEMA_CONTROL, crear_sesion_control, crear_sesion_esquema
 from app.models import BaseControl, Rol, Sede, Usuario, VersionEsquema
 from app.schemas.control_schema import InstitucionAltaControlCrear
@@ -164,13 +165,14 @@ def test_tenant_aprovisionado_tiene_rol_administrador_unico():
             engine.dispose()
 
 
-def test_tenant_aprovisionado_recibe_sede_central_y_version_012_1():
+def test_tenant_aprovisionado_recibe_sede_central_y_version_objetivo():
     """AC-12 (T6, Feature 011): el tenant nuevo nace operativo.
 
     El aprovisionamiento debe crear "Sede Central" (bootstrap organizacional, no
-    CRUD) y dejar una **unica** fila de version objetivo `012.1` (Feature 012)
-    para que el tenant sea enrutable. SQLite no reproduce el namespace por tenant,
-    asi que el invariante se acredita contra PostgreSQL 16 real.
+    CRUD) y dejar una **unica** fila con la version objetivo vigente
+    (`VERSION_ESQUEMA_OBJETIVO`; la Feature 012 la subio a `012.1`) para que el
+    tenant sea enrutable. SQLite no reproduce el namespace por tenant, asi que el
+    invariante se acredita contra PostgreSQL 16 real.
     """
     with _base_temporal(_POSTGRES_TEST_URL) as url:
         engine = create_engine(_url_sqlalchemy(url), future=True)
@@ -204,7 +206,7 @@ def test_tenant_aprovisionado_recibe_sede_central_y_version_012_1():
                 versiones = (
                     sesion_tenant.execute(select(VersionEsquema.version)).scalars().all()
                 )
-                assert versiones == ["012.1"], versiones
+                assert versiones == [VERSION_ESQUEMA_OBJETIVO], versiones
             finally:
                 sesion_tenant.close()
         finally:

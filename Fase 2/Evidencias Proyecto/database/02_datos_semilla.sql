@@ -12,7 +12,7 @@
 -- ORDEN DE EJECUCION (no lo cambies sin leer esto)
 --   Los .sql de esta carpeta los ejecuta PostgreSQL solo al crear el volumen,
 --   y los recorre en ORDEN ALFABETICO. Este archivo empieza con TRUNCATE sobre
---   las 15 tablas, asi que exige que `01_esquema.sql` ya exista: por eso lleva
+--   las 17 tablas, asi que exige que `01_esquema.sql` ya exista: por eso lleva
 --   el prefijo numerico. Con los nombres viejos (`datos_semilla.sql` para la
 --   semilla y `script_apt_erp.sql` —hoy `database/01_esquema.sql`— para el
 --   esquema) la "d" sortea antes que la "s", la semilla corria
@@ -45,7 +45,7 @@
 --   guardan como "??". Usa `cmd /c` con la redireccion, que copia bytes crudos.
 --   Este archivo es ASCII puro justamente para que el problema no aparezca.
 --
---   El TRUNCATE inicial limpia las 15 tablas y reinicia las secuencias
+--   El TRUNCATE inicial limpia las 17 tablas y reinicia las secuencias
 --   GENERATED ALWAYS AS IDENTITY, de modo que los ids siempre son los mismos y
 --   los datos son reproducibles. No es idempotente sobre una base ya sembrada:
 --   la guardia aborta (ver seccion 0a).
@@ -118,8 +118,9 @@
 -- Esta semilla es destructiva (TRUNCATE + INSERT). Para no confundir una base
 -- real o ya sembrada con un entorno descartable, ABORTA antes del primer
 -- TRUNCATE si detecta cualquier fila en las tablas canonicas (las doce de 3NF mas
--- `sede`, `stock_sede` y `departamento_encargado` de la Feature 011, y
--- `funcion_institucion` de la Feature 012), en
+-- `sede`, `stock_sede` y `departamento_encargado` de la Feature 011,
+-- `funcion_institucion` de la Feature 012 y `historial_transicion_ticket` de la
+-- Feature 013), en
 -- `mapa_usuario_esquema` o en `version_esquema` (criterio aprobado en
 -- T8a-hallazgos-docker-initdb.md section 5). La condicion es una propiedad de
 -- la base calculada en el servidor: no la aporta el cliente ni un parametro, y
@@ -134,13 +135,14 @@ DECLARE
     v_conteo bigint;
     v_registro regclass;
 BEGIN
-    -- Quince tablas canonicas: se cuentan sin prefijo (resuelven a `control` o,
-    -- en una base legada, a `public`). Si alguna no existiera, la consulta falla
-    -- y el arranque aborta: tambien cierra.
+    -- Diecisiete tablas canonicas: se cuentan sin prefijo (resuelven a `control`
+    -- o, en una base legada, a `public`). Si alguna no existiera, la consulta
+    -- falla y el arranque aborta: tambien cierra.
     SELECT
         (SELECT count(*) FROM detalle_ticket)
       + (SELECT count(*) FROM funcion_institucion)
       + (SELECT count(*) FROM movimiento_inventario)
+      + (SELECT count(*) FROM historial_transicion_ticket)
       + (SELECT count(*) FROM stock_sede)
       + (SELECT count(*) FROM ticket)
       + (SELECT count(*) FROM inventario)
@@ -186,7 +188,8 @@ $guardia$;
 -- CASCADE evita tener que declarar el orden a mano; RESTART IDENTITY
 -- reinicia las secucciones GENERATED ALWAYS AS IDENTITY de Postgres 16.
 
-TRUNCATE TABLE detalle_ticket, movimiento_inventario, stock_sede, ticket,
+TRUNCATE TABLE detalle_ticket, movimiento_inventario, stock_sede,
+    historial_transicion_ticket, ticket,
     inventario, departamento_encargado, producto, categoria, usuario, rol,
     departamento, sede, prioridad, estado_ticket, institucion, funcion_institucion
 RESTART IDENTITY CASCADE;
@@ -277,7 +280,7 @@ INSERT INTO rol (rol_id, nombre_rol, descripcion) OVERRIDING SYSTEM VALUE VALUES
 (4, 'Solicitante',       'Funcionario que consulta stock y emite tickets');
 
 -- =====================================================
--- 4. USUARIO  (10 filas)
+-- 4. USUARIO  (12 filas)
 -- =====================================================
 -- Clerk es la unica autoridad de autenticacion (Feature 006): el usuario local
 -- no guarda credencial alguna. El vinculo con Clerk se resuelve por `correo`
@@ -285,7 +288,14 @@ INSERT INTO rol (rol_id, nombre_rol, descripcion) OVERRIDING SYSTEM VALUE VALUES
 -- La institucion del usuario NO se guarda aqui: se deriva de su departamento.
 -- Feature 011 (D-5): `sede_id` solo se puebla para los Bodegueros (rol 3) y con
 -- la sede de su propio departamento; el resto queda NULL porque no opera stock:
---   usuario 6 (dep 6 -> sede 2) y usuario 7 (dep 7 -> sede 1).
+--   usuario 6 (dep 6 -> sede 2), usuario 7 (dep 7 -> sede 1) y usuario 12
+--   (dep 6 -> sede 2).
+-- Los usuarios 11 y 12 (Feature 013) son las cuentas QA de ciclo de vida: sus
+-- correos `+clerk_test@example.com` existen en la instancia dev de Clerk con
+-- codigo de verificacion fijo 424242, de modo que cualquier clon puede probar
+-- el circuito Solicitante -> Bodeguero sin crear usuarios a mano. Ambos estan
+-- en el departamento 6 (Biblioteca, Sede 2) para que el ticket emitido por el
+-- Solicitante se despache desde la misma sede que opera el Bodeguero.
 
 INSERT INTO usuario (usuario_id, nombre, apellido, correo, departamento_id, rol_id, sede_id) OVERRIDING SYSTEM VALUE VALUES
 (1,  'Camila',   'Fernandez', 'camila.fernandez@losalpes.cl',   1, 2, NULL),
@@ -297,10 +307,12 @@ INSERT INTO usuario (usuario_id, nombre, apellido, correo, departamento_id, rol_
 (7,  'Marcela',  'Nunez',     'marcela.nunez@losalpes.cl',     7, 3, 1),
 (8,  'Felipe',   'Soto',      'felipe.soto@cfsnorte.cl',       8, 4, NULL),
 (9,  'Carla',    'Mancilla',  'carla.mancilla@cordillera.cl',  9, 4, NULL),
-(10, 'Andres',   'Pino',      'andres.pino@talagante.cl',      10, 2, NULL);
+(10, 'Andres',   'Pino',      'andres.pino@talagante.cl',      10, 2, NULL),
+(11, 'Paula',    'Rojas',     'solicitante.test+clerk_test@example.com', 6, 4, NULL),
+(12, 'Roberto',  'Diaz',      'bodeguero.test+clerk_test@example.com',   6, 3, 2);
 
 -- =====================================================
--- 4b. DEPARTAMENTO_ENCARGADO  (4 filas)  [Feature 011, auxiliar]
+-- 4b. DEPARTAMENTO_ENCARGADO  (5 filas)  [Feature 011, auxiliar]
 -- =====================================================
 -- Encargado de departamento = usuario Solicitante (rol 4) del MISMO departamento
 -- (spec D-4); no concede permisos adicionales. En la semilla hay un Solicitante
@@ -308,13 +320,15 @@ INSERT INTO usuario (usuario_id, nombre, apellido, correo, departamento_id, rol_
 -- La tabla admite varios encargados por departamento; la compatibilidad la
 -- valida el servicio, no un trigger.
 --   departamento 2 -> usuario 2 | departamento 5 -> usuario 5
---   departamento 8 -> usuario 8 | departamento 9 -> usuario 9
+--   departamento 6 -> usuario 11 (QA 013) | departamento 8 -> usuario 8
+--   departamento 9 -> usuario 9
 
 INSERT INTO departamento_encargado (departamento_encargado_id, departamento_id, usuario_id) OVERRIDING SYSTEM VALUE VALUES
 (1, 2, 2),
 (2, 5, 5),
-(3, 8, 8),
-(4, 9, 9);
+(3, 6, 11),
+(4, 8, 8),
+(5, 9, 9);
 
 -- =====================================================
 -- 5. CATEGORIA  (10 filas)
@@ -463,17 +477,22 @@ INSERT INTO prioridad (prioridad_id, nombre, descripcion) OVERRIDING SYSTEM VALU
 (3, 'Baja',  'Puede esperar a la siguiente compra periodica');
 
 -- =====================================================
--- 10. ESTADO_TICKET  (4 filas)  [GLOBAL, sin institucion - D-5/AC-3]
+-- 10. ESTADO_TICKET  (5 filas)  [GLOBAL, sin institucion - D-5/AC-3]
 -- =====================================================
--- El orden de estas filas es el orden del flujo: el servicio lo lee por
--- estado_id ascendente. El id de "Cerrado" ya no es critico: el cierre se
--- reconoce por nombre (Feature 004).
+-- El orden de las primeras cuatro filas es el orden del flujo lineal: el
+-- servicio lo lee por estado_id ascendente. El id de "Cerrado" ya no es
+-- critico: el cierre se reconoce por nombre (Feature 004). "Anulado" (Feature
+-- 013) es la quinta y ultima fila del catalogo pero queda FUERA de la
+-- secuencia lineal: es terminal por NOMBRE junto a "Cerrado", alcanzable solo
+-- por anulacion o rechazo con motivo (D-1/D-6 de la 013) y nunca como estado
+-- inicial de alta (D-11) ni por el cambio de estado de la 004.
 
 INSERT INTO estado_ticket (estado_id, nombre, descripcion) OVERRIDING SYSTEM VALUE VALUES
 (1, 'Pendiente',   'Ticket creado, aun sin revision'),
 (2, 'EnRevision',  'Revisando justificacion y disponibilidad'),
 (3, 'EnCurso',     'Aprobado y en preparacion de despacho'),
-(4, 'Cerrado',     'Despachado y con fecha de cierre registrada');
+(4, 'Cerrado',     'Despachado y con fecha de cierre registrada'),
+(5, 'Anulado',     'Cancelado antes del despacho; anulado o rechazado con motivo en el historial');
 
 -- =====================================================
 -- 11. TICKET  (10 filas)

@@ -526,7 +526,14 @@ def test_administrador_patch_ticket_inexistente_404(motor, ambito_tickets):
 
 
 def test_administrador_patch_ticket_propio_200(motor, ambito_tickets):
-    with _cliente(motor, "Administrador", ambito_tickets["departamento_id"]) as cliente:
+    # Actor persistido: el cambio de estado registra su fila de historial con
+    # FK a `usuario` (013, AC-9); la sonda sintetica 9999 no existe en la BD.
+    with _cliente(
+        motor,
+        "Administrador",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+    ) as cliente:
         respuesta = cliente.patch(
             f"{RUTA_TICKETS}{ambito_tickets['ticket_estado_propio_id']}/estado",
             json={"estado_id": ambito_tickets["estado_en_curso_id"]},
@@ -567,7 +574,13 @@ def test_bodeguero_despacho_ticket_inexistente_404(motor, ambito_tickets):
 
 def test_bodeguero_despacho_propio_200_sigue_transaccional(motor, ambito_tickets):
     """El despacho del ticket propio no se rompe y sigue rebajando stock."""
-    with _cliente(motor, "Bodeguero", ambito_tickets["departamento_id"]) as cliente:
+    # Actor persistido: el despacho registra su fila de historial (013, AC-9).
+    with _cliente(
+        motor,
+        "Bodeguero",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+    ) as cliente:
         stock_antes = _stock_sede(
             motor,
             ambito_tickets["sede_id"],
@@ -629,7 +642,13 @@ def test_administrador_crea_para_solicitante_de_otra_institucion_404_sin_mutar(
 
 
 def test_administrador_crea_para_solicitante_propio_201(motor, ambito_tickets):
-    with _cliente(motor, "Administrador", ambito_tickets["departamento_id"]) as cliente:
+    # Actor persistido: la creacion registra su fila de historial (013, AC-9).
+    with _cliente(
+        motor,
+        "Administrador",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+    ) as cliente:
         respuesta = cliente.post(
             RUTA_TICKETS, json=_payload(ambito_tickets, ambito_tickets["solicitante_id"])
         )

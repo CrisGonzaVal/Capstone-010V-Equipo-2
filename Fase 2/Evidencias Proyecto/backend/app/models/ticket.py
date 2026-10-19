@@ -123,3 +123,75 @@ class DetalleTicket(Base):
         primaryjoin="DetalleTicket.producto_id == Producto.producto_id",
         foreign_keys="DetalleTicket.producto_id",
     )
+
+
+class HistorialTransicionTicket(Base):
+    """Historial inmutable de transiciones del ciclo de vida del ticket.
+
+    Feature 013 (spec D-10, AC-9): una fila por transicion — creacion con
+    `estado_origen_id` nulo, cambio de estado de la 004, despacho de la 005 y
+    anulacion/rechazo de la 013. Cada fila se escribe en la MISMA transaccion
+    que el cambio de estado que representa (constitucion.md §3, AC-11) y no se
+    migra ni reconstruye para transiciones previas a la feature (AC-12). Es la
+    15.ª entidad de dominio (docs/spec/stack.md §2, apartado 013).
+
+    Es una tabla de negocio **por esquema tenant**; aqui se modela una sola
+    (contexto logico unico, igual que el resto del dominio) y el DDL de
+    instalacion nueva la crea en `control` por paridad estructural. No lleva
+    `institucion_id`: su aislamiento es el de su esquema, con la misma defensa
+    que `movimiento_inventario` (anclada por su ticket, que ya porta la
+    institucion).
+    """
+
+    __tablename__ = "historial_transicion_ticket"
+
+    historial_transicion_id = Column(
+        Integer, primary_key=True, index=True, autoincrement=True
+    )
+    ticket_id = Column(Integer, ForeignKey("ticket.ticket_id"), nullable=False)
+    #: Nulo SOLO en la fila de creacion del ticket (AC-9); toda transicion
+    #: posterior declara su estado de partida.
+    estado_origen_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("estado_ticket.estado_id"), nullable=True
+    )
+    estado_destino_id = Column(
+        Integer, ForeignKey("estado_ticket.estado_id"), nullable=False
+    )
+    #: Actor autenticado de la transicion.
+    usuario_id = Column(Integer, ForeignKey("usuario.usuario_id"), nullable=False)
+    fecha_transicion = Column(
+        TIMESTAMP, nullable=False, server_default=func.current_timestamp()
+    )
+    #: Escala de `ticket.descripcion` (VARCHAR(500)). Nullable: la anulacion y
+    #: el rechazo lo exigen no vacio, pero esa validacion es del servicio (T7),
+    #: no del esquema.
+    motivo: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Las relaciones se fijan a los ids simples con `primaryjoin` explicito,
+    # igual que en `Ticket`/`DetalleTicket` (Feature 008), para no depender del
+    # orden de ninguna clave compuesta. Las dos FK a `estado_ticket` exigen
+    # `foreign_keys` declarado en cada una.
+    ticket = relationship(
+        "Ticket",
+        primaryjoin="HistorialTransicionTicket.ticket_id == Ticket.ticket_id",
+        foreign_keys="HistorialTransicionTicket.ticket_id",
+    )
+    estado_origen = relationship(
+        "EstadoTicket",
+        primaryjoin=(
+            "HistorialTransicionTicket.estado_origen_id == EstadoTicket.estado_id"
+        ),
+        foreign_keys="HistorialTransicionTicket.estado_origen_id",
+    )
+    estado_destino = relationship(
+        "EstadoTicket",
+        primaryjoin=(
+            "HistorialTransicionTicket.estado_destino_id == EstadoTicket.estado_id"
+        ),
+        foreign_keys="HistorialTransicionTicket.estado_destino_id",
+    )
+    usuario = relationship(
+        "Usuario",
+        primaryjoin="HistorialTransicionTicket.usuario_id == Usuario.usuario_id",
+        foreign_keys="HistorialTransicionTicket.usuario_id",
+    )
