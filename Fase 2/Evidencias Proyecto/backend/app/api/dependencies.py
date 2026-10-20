@@ -77,6 +77,52 @@ def obtener_verificador_correo_clerk(
     return verificar
 
 
+def obtener_consultor_identidad_clerk(
+    transporte: httpx.BaseTransport = Depends(obtener_transporte_clerk),
+) -> Callable[[str], security.EstadoIdentidadClerk]:
+    """Costura inyectable: clasifica identidad/invitacion pendiente en Clerk.
+
+    Feature 017 (D-1): el alta consulta primero si el correo ya es una identidad
+    y, solo si no lo es, si tiene invitacion pendiente. Las pruebas la overridean
+    con un fake; ninguna llamada sale a la red en la suite.
+    """
+    def consultar(correo: str) -> security.EstadoIdentidadClerk:
+        return security.buscar_identidad_o_invitacion(
+            correo, settings.CLERK_SECRET_KEY, transporte
+        )
+
+    return consultar
+
+
+def obtener_creador_invitacion_clerk(
+    transporte: httpx.BaseTransport = Depends(obtener_transporte_clerk),
+) -> Callable[..., security.InvitacionCreada]:
+    """Costura inyectable: crea una invitacion Clerk (`ignore_existing` explicito)."""
+    def crear(
+        correo: str, *, ignore_existing: bool = False
+    ) -> security.InvitacionCreada:
+        return security.crear_invitacion(
+            correo,
+            settings.CLERK_SECRET_KEY,
+            transporte,
+            ignore_existing=ignore_existing,
+        )
+
+    return crear
+
+
+def obtener_revocador_invitacion_clerk(
+    transporte: httpx.BaseTransport = Depends(obtener_transporte_clerk),
+) -> Callable[[str], None]:
+    """Costura inyectable: revoca una invitacion Clerk por identificador."""
+    def revocar(invitacion_id: str) -> None:
+        security.revocar_invitacion(
+            invitacion_id, settings.CLERK_SECRET_KEY, transporte
+        )
+
+    return revocar
+
+
 def respuestas_de_autorizacion() -> dict[int, dict[str, str]]:
     """Respuestas documentadas de autorizacion para las operaciones de negocio.
 

@@ -13,35 +13,57 @@ import { forkJoin } from 'rxjs';
 
 import { puedeAsignarRol } from '../../core/auth/roles';
 import { AutenticacionService } from '../../core/services/auth.service';
+import { EnlaceInvitacionComponent } from '../../shared/components/enlace-invitacion.component';
+import { MotivoSelectorComponent } from '../../shared/components/motivo-selector.component';
+import {
+  esMotivoCompleto,
+  construirMotivo,
+  etiquetaEstadoInvitacion,
+} from '../../shared/config/motivos-mutacion';
 import {
   DepartamentoGestion,
   Rol,
   Sede,
   Usuario,
+  UsuarioInvitacionRespuesta,
 } from '../../shared/interfaces';
+import { nuevaClaveIdempotencia } from '../../shared/utils/idempotencia';
 import { mensajeDeErrorAdministracion } from './administracion-errores';
 import { AdministracionService } from './services/administracion.service';
 
 const _BODEGUERO = 'Bodeguero';
 
 /**
- * Vista de usuarios locales de la institución (Feature 012, AC-8/AC-9/AC-11).
+ * Roles cuyo reenvío de invitación autoriza el Administrador institucional
+ * (Feature 017, D-10/AC-9). Espejo de `_ROLES_ASIGNABLES_ADMINISTRADOR` del
+ * backend: la frontera real la aplica la API (403 para cualquier otro rol).
+ */
+const _ROLES_REENVIABLES = ['Bodeguero', 'Solicitante'];
+
+/**
+ * Vista de usuarios locales de la institución (Feature 012, AC-8/AC-9/AC-11;
+ * ampliada por Feature 017 con invitaciones y motivos).
  *
  * Lista los usuarios del tenant con su rol, departamento y sede aplicable
- * (Bodeguero), y permite editar (nombre, apellido, rol y departamento —nunca el
- * correo), desactivar/reactivar el vínculo local (el 409 por ser encargado se
- * muestra con el motivo) y asignar la sede de un Bodeguero escogiendo solo entre
- * las sedes del tenant.
+ * (Bodeguero). Desde la Feature 017 muestra **dos conceptos separados**: el
+ * vínculo local activo/inactivo y el estado persistido de invitación
+ * (`pendiente`/`aceptada`/`revocada`/`expirada`/`no disponible`). El alta puede
+ * devolver una invitación nueva; su URL se muestra solo en la respuesta
+ * inmediata (en memoria del componente) y nunca en el listado. Editar y
+ * cambiar estado exigen motivo del catálogo D-7 cuando hay cambio efectivo.
  *
- * El estado activo/inactivo y la sede del Bodeguero llegan del listado
- * `GET /usuarios/` (que los publica desde la Feature 012) y se mantienen
- * localmente tras cada mutación: la vista muestra el estado real —activo o
- * inactivo— y la sede asignada o su ausencia explícita.
+ * Desde T12 ofrece el **reenvío ordinario** (`POST /usuarios/{id}/invitacion/
+ * reenvio`) a Bodegueros/Solicitantes de la institución, solo con vínculo local
+ * activo y sin invitación aceptada, y copia el enlace nuevo sin persistirlo.
+ * Reactivar sigue siendo una operación distinta (`PATCH .../estado` con motivo):
+ * esta vista no reenvía al reactivar, solo deja disponible el reenvío después
+ * (D-4, §5 regla 7).
  */
+
 @Component({
   selector: 'app-administracion-usuarios',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, MotivoSelectorComponent, EnlaceInvitacionComponent],
   templateUrl: './usuarios.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -69,6 +91,22 @@ export class UsuariosComponent implements OnInit {
   /** `true` mientras el formulario de alta de usuario está abierto (AC-8). */
   readonly creando = signal(false);
 
+  /**
+   * Enlace de invitación recibido en la respuesta inmediata del alta
+   * (Feature 017, D-4). Vive solo en memoria: al navegar o recargar desaparece.
+   */
+  readonly enlaceInvitacion = signal<{ url: string; nombre: string } | null>(null);
+
+  /** `true` mientras hay un reenvío de invitación en vuelo (anti doble envío). */
+  readonly reenviando = signal(false);
+
+  /**
+   * Usuario recién reactivado (Feature 017, §5 regla 7). Sirve para recordar en
+   * la tarjeta que la reactivación **no** reenvía la invitación y que el envío
+   * de un enlace nuevo es una acción separada.
+   */
+  readonly sugerenciaReenvio = signal<number | null>(null);
+
   /** Rol del usuario resuelto por `rol_id` contra el catálogo de roles. */
   readonly rolesPorId = computed(
     () => new Map(this.roles().map((rol) => [rol.rol_id, rol.nombre_rol])),
@@ -83,12 +121,6 @@ export class UsuariosComponent implements OnInit {
   /**
    * Roles que la identidad activa puede asignar en el **alta** (D-6/AC-10): el
    * Administrador solo `Bodeguero`/`Solicitante`; el Superadmin, los cuatro.
-   *
-   * Es una alineación de interfaz con la regla del backend
-   * (`_validar_rol_asignable`): el catálogo de roles compartido sigue llegando
-   * completo (se usa para mostrar el rol de cada usuario), pero el combo de alta
-   * solo ofrece lo asignable. La autoridad real permanece en la API, que sigue
-   * respondiendo 403 a un rol no asignable.
    */
   readonly rolesAsignables = computed(() =>
     this.roles().filter((rol) => puedeAsignarRol(this.rolActual(), rol.nombre_rol)),
@@ -101,10 +133,60 @@ export class UsuariosComponent implements OnInit {
     departamento_id: [0, [Validators.required, Validators.min(1)]],
   });
 
+  /** Motivo de la edición (Feature 017, D-5/D-7). */
+  readonly motivoEdicion = this.constructorFormulario.group({
+    codigo: [''],
+    texto: [''],
+  });
+
+  /** Motivo de la baja/reactivación (Feature 017, D-5/D-7). */
+  readonly motivoEstado = this.constructorFormulario.group({
+    codigo: [''],
+    texto: [''],
+  });
+
+  /** Valores reactivos de los formularios con motivo (signals, no getters). */
+  private readonly valorEdicion = toSignal(this.formularioEdicion.valueChanges, {
+    initialValue: this.formularioEdicion.getRawValue(),
+  });
+  private readonly valorMotivoEdicion = toSignal(this.motivoEdicion.valueChanges, {
+    initialValue: { codigo: '', texto: '' },
+  });
+  private readonly valorMotivoEstado = toSignal(this.motivoEstado.valueChanges, {
+    initialValue: { codigo: '', texto: '' },
+  });
+
+  /** `true` si el formulario de edición cambió algún atributo efectivo. */
+  readonly hayCambiosEdicion = computed(() => {
+    const usuario = this.editando();
+    if (!usuario) {
+      return false;
+    }
+    const valores = this.valorEdicion();
+    return (
+      (valores.nombre ?? '').trim() !== usuario.nombre ||
+      (valores.apellido ?? '').trim() !== usuario.apellido ||
+      valores.rol_id !== usuario.rol_id ||
+      valores.departamento_id !== usuario.departamento_id
+    );
+  });
+
+  /** `true` si el motivo de la edición puede enviarse tal como está. */
+  readonly motivoEdicionCompleto = computed(() => {
+    const motivo = this.valorMotivoEdicion();
+    return esMotivoCompleto(motivo.codigo ?? '', motivo.texto ?? '');
+  });
+
+  /** `true` si el motivo del cambio de estado puede enviarse tal como está. */
+  readonly motivoEstadoCompleto = computed(() => {
+    const motivo = this.valorMotivoEstado();
+    return esMotivoCompleto(motivo.codigo ?? '', motivo.texto ?? '');
+  });
+
   /**
-   * Alta de usuario local (AC-8): nombre, apellido y correo (identidad Clerk ya
-   * existente), rol y departamento del tenant. La sede solo aplica a un Bodeguero
-   * y se ofrece entre las sedes del tenant; se asigna tras crear la fila local.
+   * Alta de usuario local (AC-8): nombre, apellido y correo, rol y departamento
+   * del tenant. Desde la Feature 017 el backend invita (o reutiliza una
+   * invitación/identidad) y su resultado se muestra al usuario.
    */
   readonly formularioCreacion = this.constructorFormulario.group({
     nombre: ['', [Validators.required, Validators.maxLength(100)]],
@@ -125,6 +207,10 @@ export class UsuariosComponent implements OnInit {
   readonly creacionEsBodeguero = computed(
     () => this.nombreRol(this.rolCreacion()) === _BODEGUERO,
   );
+
+  /** Clave de idempotencia de la mutación en curso (se reutiliza en reintentos). */
+  private idempotenciaEdicion: string | null = null;
+  private idempotenciaEstado: string | null = null;
 
   ngOnInit(): void {
     this.cargar();
@@ -156,9 +242,55 @@ export class UsuariosComponent implements OnInit {
     return this.nombreRol(usuario.rol_id) === _BODEGUERO;
   }
 
+  /** Etiqueta legible del estado persistido de invitación (AC-5). */
+  estadoInvitacion(usuario: Usuario): string {
+    return etiquetaEstadoInvitacion(usuario.estado_invitacion);
+  }
+
+  /** `true` si el estado persistido es `aceptada` (no se reenvía). */
+  invitacionAceptada(usuario: Usuario): boolean {
+    return usuario.estado_invitacion === 'aceptada';
+  }
+
+  /** `true` si el rol del usuario admite reenvío por el Administrador (AC-9). */
+  esReenviable(usuario: Usuario): boolean {
+    const rol = this.nombreRol(usuario.rol_id);
+    return rol !== null && _ROLES_REENVIABLES.includes(rol);
+  }
+
+  /**
+   * `true` si se ofrece «Reenviar invitación» (Feature 017, D-4/D-10/AC-6).
+   *
+   * Exige vínculo local activo (el reenvío nunca reactiva), rol
+   * Bodeguero/Solicitante y una invitación no aceptada. Una invitación
+   * aceptada no se reenvía; `revocada`/`expirada`/`pendiente`/`no disponible`
+   * sí admiten una nueva.
+   */
+  puedeReenviar(usuario: Usuario): boolean {
+    return (
+      usuario.activo === true &&
+      this.esReenviable(usuario) &&
+      !this.invitacionAceptada(usuario)
+    );
+  }
+
+  /**
+   * `true` si el reenvío está bloqueado solo por el vínculo inactivo: la vista
+   * indica que primero hay que reactivar con motivo (operaciones separadas).
+   */
+  requiereReactivarParaReenviar(usuario: Usuario): boolean {
+    return (
+      usuario.activo !== true &&
+      this.esReenviable(usuario) &&
+      !this.invitacionAceptada(usuario)
+    );
+  }
+
   iniciarEdicion(usuario: Usuario): void {
     this.errorAccion.set(null);
     this.mensajeExito.set(null);
+    this.enlaceInvitacion.set(null);
+    this.sugerenciaReenvio.set(null);
     this.confirmando.set(null);
     this.asignandoSede.set(null);
     this.formularioEdicion.reset({
@@ -167,17 +299,22 @@ export class UsuariosComponent implements OnInit {
       rol_id: usuario.rol_id,
       departamento_id: usuario.departamento_id,
     });
+    this.motivoEdicion.reset({ codigo: '', texto: '' });
+    this.idempotenciaEdicion = nuevaClaveIdempotencia();
     this.editando.set(usuario);
   }
 
   cancelarEdicion(): void {
     this.editando.set(null);
+    this.idempotenciaEdicion = null;
   }
 
   /** Abre el formulario de alta con valores por defecto del tenant (AC-8). */
   abrirCreacion(): void {
     this.errorAccion.set(null);
     this.mensajeExito.set(null);
+    this.enlaceInvitacion.set(null);
+    this.sugerenciaReenvio.set(null);
     this.editando.set(null);
     this.confirmando.set(null);
     this.asignandoSede.set(null);
@@ -194,10 +331,14 @@ export class UsuariosComponent implements OnInit {
 
   cancelarCreacion(): void {
     this.creando.set(false);
+    this.enlaceInvitacion.set(null);
   }
 
-  /** Envía el alta; tras el éxito recarga el listado (AC-8). */
+  /** Envía el alta; al volver muestra el estado de invitación y su enlace si vino. */
   guardarCreacion(): void {
+    if (this.guardando()) {
+      return;
+    }
     if (this.formularioCreacion.invalid) {
       this.formularioCreacion.markAllAsTouched();
       return;
@@ -205,6 +346,7 @@ export class UsuariosComponent implements OnInit {
     const valores = this.formularioCreacion.getRawValue();
     this.guardando.set(true);
     this.errorAccion.set(null);
+    this.enlaceInvitacion.set(null);
 
     this.administracion
       .crearUsuario({
@@ -216,16 +358,20 @@ export class UsuariosComponent implements OnInit {
       })
       .subscribe({
         next: (creado) => {
+          this.creando.set(false);
+          if (creado.url_invitacion) {
+            this.enlaceInvitacion.set({
+              url: creado.url_invitacion,
+              nombre: `${creado.nombre} ${creado.apellido}`,
+            });
+          }
           const sedeElegida = valores.sede_id;
           if (this.creacionEsBodeguero() && sedeElegida !== null) {
             this.asignarSedeTrasAlta(creado, sedeElegida);
             return;
           }
           this.guardando.set(false);
-          this.creando.set(false);
-          this.mensajeExito.set(
-            `Usuario «${creado.nombre} ${creado.apellido}» creado.`,
-          );
+          this.mensajeExito.set(this.mensajeDeAlta(creado));
           this.cargar();
         },
         error: (error: HttpErrorResponse) => {
@@ -236,19 +382,20 @@ export class UsuariosComponent implements OnInit {
   }
 
   /** Asigna la sede elegida en el alta; el error no revierte la creación. */
-  private asignarSedeTrasAlta(creado: Usuario, sedeId: number): void {
+  private asignarSedeTrasAlta(
+    creado: UsuarioInvitacionRespuesta,
+    sedeId: number,
+  ): void {
     this.administracion.asignarSedeUsuario(creado.usuario_id, sedeId).subscribe({
       next: () => {
         this.guardando.set(false);
-        this.creando.set(false);
         this.mensajeExito.set(
-          `Usuario «${creado.nombre} ${creado.apellido}» creado con su sede.`,
+          `${this.mensajeDeAlta(creado)} Sede asignada.`,
         );
         this.cargar();
       },
       error: (error: HttpErrorResponse) => {
         this.guardando.set(false);
-        this.creando.set(false);
         this.errorAccion.set(
           `El usuario se creó, pero no se pudo asignar su sede. ${mensajeDeErrorAdministracion(error)}`,
         );
@@ -257,9 +404,21 @@ export class UsuariosComponent implements OnInit {
     });
   }
 
+  /** Mensaje del alta según el estado persistido y si trajo enlace inmediato. */
+  private mensajeDeAlta(creado: UsuarioInvitacionRespuesta): string {
+    const nombre = `«${creado.nombre} ${creado.apellido}»`;
+    if (creado.url_invitacion) {
+      return `Usuario ${nombre} creado con invitación pendiente. Copia el enlace ahora: no volverá a mostrarse.`;
+    }
+    if (creado.estado_invitacion === 'aceptada') {
+      return `Usuario ${nombre} creado y vinculado a una identidad existente (invitación aceptada).`;
+    }
+    return `Usuario ${nombre} creado. Estado de invitación: ${etiquetaEstadoInvitacion(creado.estado_invitacion)}.`;
+  }
+
   guardarEdicion(): void {
     const usuario = this.editando();
-    if (!usuario) {
+    if (!usuario || this.guardando()) {
       return;
     }
     if (this.formularioEdicion.invalid) {
@@ -267,6 +426,12 @@ export class UsuariosComponent implements OnInit {
       return;
     }
     const valores = this.formularioEdicion.getRawValue();
+    const cambia = this.hayCambiosEdicion();
+    if (cambia && !this.motivoEdicionCompleto()) {
+      this.motivoEdicion.markAllAsTouched();
+      return;
+    }
+    const motivo = this.motivoEdicion.getRawValue();
     this.guardando.set(true);
     this.errorAccion.set(null);
 
@@ -276,16 +441,24 @@ export class UsuariosComponent implements OnInit {
         apellido: valores.apellido.trim(),
         rol_id: valores.rol_id,
         departamento_id: valores.departamento_id,
+        ...(cambia
+          ? {
+              motivo: construirMotivo(motivo.codigo, motivo.texto),
+              idempotencia: this.idempotenciaEdicion,
+            }
+          : {}),
       })
       .subscribe({
         next: (actualizado) => {
           this.guardando.set(false);
           this.editando.set(null);
+          this.idempotenciaEdicion = null;
           this.reemplazar({
             ...usuario,
             ...actualizado,
             sede_id: usuario.sede_id,
             activo: usuario.activo,
+            estado_invitacion: usuario.estado_invitacion,
           });
           this.mensajeExito.set(
             `Usuario «${actualizado.nombre} ${actualizado.apellido}» actualizado.`,
@@ -301,6 +474,8 @@ export class UsuariosComponent implements OnInit {
   iniciarAsignacionSede(usuario: Usuario): void {
     this.errorAccion.set(null);
     this.mensajeExito.set(null);
+    this.enlaceInvitacion.set(null);
+    this.sugerenciaReenvio.set(null);
     this.editando.set(null);
     this.confirmando.set(null);
     this.sedeSeleccion.set(usuario.sede_id ?? null);
@@ -320,7 +495,7 @@ export class UsuariosComponent implements OnInit {
   guardarSede(): void {
     const usuario = this.asignandoSede();
     const sedeId = this.sedeSeleccion();
-    if (!usuario || sedeId === null) {
+    if (!usuario || sedeId === null || this.guardando()) {
       return;
     }
     this.guardando.set(true);
@@ -346,50 +521,118 @@ export class UsuariosComponent implements OnInit {
   solicitarCambioEstado(usuario: Usuario): void {
     this.errorAccion.set(null);
     this.mensajeExito.set(null);
+    this.enlaceInvitacion.set(null);
+    this.sugerenciaReenvio.set(null);
     this.editando.set(null);
     this.asignandoSede.set(null);
+    this.motivoEstado.reset({ codigo: '', texto: '' });
+    this.idempotenciaEstado = nuevaClaveIdempotencia();
     this.confirmando.set(usuario);
   }
 
   cancelarCambioEstado(): void {
     this.confirmando.set(null);
+    this.idempotenciaEstado = null;
   }
 
   confirmarCambioEstado(): void {
     const usuario = this.confirmando();
-    if (!usuario) {
+    if (!usuario || this.guardando()) {
       return;
     }
+    if (!this.motivoEstadoCompleto()) {
+      this.motivoEstado.markAllAsTouched();
+      return;
+    }
+    const motivo = this.motivoEstado.getRawValue();
     const nuevoEstado = !(usuario.activo ?? true);
     this.guardando.set(true);
     this.errorAccion.set(null);
 
-    this.administracion.cambiarEstadoUsuario(usuario.usuario_id, nuevoEstado).subscribe({
-      next: (resultado) => {
-        this.guardando.set(false);
-        this.confirmando.set(null);
-        this.usuarios.update((lista) =>
-          lista.map((item) =>
-            item.usuario_id === resultado.usuario_id
-              ? { ...item, activo: resultado.activo }
-              : item,
-          ),
-        );
+    this.administracion
+      .cambiarEstadoUsuario(usuario.usuario_id, {
+        activo: nuevoEstado,
+        motivo: construirMotivo(motivo.codigo, motivo.texto),
+        idempotencia: this.idempotenciaEstado,
+      })
+      .subscribe({
+        next: (resultado) => {
+          this.guardando.set(false);
+          this.confirmando.set(null);
+          this.idempotenciaEstado = null;
+          this.motivoEstado.reset({ codigo: '', texto: '' });
+          this.usuarios.update((lista) =>
+            lista.map((item) =>
+              item.usuario_id === resultado.usuario_id
+                ? { ...item, activo: resultado.activo }
+                : item,
+            ),
+          );
+          if (resultado.activo) {
+            // Reactivar no reenvía la invitación: son operaciones separadas
+            // (Feature 017, D-4; §5 regla 7). Se deja el reenvío disponible.
+            this.sugerenciaReenvio.set(resultado.usuario_id);
+            this.mensajeExito.set(
+              `Usuario «${usuario.nombre} ${usuario.apellido}» reactivado. La reactivación no reenvía la invitación: usa «Reenviar invitación» si necesitas un enlace nuevo.`,
+            );
+            return;
+          }
+          this.sugerenciaReenvio.set(null);
+          this.mensajeExito.set(
+            `Usuario «${usuario.nombre} ${usuario.apellido}» desactivado.`,
+          );
+        },
+        error: (error: HttpErrorResponse) => {
+          this.guardando.set(false);
+          this.errorAccion.set(mensajeDeErrorAdministracion(error));
+        },
+      });
+  }
+
+  /**
+   * Reenvía la invitación de un Bodeguero/Solicitante (Feature 017, T12).
+   *
+   * La URL nueva solo vive en esta respuesta: se monta en `enlaceInvitacion`
+   * (en memoria) y desaparece al cambiar de acción o navegar. Un 409 (aceptada,
+   * vínculo inactivo, conflicto de Clerk) o un 503 de la frontera se muestran
+   * con el mensaje de la administración; no se inventa enlace.
+   */
+  reenviarInvitacion(usuario: Usuario): void {
+    if (this.reenviando()) {
+      return;
+    }
+    this.reenviando.set(true);
+    this.errorAccion.set(null);
+    this.mensajeExito.set(null);
+    this.enlaceInvitacion.set(null);
+    this.sugerenciaReenvio.set(null);
+
+    this.administracion.reenviarInvitacionUsuario(usuario.usuario_id).subscribe({
+      next: (respuesta) => {
+        this.reenviando.set(false);
+        if (respuesta.url_invitacion) {
+          this.enlaceInvitacion.set({
+            url: respuesta.url_invitacion,
+            nombre: `${respuesta.nombre} ${respuesta.apellido}`,
+          });
+        }
+        this.reemplazar({
+          ...usuario,
+          activo: respuesta.activo ?? usuario.activo,
+          estado_invitacion: respuesta.estado_invitacion ?? 'pendiente',
+        });
         this.mensajeExito.set(
-          resultado.activo
-            ? `Usuario «${usuario.nombre} ${usuario.apellido}» reactivado.`
-            : `Usuario «${usuario.nombre} ${usuario.apellido}» desactivado.`,
+          `Invitación de «${usuario.nombre} ${usuario.apellido}» reenviada. Copia el enlace ahora: no volverá a mostrarse.`,
         );
       },
       error: (error: HttpErrorResponse) => {
-        this.guardando.set(false);
+        this.reenviando.set(false);
         this.errorAccion.set(mensajeDeErrorAdministracion(error));
       },
     });
   }
 
-  private cargar(): void {
-    this.cargando.set(true);
+  private cargar(): void {    this.cargando.set(true);
     this.mensajeError.set(null);
 
     forkJoin({

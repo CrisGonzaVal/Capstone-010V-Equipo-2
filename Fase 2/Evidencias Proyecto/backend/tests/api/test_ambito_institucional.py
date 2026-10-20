@@ -306,21 +306,12 @@ def test_solicitante_existencias_solo_su_institucion(motor, ambito):
     assert cuaderno["stock_total"] == 50
 
 
-def test_superadmin_existencias_es_global_y_atribuye_institucion(motor, ambito):
-    """Superadmin ve ambas instituciones, cada producto con su `institucion_id` (AC-8)."""
+def test_superadmin_existencias_recibe_403_ac_15(motor, ambito):
+    """Feature 017 (D-9/AC-15): Superadmin ya no lee existencias de negocio."""
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         respuesta = cliente.get(RUTA_EXISTENCIAS)
-    assert respuesta.status_code == 200, respuesta.text
-
-    cuaderno = _existencia(respuesta.json(), ambito["producto_id"])
-    assert cuaderno["stock_total"] == 50
-    assert [s["sede_nombre"] for s in cuaderno["sedes"]] == ["Operaciones"]
-    assert cuaderno["institucion_id"] == "INST01"
-
-    ajeno = _existencia(respuesta.json(), ambito["producto_ajeno_id"])
-    assert ajeno["stock_total"] == 7
-    assert [s["sede_nombre"] for s in ajeno["sedes"]] == ["Bodega Sur"]
-    assert ajeno["institucion_id"] == "INST02"
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
 
 
 def test_catalogo_no_incluye_productos_de_otra_institucion(motor, ambito):
@@ -356,13 +347,13 @@ def test_existencias_departamento_propio_responde_200(motor, ambito):
     assert respuesta.status_code == 200, respuesta.text
 
 
-def test_superadmin_existencias_departamento_ajeno_responde_200(motor, ambito):
-    """Superadmin conserva alcance global: puede pedir cualquier departamento."""
+def test_superadmin_existencias_departamento_ajeno_recibe_403_ac_15(motor, ambito):
+    """Feature 017 (D-9/AC-15): sin lectura de existencias, tampoco por filtro."""
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         respuesta = cliente.get(
             RUTA_EXISTENCIAS, params={"departamento_id": ambito["dep_ajeno_id"]}
         )
-    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.status_code == 403, respuesta.text
 
 
 # ---------------------------------------------------------------------------
@@ -381,13 +372,11 @@ def test_stock_administrador_solo_su_institucion(motor, ambito):
     assert ambito["sede_ajena_id"] not in sedes, "no debe ver la sede de otro tenant"
 
 
-def test_stock_superadmin_es_global(motor, ambito):
+def test_stock_superadmin_recibe_403_ac_15(motor, ambito):
+    """Feature 017 (D-9/AC-15): el saldo por sede no se lee desde Superadmin."""
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         respuesta = cliente.get(RUTA_STOCK)
-    assert respuesta.status_code == 200, respuesta.text
-
-    sedes = {fila["sede_id"] for fila in respuesta.json()}
-    assert {ambito["sede_propia_id"], ambito["sede_ajena_id"]} <= sedes
+    assert respuesta.status_code == 403, respuesta.text
 
 
 def test_stock_sede_ajena_responde_404(motor, ambito):
@@ -416,13 +405,11 @@ def test_movimientos_bodeguero_solo_su_institucion(motor, ambito):
     assert ambito["movimiento_ajeno_id"] not in ids
 
 
-def test_movimientos_superadmin_es_global(motor, ambito):
+def test_movimientos_superadmin_recibe_403_ac_15(motor, ambito):
+    """Feature 017 (D-9/AC-15): el historial de movimientos no es del Superadmin."""
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         respuesta = cliente.get(RUTA_MOVIMIENTOS)
-    assert respuesta.status_code == 200, respuesta.text
-
-    ids = {fila["movimiento_id"] for fila in respuesta.json()}
-    assert {ambito["movimiento_propio_id"], ambito["movimiento_ajeno_id"]} <= ids
+    assert respuesta.status_code == 403, respuesta.text
 
 
 def test_registrar_movimiento_en_inventario_ajeno_responde_403_sin_mutar(motor, ambito):
@@ -488,13 +475,17 @@ def test_rol_limitado_sin_institucion_resoluble_responde_403(
     assert departamento_inexistente.status_code == 403, departamento_inexistente.text
 
 
-def test_superadmin_sin_departamento_conserva_alcance_global(motor, ambito):
-    """Superadmin no necesita institucion resoluble: es el unico rol global."""
+def test_superadmin_sin_departamento_recibe_403_en_lecturas_de_negocio(motor, ambito):
+    """Feature 017 (D-9/AC-15): Superadmin ya no conserva lecturas de negocio.
+
+    Su superficie es `/control/*` y la gestion de Administradores; la API tenant
+    de usuarios tampoco lo autoriza.
+    """
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         existencias = cliente.get(RUTA_EXISTENCIAS)
         usuarios = cliente.get(RUTA_USUARIOS)
-    assert existencias.status_code == 200, existencias.text
-    assert usuarios.status_code == 200, usuarios.text
+    assert existencias.status_code == 403, existencias.text
+    assert usuarios.status_code == 403, usuarios.text
 
 
 # ---------------------------------------------------------------------------
@@ -512,16 +503,11 @@ def test_usuarios_administrador_solo_su_institucion(motor, ambito):
     assert "beto.ajeno@compustock.cl" not in correos
 
 
-def test_usuarios_superadmin_es_global(motor, ambito):
+def test_usuarios_superadmin_recibe_403(motor, ambito):
+    """Feature 017 (D-10/AC-8): la API tenant de usuarios no sirve a Superadmin."""
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         respuesta = cliente.get(RUTA_USUARIOS)
-    assert respuesta.status_code == 200, respuesta.text
-
-    correos = {u["correo"] for u in respuesta.json()}
-    assert {
-        "ana.prueba@compustock.cl",
-        "beto.ajeno@compustock.cl",
-    } <= correos
+    assert respuesta.status_code == 403, respuesta.text
 
 
 def test_departamentos_administrador_solo_su_institucion(motor, ambito):
@@ -543,13 +529,11 @@ def test_instituciones_administrador_solo_la_propia(motor, ambito):
     assert ids == {ambito["inst_propia"]}
 
 
-def test_instituciones_superadmin_ve_todas(motor, ambito):
+def test_instituciones_superadmin_recibe_403(motor, ambito):
+    """Feature 017 (D-10): el catalogo de apoyo tenant deja de servir a Superadmin."""
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         respuesta = cliente.get(RUTA_INSTITUCIONES)
-    assert respuesta.status_code == 200, respuesta.text
-
-    ids = {i["institucion_id"] for i in respuesta.json()}
-    assert {ambito["inst_propia"], ambito["inst_ajena"]} <= ids
+    assert respuesta.status_code == 403, respuesta.text
 
 
 def test_roles_son_compartidos_para_el_administrador(motor, ambito):
@@ -579,15 +563,14 @@ def test_categorias_y_productos_son_institucionales(motor, ambito):
     assert {p["institucion_id"] for p in productos.json()} == {"INST01"}
 
 
-def test_superadmin_categorias_y_productos_atribuyen_institucion(motor, ambito):
-    """Superadmin ve el catalogo global con `institucion_id` por registro (AC-8)."""
+def test_superadmin_categorias_y_productos_recibe_403_ac_15(motor, ambito):
+    """Feature 017 (D-9/AC-15): el catalogo no se lee desde Superadmin."""
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
-        categorias = cliente.get(RUTA_CATEGORIAS).json()
-        productos = cliente.get(RUTA_PRODUCTOS).json()
+        categorias = cliente.get(RUTA_CATEGORIAS)
+        productos = cliente.get(RUTA_PRODUCTOS)
 
-    assert {c["institucion_id"] for c in categorias} >= {"INST01", "INST02"}
-    producto_ajeno = next(p for p in productos if p["producto_id"] == ambito["producto_ajeno_id"])
-    assert producto_ajeno["institucion_id"] == "INST02"
+    assert categorias.status_code == 403, categorias.text
+    assert productos.status_code == 403, productos.text
 
 
 # ---------------------------------------------------------------------------
@@ -619,11 +602,11 @@ def test_categoria_ajena_responde_404_igual_que_inexistente(motor, ambito):
     assert ajeno.json() == inexistente.json()
 
 
-def test_superadmin_producto_por_objeto_es_global(motor, ambito):
+def test_superadmin_producto_por_objeto_recibe_403_ac_15(motor, ambito):
+    """Feature 017 (D-9/AC-15): el catalogo por objeto tampoco es legible."""
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         ajeno = cliente.get(f"{RUTA_PRODUCTOS}/{ambito['producto_ajeno_id']}")
-    assert ajeno.status_code == 200, ajeno.text
-    assert ajeno.json()["institucion_id"] == "INST02"
+    assert ajeno.status_code == 403, ajeno.text
 
 
 @pytest.mark.parametrize("rol", ["Administrador", "Bodeguero", "Solicitante"])

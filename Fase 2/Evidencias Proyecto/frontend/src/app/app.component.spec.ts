@@ -227,21 +227,30 @@ describe('AppComponent', () => {
       expect(destinos(compilado)).toContain('/tickets');
     });
 
-    it('mantiene el enlace de administración a Administrador y Superadmin', () => {
-      for (const rol of ['Administrador', 'Superadmin']) {
-        autenticacionFalsa.identidad.set({ ...IDENTIDAD_RESUELTA, rol });
-        const compilado = crearYRenderizar();
+    it('mantiene el enlace de administración solo al Administrador', () => {
+      autenticacionFalsa.identidad.set({
+        ...IDENTIDAD_RESUELTA,
+        rol: 'Administrador',
+      });
+      expect(destinos(crearYRenderizar())).toContain('/administracion');
 
-        expect(destinos(compilado)).withContext(rol).toContain('/administracion');
-      }
+      // Feature 017 (AC-15): la API tenant de administración niega al
+      // Superadmin, así que su navegación no ofrece una pantalla muerta.
+      autenticacionFalsa.identidad.set({
+        ...IDENTIDAD_RESUELTA,
+        rol: 'Superadmin',
+        institucion: null,
+      });
+      expect(destinos(crearYRenderizar())).not.toContain('/administracion');
     });
 
     /**
-     * Feature 012, AC-3: el Superadmin deja de ver el Kanban operativo en la
-     * navegación. Su vista es `/control`. Es solo comodidad de interfaz; la ruta
-     * sigue protegida por el guard de rol.
+     * Feature 012, AC-3 y Feature 017, AC-15: el Superadmin solo conserva
+     * `/control` como superficie. Dashboard, inventario, tickets y
+     * administración se retiran de la navegación; las rutas siguen protegidas
+     * por el guard de rol.
      */
-    it('oculta el enlace de tickets al Superadmin y conserva /control', () => {
+    it('deja al Superadmin únicamente /control en la navegación', () => {
       autenticacionFalsa.identidad.set({
         ...IDENTIDAD_RESUELTA,
         rol: 'Superadmin',
@@ -249,7 +258,9 @@ describe('AppComponent', () => {
       });
       const compilado = crearYRenderizar();
 
-      expect(destinos(compilado)).not.toContain('/tickets');
+      for (const retirada of ['/dashboard', '/inventario', '/tickets', '/administracion']) {
+        expect(destinos(compilado)).withContext(retirada).not.toContain(retirada);
+      }
       expect(destinos(compilado)).toContain('/control');
     });
 

@@ -34,6 +34,11 @@ _INVENTARIO_Y_TICKETS = {"Superadmin", "Administrador", "Bodeguero"}
 _ESCRITURA_CATALOGO = {"Administrador"}
 _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
+#: Lectura de negocio de los roles institucionales (Feature 017, D-9/AC-15):
+#: Superadmin deja de leer dashboard, tickets, catalogo, existencias y stock.
+_LECTURA_NEGOCIO = {"Administrador", "Bodeguero", "Solicitante"}
+#: Historial de movimientos sin Superadmin ni Solicitante (017 / 011).
+_MOVIMIENTOS = {"Administrador", "Bodeguero"}
 #: Alta de institucion (Feature 010, D-7): solo Superadmin.
 _ALTA_INSTITUCION = {"Superadmin"}
 #: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
@@ -44,36 +49,33 @@ _ANULACION_Y_EDICION = {"Administrador", "Solicitante"}
 #: Ciclo de vida del ticket (Feature 013, AC-17): rechazo, operativo de bodega.
 _RECHAZO = {"Administrador", "Bodeguero"}
 
-#: Las operaciones de negocio -> roles permitidos (matriz vigente tras el
-#: ajuste puntual de la Feature 008, la operacion `GET /dashboard/` de la 009, el
-#: alta de institucion de la 010, las seis asignaciones organizacionales de la
-#: 011, las siete operaciones de control SaaS y las nueve organizacionales de la
-#: 012 y las cinco de ciclo de vida de la 013 (49 operaciones); el resto de la
-#: matriz D-3 de 007 no cambia, salvo los dos GET por objeto de catalogo que
-#: exige AC-9/AC-16 de la 008).
+#: Las operaciones de negocio -> roles permitidos (matriz vigente de 55 filas:
+#: 49 de la 013, las cinco de gobierno de Administradores de la 017 y el reenvio
+#: ordinario de invitacion de la 017). La 017 retira Superadmin de 11 lecturas de
+#: negocio (D-9/AC-15); el resto no cambia.
 MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
-    ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("POST", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/roles"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/departamentos"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/inventario/categorias"): _TODOS,
-    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
-    ("GET", "/api/v1/inventario/productos"): _TODOS,
-    ("GET", "/api/v1/inventario/productos/{producto_id}"): _TODOS,
+    ("GET", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("POST", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/roles"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/departamentos"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/instituciones"): _ORGANIZACION,
+    ("GET", "/api/v1/inventario/categorias"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/productos"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/productos/{producto_id}"): _LECTURA_NEGOCIO,
     ("POST", "/api/v1/inventario/productos"): _ESCRITURA_CATALOGO,
-    ("GET", "/api/v1/inventario/existencias"): _TODOS,
-    ("GET", "/api/v1/inventario/stock"): _TODOS,
-    ("GET", "/api/v1/inventario/movimientos"): _INVENTARIO_Y_TICKETS,
+    ("GET", "/api/v1/inventario/existencias"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/stock"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/movimientos"): _MOVIMIENTOS,
     ("POST", "/api/v1/inventario/movimientos"): _ESCRITURA_STOCK,
-    ("GET", "/api/v1/tickets/catalogos"): _TODOS,
-    ("GET", "/api/v1/tickets/"): _TODOS,
+    ("GET", "/api/v1/tickets/catalogos"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/tickets/"): _LECTURA_NEGOCIO,
     ("POST", "/api/v1/tickets/"): _ESCRITURA_TICKETS,
     ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _ESCRITURA_STOCK,
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
     # Feature 009 (D-3/AC-13/AC-14): lectura consolidada para los cuatro roles.
-    ("GET", "/api/v1/dashboard/"): _TODOS,
+    ("GET", "/api/v1/dashboard/"): _LECTURA_NEGOCIO,
     # Feature 010 (D-7/AC-7…AC-9): alta de institucion, solo Superadmin.
     ("POST", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
     # Feature 011 (D-4/D-5/AC-5): asignaciones organizacionales, solo Administrador.
@@ -124,8 +126,8 @@ MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
         "PATCH",
         "/api/v1/organizacion/departamentos/{departamento_id}/estado",
     ): _ORGANIZACION,
-    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
-    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ORGANIZACION,
     # Feature 013 (T6, AC-17): ciclo de vida del ticket. Cinco operaciones
     # nuevas y aditivas (44 -> 49): anulacion y edicion (el dueño del ticket y
     # el Administrador), rechazo (Bodeguero y Administrador), y detalle e
@@ -133,8 +135,36 @@ MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): _ANULACION_Y_EDICION,
     ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): _RECHAZO,
     ("PUT", "/api/v1/tickets/{ticket_id}"): _ANULACION_Y_EDICION,
-    ("GET", "/api/v1/tickets/{ticket_id}"): _TODOS,
-    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _TODOS,
+    ("GET", "/api/v1/tickets/{ticket_id}"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _LECTURA_NEGOCIO,
+    # Feature 017 (D-10/AC-8/AC-9): cinco operaciones de gobierno de
+    # Administradores, solo Superadmin; `/usuarios/` queda solo Administrador.
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ): _ALTA_INSTITUCION,
+    (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ): _ALTA_INSTITUCION,
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}",
+    ): _ALTA_INSTITUCION,
+    (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/estado",
+    ): _ALTA_INSTITUCION,
+    (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/invitacion/reenvio",
+    ): _ALTA_INSTITUCION,
+    # Feature 017 (D-4/D-10/AC-9): reenvio ordinario del Administrador a sus
+    # Bodegueros/Solicitantes; Superadmin no accede a rutas ordinarias.
+    (
+        "POST",
+        "/api/v1/usuarios/{usuario_id}/invitacion/reenvio",
+    ): _ORGANIZACION,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -221,7 +251,7 @@ def test_cuatro_roles_exactos_sin_alias_admin():
 
 
 def test_matriz_cubre_exactamente_las_operaciones_de_d3():
-    assert len(MATRIZ_ESPERADA) == 49
+    assert len(MATRIZ_ESPERADA) == 55
     assert {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     } == MATRIZ_ESPERADA

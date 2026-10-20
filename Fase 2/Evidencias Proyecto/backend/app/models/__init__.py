@@ -8,7 +8,13 @@ de la Feature 011 (`Sede`, `StockSede`, `DepartamentoEncargado`).
 """
 
 from app.db.database import Base
-from app.models.control import MapaUsuarioEsquema, VersionEsquema
+from app.models.control import (
+    ESTADOS_INVITACION,
+    TIPOS_REGISTRO_MOTIVO,
+    MapaUsuarioEsquema,
+    RegistroMotivoConstancia,
+    VersionEsquema,
+)
 from app.models.control_canonico import (
     CAPACIDADES,
     BaseControl,
@@ -38,6 +44,7 @@ __all__ = [
     "Departamento",
     "DepartamentoEncargado",
     "DetalleTicket",
+    "ESTADOS_INVITACION",
     "EstadoTicket",
     "FuncionInstitucion",
     "HistorialTransicionTicket",
@@ -48,9 +55,11 @@ __all__ = [
     "MovimientoInventario",
     "Prioridad",
     "Producto",
+    "RegistroMotivoConstancia",
     "Rol",
     "Sede",
     "StockSede",
+    "TIPOS_REGISTRO_MOTIVO",
     "Ticket",
     "Usuario",
     "VersionEsquema",

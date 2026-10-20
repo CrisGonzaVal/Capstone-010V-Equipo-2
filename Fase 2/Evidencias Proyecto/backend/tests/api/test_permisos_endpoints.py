@@ -16,7 +16,9 @@ el catalogo.
 La matriz D-3 mantiene dos matices que esta suite fija:
   * `GET /tickets/` da permiso al Solicitante (el filtrado a sus propios tickets
     es T4, no ahora).
-  * `GET /tickets/catalogos` da permiso a los cuatro roles.
+  * `GET /tickets/catalogos` es lectura de negocio: desde la Feature 017
+    (D-9/AC-15/T10) el Superadmin recibe 403; los tres roles institucionales
+    conservan el permiso.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from app.models import (
     DepartamentoEncargado,
     DetalleTicket,
     EstadoTicket,
+    MapaUsuarioEsquema,
     Rol,
     Sede,
     StockSede,
@@ -59,6 +62,10 @@ _INVENTARIO_Y_TICKETS = {"Superadmin", "Administrador", "Bodeguero"}
 _ESCRITURA_CATALOGO = {"Administrador"}
 _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
+#: Feature 017 (D-9/AC-15): lectura de negocio de los roles institucionales.
+_LECTURA_NEGOCIO = {"Administrador", "Bodeguero", "Solicitante"}
+#: Historial de movimientos sin Superadmin ni Solicitante (017 / 011).
+_MOVIMIENTOS = {"Administrador", "Bodeguero"}
 #: Alta de institucion (Feature 010, D-7): solo Superadmin.
 _ALTA_INSTITUCION = {"Superadmin"}
 #: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
@@ -71,29 +78,29 @@ _CICLO_VIDA_BODEGA = {"Administrador", "Bodeguero"}
 
 MATRIZ_D3: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
-    ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("POST", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/roles"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/departamentos"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/inventario/categorias"): _TODOS,
-    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
-    ("GET", "/api/v1/inventario/productos"): _TODOS,
-    ("GET", "/api/v1/inventario/productos/{producto_id}"): _TODOS,
+    ("GET", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("POST", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/roles"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/departamentos"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/instituciones"): _ORGANIZACION,
+    ("GET", "/api/v1/inventario/categorias"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/productos"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/productos/{producto_id}"): _LECTURA_NEGOCIO,
     ("POST", "/api/v1/inventario/productos"): _ESCRITURA_CATALOGO,
-    ("GET", "/api/v1/inventario/existencias"): _TODOS,
-    ("GET", "/api/v1/inventario/stock"): _TODOS,
-    ("GET", "/api/v1/inventario/movimientos"): _INVENTARIO_Y_TICKETS,
+    ("GET", "/api/v1/inventario/existencias"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/stock"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/movimientos"): _MOVIMIENTOS,
     ("POST", "/api/v1/inventario/movimientos"): _ESCRITURA_STOCK,
-    ("GET", "/api/v1/tickets/catalogos"): _TODOS,
-    ("GET", "/api/v1/tickets/"): _TODOS,
+    ("GET", "/api/v1/tickets/catalogos"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/tickets/"): _LECTURA_NEGOCIO,
     ("POST", "/api/v1/tickets/"): _ESCRITURA_TICKETS,
     ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _ESCRITURA_STOCK,
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
     # Feature 009 (D-3/AC-13/AC-14): el dashboard consolidado es lectura para los
     # cuatro roles. No altera la entrada de `GET /inventario/movimientos`, que
     # sigue reservada a `_INVENTARIO_Y_TICKETS` (Solicitante excluido).
-    ("GET", "/api/v1/dashboard/"): _TODOS,
+    ("GET", "/api/v1/dashboard/"): _LECTURA_NEGOCIO,
     # Feature 010 (D-7/AC-7…AC-9): alta de institucion, solo Superadmin.
     ("POST", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
     # Feature 011 (D-4/D-5/AC-5): asignaciones organizacionales, solo Administrador.
@@ -142,15 +149,41 @@ MATRIZ_D3: dict[tuple[str, str], set[str]] = {
         "PATCH",
         "/api/v1/organizacion/departamentos/{departamento_id}/estado",
     ): _ORGANIZACION,
-    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
-    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ORGANIZACION,
     # Feature 013 (AC-17, plan §2): ciclo de vida del ticket. Cinco operaciones
     # aditivas (matriz 44 -> 49) con los roles exactos del AC-17.
     ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): _CICLO_VIDA_DUENO,
     ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): _CICLO_VIDA_BODEGA,
     ("PUT", "/api/v1/tickets/{ticket_id}"): _CICLO_VIDA_DUENO,
-    ("GET", "/api/v1/tickets/{ticket_id}"): _TODOS,
-    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _TODOS,
+    ("GET", "/api/v1/tickets/{ticket_id}"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _LECTURA_NEGOCIO,
+    # Feature 017 (D-10): cinco operaciones exclusivas de Superadmin.
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ): _ALTA_INSTITUCION,
+    (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ): _ALTA_INSTITUCION,
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}",
+    ): _ALTA_INSTITUCION,
+    (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/estado",
+    ): _ALTA_INSTITUCION,
+    (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/invitacion/reenvio",
+    ): _ALTA_INSTITUCION,
+    # Feature 017 (D-4/D-10/AC-9): reenvio ordinario exclusivo del Administrador.
+    (
+        "POST",
+        "/api/v1/usuarios/{usuario_id}/invitacion/reenvio",
+    ): _ORGANIZACION,
 }
 
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
@@ -166,6 +199,11 @@ _CODIGOS_EXITO: dict[tuple[str, str], int] = {
     ("POST", "/api/v1/inventario/movimientos"): 201,
     ("POST", "/api/v1/tickets/"): 201,
     ("POST", "/api/v1/control/instituciones/"): 201,
+    # Feature 017 (D-10): el alta de Administrador en control responde 201.
+    (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ): 201,
     # Feature 011 (D-4/AC-4/AC-5): el alta de encargado responde 201 y el retiro 204.
     ("POST", "/api/v1/organizacion/departamentos/{departamento_id}/encargados"): 201,
     (
@@ -256,6 +294,9 @@ def _cliente(
     app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
         lambda: (lambda _correo: True)
     )
+    from tests.soporte_frontera_017 import instalar_frontera_clerk
+
+    instalar_frontera_clerk(identidad_existente=True)
     if rol is not _SIN_AUTENTICAR:
         app.dependency_overrides[dependencies.get_current_user] = (
             lambda: _identidad_con_rol(rol, usuario_id, sede_id)
@@ -333,6 +374,21 @@ def _ruta_concreta(metodo: str, ruta: str, datos: dict) -> str:
         "/api/v1/usuarios/{usuario_id}/estado",
     ):
         return ruta.replace("{usuario_id}", str(datos["usuario_bodeguero_id"]))
+    if ruta == "/api/v1/usuarios/{usuario_id}/invitacion/reenvio":
+        return ruta.replace("{usuario_id}", str(datos["usuario_reenvio_id"]))
+    # Feature 017 (D-10): gobierno de Administradores por institucion.
+    if ruta in (
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ):
+        return ruta.replace("{institucion_id}", datos["institucion_id"])
+    if ruta in (
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/estado",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/invitacion/reenvio",
+    ):
+        return ruta.replace(
+            "{institucion_id}", datos["institucion_id"]
+        ).replace("{usuario_id}", str(datos["usuario_id"]))
     return ruta
 
 
@@ -450,9 +506,54 @@ def _cuerpo(metodo: str, ruta: str, datos: dict):
             "apellido": "Autorizacion",
             "departamento_id": datos["departamento_id"],
             "rol_id": datos["rol_bodeguero_id"],
+            "motivo": {"codigo": "correccion_datos", "texto": "Correccion"},
         }
     if (metodo, ruta) == ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"):
-        return {"activo": True}
+        return {
+            "activo": True,
+            "motivo": {"codigo": "seguridad_acceso", "texto": "Reactivacion"},
+        }
+    # Feature 017 (D-10): payloads del gobierno de Administradores.
+    if (metodo, ruta) == (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ):
+        return {
+            "nombre": "Admin",
+            "apellido": "Control",
+            "correo": "nuevo.admin.control017@compustock.cl",
+            "departamento_id": datos["departamento_id"],
+            "rol_id": datos["rol_id"],
+        }
+    if (metodo, ruta) == (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}",
+    ):
+        return {
+            "nombre": "Administrador editado",
+            "apellido": "Autorizacion",
+            "departamento_id": datos["departamento_id"],
+            "rol_id": datos["rol_id"],
+            "motivo": {"codigo": "correccion_datos", "texto": "Correccion"},
+        }
+    if (metodo, ruta) == (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/estado",
+    ):
+        return {
+            "activo": True,
+            "motivo": {"codigo": "seguridad_acceso", "texto": "Reactivacion"},
+        }
+    if (metodo, ruta) == (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/invitacion/reenvio",
+    ):
+        return None
+    if (metodo, ruta) == (
+        "POST",
+        "/api/v1/usuarios/{usuario_id}/invitacion/reenvio",
+    ):
+        return None
     raise AssertionError(f"sin payload definido para {metodo} {ruta}")
 
 
@@ -587,6 +688,30 @@ def datos_autorizacion(motor, datos_base):
                 usuario_id=usuario_solicitante.usuario_id,
             )
         )
+        # Feature 017 (D-10): el Administrador base queda con una invitacion
+        # pendiente persistida para que el reenvio autorizado pueda responder 200.
+        db.add(
+            MapaUsuarioEsquema(
+                correo=datos_base["correo_usado"],
+                institucion_id=datos_base["institucion_id"],
+                nombre_esquema="tenant_autorizacion",
+                activo=True,
+                estado_invitacion="pendiente",
+                invitacion_id="inv_seed_017",
+            )
+        )
+        # Feature 017 (T11): el reenvio ordinario se mide sobre un Bodeguero
+        # activo del tenant; se siembra su asociacion pendiente.
+        db.add(
+            MapaUsuarioEsquema(
+                correo="bodega.autorizacion@compustock.cl",
+                institucion_id=datos_base["institucion_id"],
+                nombre_esquema="tenant_autorizacion",
+                activo=True,
+                estado_invitacion="pendiente",
+                invitacion_id="inv_seed_reenvio",
+            )
+        )
         db.commit()
 
         return {
@@ -603,6 +728,7 @@ def datos_autorizacion(motor, datos_base):
             "rol_solicitante_id": rol_solicitante.rol_id,
             "sede_id": sede.sede_id,
             "usuario_bodeguero_id": usuario_bodeguero.usuario_id,
+            "usuario_reenvio_id": usuario_bodeguero.usuario_id,
             "usuario_solicitante_id": usuario_solicitante.usuario_id,
             "usuario_encargable_id": usuario_encargable.usuario_id,
         }
@@ -633,13 +759,13 @@ def test_inventario_de_rutas_igual_a_la_matriz_d3():
     assert set(permisos.MATRIZ_PERMISOS) == set(MATRIZ_D3)
 
 
-def test_operacion_dashboard_declarada_para_los_cuatro_roles():
-    """AC-13/AC-14: el dashboard figura en la matriz y movimientos sigue denegado.
+def test_operacion_dashboard_declarada_solo_para_los_roles_institucionales():
+    """Feature 017 (D-9/AC-15): dashboard para los tres roles institucionales.
 
-    Contraste de la fuente de verdad independiente: la operacion nueva existe para
-    los cuatro roles y el historial no amplia su permiso al Solicitante.
+    Contraste de la fuente de verdad independiente: la operacion existe sin
+    Superadmin, y el historial no amplia su permiso al Solicitante.
     """
-    assert MATRIZ_D3[("GET", "/api/v1/dashboard/")] == _TODOS
+    assert MATRIZ_D3[("GET", "/api/v1/dashboard/")] == _LECTURA_NEGOCIO
     assert "Solicitante" not in MATRIZ_D3[("GET", "/api/v1/inventario/movimientos")]
 
 
@@ -794,7 +920,7 @@ def test_openapi_declara_el_codigo_de_exito_de_cada_operacion():
 REFERENCIAS_ESPERADAS = {
     ("GET", "/api/v1/auth/me"): "IdentidadAutenticadaRespuesta",
     ("GET", "/api/v1/usuarios/"): "UsuarioRespuesta",
-    ("POST", "/api/v1/usuarios/"): "UsuarioRespuesta",
+    ("POST", "/api/v1/usuarios/"): "UsuarioInvitacionRespuesta",
     ("GET", "/api/v1/inventario/categorias"): "CategoriaRespuesta",
     ("GET", "/api/v1/inventario/categorias/{categoria_id}"): "CategoriaRespuesta",
     ("GET", "/api/v1/inventario/productos"): "ProductoRespuesta",
@@ -844,6 +970,27 @@ REFERENCIAS_ESPERADAS = {
     ("PUT", "/api/v1/tickets/{ticket_id}"): "TicketRespuesta",
     ("GET", "/api/v1/tickets/{ticket_id}"): "TicketDetalleRespuesta",
     ("GET", "/api/v1/tickets/{ticket_id}/historial"): "HistorialTransicionRespuesta",
+    # Feature 017 (D-10): DTOs del gobierno de Administradores.
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ): "AdministradorListadoControlRespuesta",
+    (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ): "UsuarioInvitacionRespuesta",
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}",
+    ): "UsuarioRespuesta",
+    (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/estado",
+    ): "UsuarioRespuesta",
+    (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/invitacion/reenvio",
+    ): "UsuarioInvitacionRespuesta",
 }
 
 

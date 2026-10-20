@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Prioridad, Producto
+from app.models import Prioridad, Producto, Ticket
 
 from ._soporte_ciclo_vida_013 import (
     DETALLE_TICKET_NO_ENCONTRADO,
@@ -26,6 +26,7 @@ from ._soporte_ciclo_vida_013 import (
     cliente_con_rol,
     sembrar_mundo_013,
     sembrar_ticket,
+    sesion,
 )
 
 RUTA_EDICION = "/api/v1/tickets/{ticket_id}"
@@ -347,7 +348,21 @@ def test_bodeguero_y_superadmin_no_pueden_editar_ac_16(motor, datos_013, rol):
         )
 
         assert respuesta.status_code == 403, respuesta.text
-        _assert_intacto(cliente, motor, datos_013, ticket_id, "Ticket sembrado para el ciclo de vida 013")
+        if rol == "Superadmin":
+            # Feature 017 (D-9/AC-15): el Superadmin tampoco puede leer el
+            # listado, asi que la ausencia de mutacion se observa por ORM.
+            with sesion(motor) as db:
+                ticket = db.get(Ticket, ticket_id)
+                assert ticket.asunto == "Ticket sembrado para el ciclo de vida 013"
+                assert ticket.estado_id == datos_013["estados"]["Pendiente"]
+        else:
+            _assert_intacto(
+                cliente,
+                motor,
+                datos_013,
+                ticket_id,
+                "Ticket sembrado para el ciclo de vida 013",
+            )
 
 
 def test_solicitante_no_edita_ticket_ajeno_y_el_404_es_identico_ac_16(

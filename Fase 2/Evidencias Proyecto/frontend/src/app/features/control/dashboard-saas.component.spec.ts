@@ -7,46 +7,78 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { URL_API } from '../../shared/config/url-api';
-import { DashboardSaaS } from '../../shared/interfaces';
+import { DashboardSaaS, InstitucionMetricas } from '../../shared/interfaces';
 import { DashboardSaasComponent } from './dashboard-saas.component';
 
 /**
- * Feature 012 (T9): vista del dashboard SaaS del Superadmin (AC-4).
+ * Feature 017 (T9): dashboard técnico del Superadmin (D-8/AC-13/AC-14).
  *
- * Seam bajo prueba: la interfaz pública del componente — el DOM renderizado y la
- * petición real del `ControlService` bajo `HttpTestingController`. Se verifica el
- * KPI de instituciones activas, la tabla con atribución inequívoca (nombre + id),
- * el estado activo/inactivo y las métricas atribuidas; una institución inactiva
- * se muestra sin métricas. También estados de carga, error recuperable y vacío.
+ * Seam bajo prueba: la interfaz pública del componente — DOM y petición real del
+ * `ControlService` bajo `HttpTestingController`. Se verifica la taxonomía única
+ * (operativo / no enrutable / no disponible), que un conteo no disponible nunca
+ * se presenta como cero, los agregados conocidos/no disponibles y los estados de
+ * carga, error y vacío.
  */
 describe('DashboardSaasComponent', () => {
   const RUTA_DASHBOARD = `${URL_API}/control/dashboard`;
 
+  function operativa(
+    sobrescribir: Partial<InstitucionMetricas> = {},
+  ): InstitucionMetricas {
+    return {
+      institucion_id: 'INSTA',
+      nombre: 'Instituto Alfa',
+      activo: true,
+      estado_tecnico: 'operativo',
+      detalle_tecnico: null,
+      version_objetivo: '013.1',
+      version_persistida: '013.1',
+      sedes: 3,
+      departamentos: 2,
+      administradores_activos: 1,
+      administradores_inactivos: 1,
+      usuarios_por_rol: { Bodeguero: 2, Solicitante: 5 },
+      ...sobrescribir,
+    };
+  }
+
   function crearDashboard(sobrescribir: Partial<DashboardSaaS> = {}): DashboardSaaS {
     return {
+      total_instituciones: 3,
       total_instituciones_activas: 2,
+      total_administradores_activos: 1,
+      total_administradores_inactivos: 1,
+      usuarios_por_rol: { Bodeguero: 2, Solicitante: 5 },
+      conteos_conocidos: 1,
+      conteos_no_disponibles: 2,
       instituciones: [
-        {
-          institucion_id: 'INSTA',
-          nombre: 'Instituto Alfa',
-          activo: true,
-          sedes: 3,
-          usuarios_por_rol: { Administrador: 1, Bodeguero: 2, Solicitante: 5 },
-        },
-        {
+        operativa(),
+        operativa({
           institucion_id: 'INSTB',
-          nombre: 'Instituto Alfa',
+          nombre: 'Instituto Beta',
           activo: true,
-          sedes: 1,
-          usuarios_por_rol: { Administrador: 1 },
-        },
-        {
+          estado_tecnico: 'no disponible',
+          detalle_tecnico: 'version_incompatible',
+          version_persistida: null,
+          sedes: null,
+          departamentos: null,
+          administradores_activos: null,
+          administradores_inactivos: null,
+          usuarios_por_rol: null,
+        }),
+        operativa({
           institucion_id: 'INSTC',
           nombre: 'Instituto Gamma',
           activo: false,
+          estado_tecnico: 'no enrutable',
+          detalle_tecnico: 'institucion_inactiva',
+          version_persistida: null,
           sedes: null,
+          departamentos: null,
+          administradores_activos: null,
+          administradores_inactivos: null,
           usuarios_por_rol: null,
-        },
+        }),
       ],
       ...sobrescribir,
     };
@@ -79,7 +111,7 @@ describe('DashboardSaasComponent', () => {
     fixture.detectChanges();
   }
 
-  it('AC-4: pide el dashboard SaaS una sola vez al inicializar', () => {
+  it('AC-13: pide el dashboard SaaS una sola vez al inicializar', () => {
     fixture.detectChanges();
     const peticion = httpMock.expectOne(RUTA_DASHBOARD);
     expect(peticion.request.method).toBe('GET');
@@ -88,7 +120,7 @@ describe('DashboardSaasComponent', () => {
     httpMock.expectNone(RUTA_DASHBOARD);
   });
 
-  it('AC-4: durante la carga identifica el estado pendiente', () => {
+  it('AC-13: durante la carga identifica el estado pendiente', () => {
     fixture.detectChanges();
     const indicador = (fixture.nativeElement as HTMLElement).querySelector(
       '[role="status"]',
@@ -98,31 +130,64 @@ describe('DashboardSaasComponent', () => {
     fixture.detectChanges();
   });
 
-  it('AC-4: muestra el KPI de instituciones activas del DTO', () => {
-    montar();
-    expect(texto()).toContain('Instituciones activas');
-    expect(texto()).toContain('2');
-  });
-
-  it('AC-4: lista las instituciones con atribución inequívoca (nombre + id)', () => {
+  it('AC-13: muestra el total de instituciones y los agregados conocidos/no disponibles', () => {
     montar();
     const visible = texto();
-    // Dos instituciones homónimas se distinguen por su identificador.
+    expect(visible).toContain('Instituciones');
+    expect(visible).toContain('Con conteos conocidos');
+    expect(visible).toContain('Sin conteos disponibles');
+    expect(visible).toContain('Administradores activos');
+    expect(visible).toContain('Administradores inactivos');
+    expect(fixture.componentInstance.conocidos()).toBe(1);
+    expect(fixture.componentInstance.noDisponibles()).toBe(2);
+  });
+
+  it('AC-14: distingue las tres clases técnicas y solo la operativa muestra conteos', () => {
+    montar();
+    const visible = texto();
+    expect(visible).toContain('Operativo');
+    expect(visible).toContain('No enrutable');
+    expect(visible).toContain('No disponible');
+    expect(visible).toContain('Institución inactiva');
+    expect(visible).toContain('Versión incompatible');
+
+    const filaOperativa = fixture.componentInstance
+      .instituciones()
+      .find((i) => i.institucion_id === 'INSTA');
+    expect(fixture.componentInstance.esOperativa(filaOperativa!)).toBe(true);
+
+    const filaNoDisponible = fixture.componentInstance
+      .instituciones()
+      .find((i) => i.institucion_id === 'INSTB');
+    expect(fixture.componentInstance.esOperativa(filaNoDisponible!)).toBe(false);
+  });
+
+  it('AC-14: un conteo no disponible se muestra como «No disponible», nunca como cero', () => {
+    montar();
+    const visible = texto();
+    expect(visible).toContain('No disponible');
+    expect(fixture.componentInstance.valor(null)).toBe('No disponible');
+    expect(fixture.componentInstance.valor(0)).toBe('0');
+  });
+
+  it('AC-13: lista las instituciones con atribución inequívoca (nombre + id)', () => {
+    montar();
+    const visible = texto();
     expect(visible).toContain('INSTA');
     expect(visible).toContain('INSTB');
     expect(visible).toContain('Instituto Gamma');
-    expect(visible).toContain('Administrador');
+    expect(visible).toContain('Bodeguero');
     expect(visible).toContain('Solicitante');
   });
 
-  it('AC-4: una institución inactiva se identifica y no recibe métricas actuales', () => {
+  it('AC-13: no expone datos personales ni de negocio', () => {
     montar();
-    const visible = texto();
-    expect(visible).toContain('Inactiva');
-    expect(visible.toLowerCase()).toContain('sin métricas');
+    const visible = texto().toLowerCase();
+    expect(visible).not.toContain('@');
+    expect(visible).not.toContain('ticket');
   });
 
-  it('AC-4: ante fallo informa un error recuperable y permite reintentar', () => {
+  it('AC-13: ante fallo informa un error recuperable y permite reintentar', () => {
     fixture.detectChanges();
     httpMock
       .expectOne(RUTA_DASHBOARD)
@@ -149,8 +214,17 @@ describe('DashboardSaasComponent', () => {
     ).toBeNull();
   });
 
-  it('AC-4: sin instituciones muestra un vacío explícito', () => {
-    montar({ total_instituciones_activas: 0, instituciones: [] });
+  it('AC-13: sin instituciones muestra un vacío explícito', () => {
+    montar({
+      total_instituciones: 0,
+      total_instituciones_activas: 0,
+      total_administradores_activos: 0,
+      total_administradores_inactivos: 0,
+      usuarios_por_rol: {},
+      conteos_conocidos: 0,
+      conteos_no_disponibles: 0,
+      instituciones: [],
+    });
     expect(texto().toLowerCase()).toContain('no hay instituciones');
   });
 });

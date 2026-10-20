@@ -56,16 +56,19 @@ RUTA_DETALLE = "/api/v1/tickets/{ticket_id}"
 RUTA_HISTORIAL = "/api/v1/tickets/{ticket_id}/historial"
 
 _TODOS = {"Superadmin", "Administrador", "Bodeguero", "Solicitante"}
+#: Feature 017 (D-9/AC-15): el detalle y el historial dejan de concederse al
+#: Superadmin; los tres roles institucionales conservan la lectura.
+_LECTURA_INSTITUCIONAL = {"Administrador", "Bodeguero", "Solicitante"}
 
 #: Las cinco operaciones nuevas con los roles exactos del AC-17 (transcritos
 #: de la spec; nunca se leen de `MATRIZ_PERMISOS`, para evitar la prueba
-#: tautologica).
+#: tautologica). La lectura de detalle/historial queda ajustada por 017.
 OPERACIONES_013: dict[tuple[str, str], set[str]] = {
     ("POST", RUTA_ANULACION): {"Administrador", "Solicitante"},
     ("POST", RUTA_RECHAZO): {"Administrador", "Bodeguero"},
     ("PUT", RUTA_EDICION): {"Administrador", "Solicitante"},
-    ("GET", RUTA_DETALLE): _TODOS,
-    ("GET", RUTA_HISTORIAL): _TODOS,
+    ("GET", RUTA_DETALLE): _LECTURA_INSTITUCIONAL,
+    ("GET", RUTA_HISTORIAL): _LECTURA_INSTITUCIONAL,
 }
 
 #: Asociacion capacidad <-> operacion que la 013 debe agregar al mapa central

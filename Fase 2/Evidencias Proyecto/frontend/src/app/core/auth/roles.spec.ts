@@ -2,7 +2,10 @@ import {
   ROLES_ADMINISTRATIVOS,
   ROLES_ANULACION_TICKETS,
   ROLES_ASIGNABLES_ADMINISTRADOR,
+  ROLES_DASHBOARD,
   ROLES_EDICION_TICKETS,
+  ROLES_INVENTARIO,
+  ROLES_NEGOCIO,
   ROLES_OPERATIVOS_TICKETS,
   ROLES_RECHAZO_TICKETS,
   ROLES_TICKETS,
@@ -13,6 +16,8 @@ import {
   puedeEditarTicket,
   puedeOperarTickets,
   puedeRechazarTicket,
+  puedeVerDashboard,
+  puedeVerInventario,
   puedeVerTickets,
 } from './roles';
 
@@ -32,10 +37,26 @@ describe('roles', () => {
     expect(ROLES_TODOS as readonly string[]).not.toContain('Admin');
   });
 
-  it('los roles con acceso a administración son Superadmin y Administrador', () => {
-    expect(ROLES_ADMINISTRATIVOS).toEqual(['Superadmin', 'Administrador']);
+  /**
+   * Feature 017 (D-9/AC-15, T10): el Superadmin perdió toda la superficie de
+   * negocio, incluida `/administracion` (la API tenant `/usuarios/*` y
+   * `/organizacion/*` le responde 403). La gestión de Administradores vive en
+   * `/control/instituciones/:id/administradores`.
+   */
+  it('los roles con acceso a administración se reducen al Administrador', () => {
+    expect(ROLES_ADMINISTRATIVOS).toEqual(['Administrador']);
+    expect(ROLES_ADMINISTRATIVOS as readonly string[]).not.toContain('Superadmin');
     expect(ROLES_ADMINISTRATIVOS as readonly string[]).not.toContain('Bodeguero');
     expect(ROLES_ADMINISTRATIVOS as readonly string[]).not.toContain('Solicitante');
+  });
+
+  it('la superficie de dashboard e inventario excluye al Superadmin (Feature 017, AC-15)', () => {
+    for (const roles of [ROLES_DASHBOARD, ROLES_INVENTARIO, ROLES_NEGOCIO]) {
+      expect(roles as readonly string[]).not.toContain('Superadmin');
+      for (const rol of ['Administrador', 'Bodeguero', 'Solicitante']) {
+        expect(roles as readonly string[]).withContext(rol).toContain(rol);
+      }
+    }
   });
 
   it('solo el Solicitante queda fuera de la operación de tickets (AC-3)', () => {
@@ -76,8 +97,19 @@ describe('roles', () => {
     expect(puedeVerTickets(null)).toBe(false);
   });
 
-  it('puedeAdministrar concede solo a los roles administrativos', () => {
-    expect(puedeAdministrar('Superadmin')).toBe(true);
+  it('puedeVerDashboard y puedeVerInventario conceden solo a los roles de negocio', () => {
+    for (const rol of ['Administrador', 'Bodeguero', 'Solicitante']) {
+      expect(puedeVerDashboard(rol)).withContext(rol).toBe(true);
+      expect(puedeVerInventario(rol)).withContext(rol).toBe(true);
+    }
+    for (const rol of ['Superadmin', 'Admin', null]) {
+      expect(puedeVerDashboard(rol)).withContext(String(rol)).toBe(false);
+      expect(puedeVerInventario(rol)).withContext(String(rol)).toBe(false);
+    }
+  });
+
+  it('puedeAdministrar concede solo al Administrador (Feature 017, AC-15)', () => {
+    expect(puedeAdministrar('Superadmin')).toBe(false);
     expect(puedeAdministrar('Administrador')).toBe(true);
     expect(puedeAdministrar('Bodeguero')).toBe(false);
     expect(puedeAdministrar('Solicitante')).toBe(false);

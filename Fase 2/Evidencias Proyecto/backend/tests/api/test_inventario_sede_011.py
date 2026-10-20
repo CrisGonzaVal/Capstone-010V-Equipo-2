@@ -317,18 +317,15 @@ def test_administrador_ve_todas_las_sedes_de_su_institucion(motor, dos_instituci
     assert sede_ajena not in sedes_expuestas
 
 
-def test_superadmin_conserva_lectura_global_atribuida(motor, dos_instituciones):
-    """AC-8: la lectura global del Superadmin sigue atribuyendo cada institucion."""
+def test_superadmin_recibe_403_en_existencias_ac_15(motor, dos_instituciones):
+    """Feature 017 (D-9/AC-15): la lectura global de existencias se retira."""
     exigir_contrato_existencias_por_sede()
 
     with cliente(motor, "Superadmin", departamento_id=None) as cliente_http:
-        filas = _existencias(cliente_http)
+        respuesta = cliente_http.get("/api/v1/inventario/existencias")
 
-    instituciones = {fila["institucion_id"] for fila in filas}
-    assert {
-        dos_instituciones["inst_propia"],
-        dos_instituciones["inst_ajena"],
-    } <= instituciones
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
 
 
 def test_superadmin_no_escribe_stock(motor, datos_base):

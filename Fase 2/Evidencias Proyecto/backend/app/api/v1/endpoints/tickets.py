@@ -40,8 +40,9 @@ router = APIRouter(prefix="/tickets", tags=["Tickets y Solicitudes"])
         "`GET /inventario/existencias`: critico si alguna sede esta en o bajo el "
         "minimo (Feature 011, D-2/D-6).\n\n"
         "`solicitantes` se acota por rol (Feature 007): el Solicitante solo se ve a "
-        "si mismo; Administrador y Bodeguero, a los de su institucion; Superadmin, a "
-        "todos con lectura global del catalogo (cada producto atribuido).\n\n"
+        "si mismo; Administrador y Bodeguero, a los de su institucion. Feature 017 "
+        "(D-9/AC-15): es una lectura de negocio, por lo que el Superadmin recibe "
+        "**403** sin datos; su superficie es `/control/*`.\n\n"
         "El orden es determinista: prioridades y estados por su id (que es el "
         "orden del flujo), productos por nombre, solicitantes por apellido."
     ),
@@ -69,8 +70,9 @@ def obtener_catalogos(
         "un estado. El orden es determinista: `fecha_creacion` descendente y, en "
         "empate, `ticket_id` descendente.\n\n"
         "El alcance depende del rol (Feature 007): el Solicitante recibe solo sus "
-        "tickets; Administrador y Bodeguero, solo los de su institucion; Superadmin, "
-        "todos."
+        "tickets; Administrador y Bodeguero, solo los de su institucion. "
+        "Feature 017 (D-9/AC-15): el **Superadmin no tiene esta lectura** y "
+        "recibe **403** sin datos."
     ),
     responses=dependencies.respuestas_de_autorizacion(),
     dependencies=[
@@ -384,11 +386,12 @@ def editar_ticket(
         "`sede_nombre`) —Feature 013, spec §6/D-13—. La vista de detalle "
         "sustituye el \"fuera de alcance\" de la 004: es la superficie desde "
         "la que se operan todas las acciones del ciclo de vida.\n\n"
-        "Legible por los cuatro roles con su alcance vigente (AC-19): el "
-        "Solicitante, sus tickets; Administrador y Bodeguero, los de su "
-        "institucion; Superadmin, con alcance global. Un ticket inexistente o "
-        "fuera del alcance responde **404** identico, sin revelar existencia "
-        "(AC-18). Solo lectura: no concede ninguna capacidad de escritura."
+        "Legible por el Solicitante (sus tickets) y por Administrador y "
+        "Bodeguero (los de su institucion). Feature 017 (D-9/AC-15): el "
+        "**Superadmin no tiene esta lectura** y recibe **403** sin datos. Un "
+        "ticket inexistente o fuera del alcance responde **404** identico, sin "
+        "revelar existencia (AC-18). Solo lectura: no concede ninguna capacidad "
+        "de escritura."
     ),
     responses={
         **dependencies.respuestas_de_autorizacion(),
@@ -432,7 +435,9 @@ def obtener_ticket_detalle(
         "Bajo esta ruta solo existe `GET`: el historial es inmutable por API, "
         "sus filas se escriben junto con cada mutacion del ciclo de vida.\n\n"
         "Mismo alcance por rol y mismo **404** de ocultamiento que el "
-        "detalle (AC-18/AC-19); Superadmin, alcance global."
+        "detalle (AC-18): Solicitante (sus tickets), Administrador y Bodeguero "
+        "(su institucion). Feature 017 (D-9/AC-15): el **Superadmin no tiene esta "
+        "lectura** y recibe **403** sin datos."
     ),
     responses={
         **dependencies.respuestas_de_autorizacion(),

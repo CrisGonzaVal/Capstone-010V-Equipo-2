@@ -3,8 +3,8 @@
     <h3 class="text-xl font-bold text-slate-800">Usuarios</h3>
     <p class="text-sm text-slate-500">
       Usuarios locales de la institución vinculados a Clerk. La edición no cambia el
-      correo ni las credenciales; desactivar impide que el correo resuelva al tenant sin
-      borrar la identidad de Clerk.
+      correo ni las credenciales. El estado de la invitación es independiente del vínculo
+      local: una invitación aceptada no implica que la cuenta esté activa.
     </p>
   </header>
 
@@ -53,7 +53,8 @@
       </div>
       <div class="flex flex-col gap-1 md:col-span-2">
         <label for="crear-usuario-correo" class="text-sm font-medium text-slate-700">
-          Correo (debe existir en Clerk) <span aria-hidden="true" class="text-rose-600">*</span>
+          Correo (se invita si aún no existe en Clerk)
+          <span aria-hidden="true" class="text-rose-600">*</span>
         </label>
         <input
           id="crear-usuario-correo"
@@ -136,6 +137,13 @@
     </p>
   }
 
+  @if (enlaceInvitacion(); as enlace) {
+    <app-enlace-invitacion
+      [url]="enlace.url"
+      [titulo]="'Invitación de «' + enlace.nombre + '»'"
+    />
+  }
+
   @if (errorAccion(); as error) {
     <p
       role="alert"
@@ -192,21 +200,40 @@
                 </p>
               }
             </div>
-            <span
-              class="rounded-full px-2 py-1 text-xs font-medium"
-              [class.bg-emerald-100]="usuario.activo === true"
-              [class.text-emerald-800]="usuario.activo === true"
-              [class.bg-slate-200]="usuario.activo !== true"
-              [class.text-slate-600]="usuario.activo !== true"
-            >
-              @if (usuario.activo === true) {
-                Activo
-              } @else if (usuario.activo === false) {
-                Inactivo
-              } @else {
-                Estado no informado
-              }
-            </span>
+            <div class="flex flex-wrap items-start gap-2">
+              <span
+                class="rounded-full px-2 py-1 text-xs font-medium"
+                [class.bg-emerald-100]="usuario.activo === true"
+                [class.text-emerald-800]="usuario.activo === true"
+                [class.bg-slate-200]="usuario.activo !== true"
+                [class.text-slate-600]="usuario.activo !== true"
+              >
+                @if (usuario.activo === true) {
+                  Activo
+                } @else if (usuario.activo === false) {
+                  Inactivo
+                } @else {
+                  Estado no informado
+                }
+              </span>
+              <span
+                class="rounded-full px-2 py-1 text-xs font-medium"
+                [class.bg-amber-100]="usuario.estado_invitacion === 'pendiente'"
+                [class.text-amber-800]="usuario.estado_invitacion === 'pendiente'"
+                [class.bg-emerald-100]="usuario.estado_invitacion === 'aceptada'"
+                [class.text-emerald-800]="usuario.estado_invitacion === 'aceptada'"
+                [class.bg-slate-200]="
+                  usuario.estado_invitacion !== 'pendiente' &&
+                  usuario.estado_invitacion !== 'aceptada'
+                "
+                [class.text-slate-600]="
+                  usuario.estado_invitacion !== 'pendiente' &&
+                  usuario.estado_invitacion !== 'aceptada'
+                "
+              >
+                Invitación: {{ estadoInvitacion(usuario) }}
+              </span>
+            </div>
           </div>
 
           <div class="mt-4 flex flex-wrap gap-2">
@@ -224,6 +251,16 @@
                 (click)="iniciarAsignacionSede(usuario)"
               >
                 Asignar sede
+              </button>
+            }
+            @if (puedeReenviar(usuario)) {
+              <button
+                type="button"
+                [disabled]="reenviando()"
+                class="rounded-lg border border-blue-300 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                (click)="reenviarInvitacion(usuario)"
+              >
+                Reenviar invitación
               </button>
             }
             @if (usuario.activo === true) {
@@ -244,6 +281,23 @@
               </button>
             }
           </div>
+
+          @if (requiereReactivarParaReenviar(usuario)) {
+            <p class="mt-3 text-xs text-slate-500">
+              Reenvío no disponible: el vínculo local está inactivo. Reactívalo primero con un
+              motivo y después podrás reenviar la invitación.
+            </p>
+          }
+
+          @if (sugerenciaReenvio() === usuario.usuario_id) {
+            <p
+              role="status"
+              class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+            >
+              Usuario reactivado. La reactivación no reenvía la invitación: pulsa «Reenviar
+              invitación» si necesitas un enlace nuevo.
+            </p>
+          }
 
           @if (asignandoSede()?.usuario_id === usuario.usuario_id) {
             <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -292,11 +346,19 @@
                 {{ usuario.activo === false
                   ? '¿Reactivar este usuario?'
                   : '¿Desactivar este usuario? No se podrá desactivar si es encargado de un departamento.' }}
+                La baja o reactivación exige un motivo del catálogo.
               </p>
+              <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <app-motivo-selector
+                  [codigo]="motivoEstado.controls.codigo"
+                  [texto]="motivoEstado.controls.texto"
+                  [idPrefijo]="'estado-usuario'"
+                />
+              </div>
               <div class="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  [disabled]="guardando()"
+                  [disabled]="guardando() || !motivoEstadoCompleto()"
                   class="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
                   (click)="confirmarCambioEstado()"
                 >
@@ -378,10 +440,15 @@
                   }
                 </select>
               </div>
+              <app-motivo-selector
+                [codigo]="motivoEdicion.controls.codigo"
+                [texto]="motivoEdicion.controls.texto"
+                [idPrefijo]="'editar-usuario'"
+              />
               <div class="flex flex-wrap gap-2 md:col-span-2">
                 <button
                   type="submit"
-                  [disabled]="guardando()"
+                  [disabled]="guardando() || (hayCambiosEdicion() && !motivoEdicionCompleto())"
                   class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   Guardar cambios

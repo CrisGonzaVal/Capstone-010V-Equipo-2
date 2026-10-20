@@ -86,7 +86,14 @@ MAPA_OPERACION_CAPACIDAD: dict[tuple[str, str], str] = {
     ("GET", "/api/v1/usuarios/instituciones"): "gestion_organizacional",
     ("PUT", "/api/v1/usuarios/{usuario_id}"): "gestion_organizacional",
     ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): "gestion_organizacional",
+    # Feature 017 (D-4/D-10): el reenvio ordinario de invitacion es una operacion
+    # de gestion de usuarios del tenant, la misma capacidad que sus altas.
+    (
+        "POST",
+        "/api/v1/usuarios/{usuario_id}/invitacion/reenvio",
+    ): "gestion_organizacional",
 }
+
 
 
 def capacidad_de_operacion(metodo: str, ruta: str) -> str | None:

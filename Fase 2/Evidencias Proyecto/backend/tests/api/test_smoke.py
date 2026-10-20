@@ -67,13 +67,13 @@ def test_crear_usuario_responde_201(cliente, datos_base):
     assert cuerpo["nombre"] == "Carlos"
 
 
-def test_crear_usuario_con_correo_duplicado_responde_400(cliente, datos_base):
-    """Regla de negocio que hoy vivia dentro del endpoint y ahora en el servicio."""
+def test_crear_usuario_con_correo_duplicado_responde_409(cliente, datos_base):
+    """Feature 017 (AC-2/AC-7): el duplicado es un conflicto 409, no un 400."""
     nuevo = {**_crear_usuario(datos_base), "correo": "unicamente.nuevo@compustock.cl"}
     assert cliente.post("/api/v1/usuarios/", json=nuevo).status_code == 201
 
     duplicado = cliente.post("/api/v1/usuarios/", json={**nuevo, "nombre": "Otro"})
-    assert duplicado.status_code == 400, duplicado.text
+    assert duplicado.status_code == 409, duplicado.text
 
 
 def test_crear_usuario_con_correo_invalido_responde_422(cliente, datos_base):

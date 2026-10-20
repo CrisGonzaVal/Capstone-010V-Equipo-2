@@ -1,11 +1,12 @@
-<div class="mx-auto max-w-5xl space-y-6">
+<div class="mx-auto max-w-6xl space-y-6">
   <app-control-nav />
 
   <header>
     <h2 class="text-2xl font-bold text-slate-800">Dashboard SaaS</h2>
     <p class="text-sm text-slate-500">
-      Panorama global de la plataforma: instituciones activas y métricas atribuidas por
-      institución.
+      Panorama técnico de la plataforma. Las instituciones con conteos consultados se
+      distinguen de las que no están disponibles: un dato no disponible nunca se presenta
+      como cero.
     </p>
   </header>
 
@@ -32,10 +33,53 @@
       </button>
     </div>
   } @else {
-    <div class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-      <p class="text-sm font-medium text-slate-500">Instituciones activas</p>
-      <h3 class="mt-1 text-3xl font-bold text-slate-800">{{ totalActivas() }}</h3>
-    </div>
+    <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <p class="text-sm font-medium text-slate-500">Instituciones</p>
+        <h3 class="mt-1 text-3xl font-bold text-slate-800">{{ totalInstituciones() }}</h3>
+        <p class="mt-1 text-xs text-slate-500">{{ totalActivas() }} activa(s)</p>
+      </div>
+      <div class="rounded-xl border border-emerald-100 bg-white p-6 shadow-sm">
+        <p class="text-sm font-medium text-slate-500">Con conteos conocidos</p>
+        <h3 class="mt-1 text-3xl font-bold text-emerald-700">{{ conocidos() }}</h3>
+        <p class="mt-1 text-xs text-slate-500">Solo instituciones operativas</p>
+      </div>
+      <div class="rounded-xl border border-amber-100 bg-white p-6 shadow-sm">
+        <p class="text-sm font-medium text-slate-500">Sin conteos disponibles</p>
+        <h3 class="mt-1 text-3xl font-bold text-amber-700">{{ noDisponibles() }}</h3>
+        <p class="mt-1 text-xs text-slate-500">
+          No enrutables o con tenant/versión no disponible
+        </p>
+      </div>
+      <div class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <p class="text-sm font-medium text-slate-500">Administradores activos</p>
+        <h3 class="mt-1 text-3xl font-bold text-slate-800">
+          {{ administradoresActivos() }}
+        </h3>
+        <p class="mt-1 text-xs text-slate-500">En instituciones operativas</p>
+      </div>
+      <div class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <p class="text-sm font-medium text-slate-500">Administradores inactivos</p>
+        <h3 class="mt-1 text-3xl font-bold text-slate-800">
+          {{ administradoresInactivos() }}
+        </h3>
+        <p class="mt-1 text-xs text-slate-500">Reportados por separado</p>
+      </div>
+      <div class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <p class="text-sm font-medium text-slate-500">Usuarios activos por rol</p>
+        @if (usuariosPorRol().length) {
+          <ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+            @for (rol of usuariosPorRol(); track rol[0]) {
+              <li class="text-xs text-slate-600">
+                {{ rol[0] }}: <strong class="text-slate-800">{{ rol[1] }}</strong>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="mt-2 text-xs text-slate-500">Sin roles no privilegiados contados.</p>
+        }
+      </div>
+    </section>
 
     <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
       <h3 class="mb-4 text-lg font-bold text-slate-800">Instituciones</h3>
@@ -44,21 +88,26 @@
         <div class="overflow-x-auto">
           <table class="w-full text-left text-sm">
             <caption class="sr-only">
-              Instituciones con su estado, sedes y usuarios por rol atribuidos
+              Instituciones con su estado, clase técnica, versión y conteos disponibles o
+              no disponibles
             </caption>
             <thead>
               <tr
                 class="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-500"
               >
                 <th scope="col" class="py-3 pr-4">Institución</th>
-                <th scope="col" class="py-3 pr-4">Estado</th>
+                <th scope="col" class="py-3 pr-4">Ciclo de vida</th>
+                <th scope="col" class="py-3 pr-4">Estado técnico</th>
+                <th scope="col" class="py-3 pr-4">Versión</th>
                 <th scope="col" class="py-3 pr-4 text-right">Sedes</th>
+                <th scope="col" class="py-3 pr-4 text-right">Departamentos</th>
+                <th scope="col" class="py-3 pr-4 text-right">Admins. activos / inactivos</th>
                 <th scope="col" class="py-3">Usuarios por rol</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 text-slate-700">
               @for (institucion of instituciones(); track institucion.institucion_id) {
-                <tr class="hover:bg-slate-50">
+                <tr class="align-top hover:bg-slate-50">
                   <td class="py-3 pr-4">
                     <span class="font-medium text-slate-900">{{ institucion.nombre }}</span>
                     <span class="block font-mono text-xs text-slate-400">
@@ -76,28 +125,66 @@
                       {{ institucion.activo ? 'Activa' : 'Inactiva' }}
                     </span>
                   </td>
+                  <td class="py-3 pr-4">
+                    <span
+                      class="rounded-full px-2 py-1 text-xs font-medium"
+                      [class.bg-emerald-100]="esOperativa(institucion)"
+                      [class.text-emerald-800]="esOperativa(institucion)"
+                      [class.bg-amber-100]="!esOperativa(institucion)"
+                      [class.text-amber-800]="!esOperativa(institucion)"
+                    >
+                      {{ etiquetaTecnica(institucion) }}
+                    </span>
+                    @if (detalleTecnico(institucion); as detalle) {
+                      <span class="mt-1 block text-xs text-slate-500">{{ detalle }}</span>
+                    }
+                  </td>
+                  <td class="py-3 pr-4 text-xs text-slate-600">
+                    <span class="block">
+                      Persistida: {{ institucion.version_persistida ?? 'No disponible' }}
+                    </span>
+                    <span class="block text-slate-400">
+                      Objetivo: {{ institucion.version_objetivo }}
+                    </span>
+                  </td>
                   <td class="py-3 pr-4 text-right">
-                    @if (institucion.activo) {
-                      {{ institucion.sedes ?? 0 }}
+                    @if (institucion.sedes === null) {
+                      <span class="text-xs text-amber-700">No disponible</span>
                     } @else {
-                      <span class="text-slate-400">—</span>
+                      {{ institucion.sedes }}
+                    }
+                  </td>
+                  <td class="py-3 pr-4 text-right">
+                    @if (institucion.departamentos === null) {
+                      <span class="text-xs text-amber-700">No disponible</span>
+                    } @else {
+                      {{ institucion.departamentos }}
+                    }
+                  </td>
+                  <td class="py-3 pr-4 text-right">
+                    @if (
+                      institucion.administradores_activos === null ||
+                      institucion.administradores_inactivos === null
+                    ) {
+                      <span class="text-xs text-amber-700">No disponible</span>
+                    } @else {
+                      {{ institucion.administradores_activos }} /
+                      {{ institucion.administradores_inactivos }}
                     }
                   </td>
                   <td class="py-3">
-                    @if (institucion.activo) {
-                      @if (rolesDe(institucion).length) {
-                        <ul class="flex flex-wrap gap-x-4 gap-y-1">
-                          @for (rol of rolesDe(institucion); track rol[0]) {
-                            <li class="text-xs text-slate-600">
-                              {{ rol[0] }}: <strong class="text-slate-800">{{ rol[1] }}</strong>
-                            </li>
-                          }
-                        </ul>
-                      } @else {
-                        <span class="text-slate-400">Sin usuarios</span>
-                      }
+                    @if (institucion.usuarios_por_rol === null) {
+                      <span class="text-xs text-amber-700">No disponible</span>
+                    } @else if (rolesDe(institucion).length) {
+                      <ul class="flex flex-wrap gap-x-4 gap-y-1">
+                        @for (rol of rolesDe(institucion); track rol[0]) {
+                          <li class="text-xs text-slate-600">
+                            {{ rol[0] }}: <strong class="text-slate-800">{{ rol[1] }}</strong>
+                          </li>
+                        }
+                      </ul>
                     } @else {
-                      <span class="text-slate-400">Sin métricas (institución inactiva)</span>
+                      <span class="text-slate-400">Sin usuarios</span>
                     }
                   </td>
                 </tr>

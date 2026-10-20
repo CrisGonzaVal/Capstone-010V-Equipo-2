@@ -6,8 +6,9 @@ una base vacia, tal como lo hace el volumen de `docker compose`
 ni el DDL por esquema, asi que lo que la instalacion limpia exige solo se
 acredita contra PostgreSQL 16 real:
 
-  * `control` con las 19 tablas globales y **un esquema tenant por institucion**
-    con las 17 tablas de negocio replicadas;
+  * `control` con las 20 tablas globales (Feature 017 anade
+    `registro_motivo_constancia`) y **un esquema tenant por institucion** con las
+    17 tablas de negocio replicadas;
   * reparto deterministico de sedes (2/3/4/2 para INST-001..004) y de
     departamentos por round-robin sobre `departamento_id` ascendente;
   * cuadre por producto dentro de cada tenant: la suma departamental de
@@ -67,7 +68,7 @@ SEMILLA_SQL = RAIZ / "database" / "02_datos_semilla.sql"
 #: Reparto fijo de sedes por institucion (Feature 011, D-7).
 SEDES_ESPERADAS = {"INST-001": 2, "INST-002": 3, "INST-003": 4, "INST-004": 2}
 
-#: Las 19 tablas globales de `control`.
+#: Las 20 tablas globales de `control`.
 TABLAS_CONTROL = {
     "institucion",
     "sede",
@@ -88,10 +89,16 @@ TABLAS_CONTROL = {
     "funcion_institucion",
     "mapa_usuario_esquema",
     "version_esquema",
+    "registro_motivo_constancia",
 }
 
-#: Las 17 tablas de negocio que cada tenant replica.
-TABLAS_TENANT = TABLAS_CONTROL - {"funcion_institucion", "mapa_usuario_esquema"}
+#: Las 17 tablas de negocio que cada tenant replica. Las tres auxiliares de
+#: control (capacidades, mapa y motivos/constancias) nunca viajan al tenant.
+TABLAS_TENANT = TABLAS_CONTROL - {
+    "funcion_institucion",
+    "mapa_usuario_esquema",
+    "registro_motivo_constancia",
+}
 
 #: Conteos de `control` tras la semilla (topologia y contexto global).
 CONTROL_ESPERADO = {
@@ -101,6 +108,7 @@ CONTROL_ESPERADO = {
     "estado_ticket": 1,
     "mapa_usuario_esquema": 12,
     "version_esquema": 1,
+    "registro_motivo_constancia": 0,
 }
 
 #: Tablas de negocio que `control` debe dejar vacias (su lugar es cada tenant).
@@ -255,6 +263,118 @@ def test_instalacion_limpia_crea_control_y_tenants_versionados():
 
         assert _version_de(conexion, "control") == VERSION_ESQUEMA_OBJETIVO
         assert _conteo_tabla(conexion, "control", "version_esquema") == 1
+
+
+def test_estructura_de_invitacion_y_motivos_vive_solo_en_control():
+    """Feature 017/AC-18: columnas y auxiliar solo en `control`, fuera de tenants.
+
+    Verifica el catalogo real de PostgreSQL: las cuatro columnas de invitacion
+    y la tabla `registro_motivo_constancia` con su clave idempotente unica, su
+    `CHECK` de estado y su `FK` local a `institucion`. Cada tenant conserva sus 17
+    tablas de negocio y **no** recibe ninguna de las estructuras auxiliares.
+    """
+    with _base_temporal() as conexion:
+        _instalar(conexion)
+
+        columnas = {
+            fila[0]
+            for fila in _ejecutar(
+                conexion,
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'control' AND table_name = 'mapa_usuario_esquema'",
+            )
+        }
+        assert {
+            "estado_invitacion",
+            "invitacion_id",
+            "invitacion_expira_en",
+            "invitacion_aceptada_en",
+        } <= columnas, columnas
+
+        # La semilla solo vincula identidades Clerk existentes: nacen aceptadas.
+        assert _ejecutar(
+            conexion,
+            "SELECT DISTINCT estado_invitacion FROM control.mapa_usuario_esquema",
+        ) == [("aceptada",)]
+
+        # Un estado fuera del catalogo cerrado es rechazado por el CHECK.
+        with pytest.raises(psycopg2.Error):
+            _ejecutar(
+                conexion,
+                "UPDATE control.mapa_usuario_esquema "
+                "SET estado_invitacion = 'inventado' "
+                "WHERE correo = (SELECT min(correo) FROM control.mapa_usuario_esquema)",
+            )
+        conexion.rollback()
+
+        columnas_registro = {
+            fila[0]
+            for fila in _ejecutar(
+                conexion,
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'control' AND table_name = 'registro_motivo_constancia'",
+            )
+        }
+        assert {
+            "registro_id",
+            "tipo_registro",
+            "actor_correo",
+            "usuario_objetivo_id",
+            "correo_objetivo",
+            "institucion_id",
+            "accion",
+            "codigo_motivo",
+            "texto_motivo",
+            "fecha_registro",
+            "clave_idempotente",
+            "invitacion_id",
+            "resultado_revocacion",
+        } <= columnas_registro, columnas_registro
+        assert not any(
+            "url" in nombre or "enlace" in nombre or "link" in nombre
+            for nombre in columnas_registro
+        ), columnas_registro
+
+        # Clave idempotente unica a nivel de base.
+        _ejecutar(
+            conexion,
+            "INSERT INTO control.registro_motivo_constancia "
+            "(tipo_registro, actor_correo, institucion_id, accion, clave_idempotente) "
+            "VALUES ('justificacion', 'admin@compustock.cl', 'INST-001', "
+            "'edicion_usuario', 'idem-017-gated')",
+        )
+        with pytest.raises(psycopg2.Error):
+            _ejecutar(
+                conexion,
+                "INSERT INTO control.registro_motivo_constancia "
+                "(tipo_registro, actor_correo, institucion_id, accion, clave_idempotente) "
+                "VALUES ('justificacion', 'admin@compustock.cl', 'INST-001', "
+                "'edicion_usuario', 'idem-017-gated')",
+            )
+        conexion.rollback()
+
+        for institucion_id in _instituciones(conexion):
+            esquema = _esquema_de_institucion(institucion_id)
+            tablas = _tablas_del_esquema(conexion, esquema)
+            assert tablas == TABLAS_TENANT, institucion_id
+            columnas_tenant = {
+                fila[0]
+                for fila in _ejecutar(
+                    conexion,
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = %s",
+                    (esquema,),
+                )
+            }
+            assert not (
+                {
+                    "estado_invitacion",
+                    "invitacion_id",
+                    "invitacion_expira_en",
+                    "invitacion_aceptada_en",
+                }
+                & columnas_tenant
+            ), (institucion_id, columnas_tenant)
 
 
 # ---------------------------------------------------------------------------

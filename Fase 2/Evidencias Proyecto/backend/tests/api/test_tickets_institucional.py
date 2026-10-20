@@ -527,14 +527,16 @@ def test_catalogos_bodeguero_ajeno_no_suma_stock_propio(motor, particion):
     assert particion["producto_propio_id"] not in productos
 
 
-def test_catalogos_superadmin_global_atribuye_institucion(motor, particion):
+def test_catalogos_superadmin_recibe_403_ac_15(motor, particion):
+    """Feature 017 (D-9/AC-15, T10): no hay lectura global del catalogo.
+
+    El catalogo del modal expone productos y stock de una institucion, asi que
+    se retira al Superadmin igual que el resto de lecturas de negocio.
+    """
     with _cliente(motor, "Superadmin", None) as cliente:
         respuesta = cliente.get(RUTA_CATALOGOS)
-    assert respuesta.status_code == 200, respuesta.text
-
-    productos = {p["producto_id"]: p for p in respuesta.json()["productos"]}
-    assert productos[particion["producto_propio_id"]]["institucion_id"] == "INST01"
-    assert productos[particion["producto_ajeno_id"]]["institucion_id"] == "INST02"
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
 
 
 # ---------------------------------------------------------------------------
@@ -617,10 +619,10 @@ def test_solicitante_ignora_usuario_ajeno_y_conserva_autoatribucion(motor, parti
 
 
 def test_patch_ticket_ajeno_404_sin_cambiar(motor, particion):
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        antes = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), particion["ticket_ajeno_estado_id"]
-        )["estado_id"]
+    # Feature 017 (D-9/AC-15): el Superadmin ya no lista tickets; el estado se
+    # observa por ORM antes y despues.
+    with sessionmaker(bind=motor)() as db:
+        antes = db.get(Ticket, particion["ticket_ajeno_estado_id"]).estado_id
 
     with _cliente(motor, "Bodeguero", particion["departamento_id"]) as cliente:
         respuesta = cliente.patch(
@@ -628,10 +630,8 @@ def test_patch_ticket_ajeno_404_sin_cambiar(motor, particion):
             json={"estado_id": particion["estado_en_curso_id"]},
         )
 
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        despues = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), particion["ticket_ajeno_estado_id"]
-        )["estado_id"]
+    with sessionmaker(bind=motor)() as db:
+        despues = db.get(Ticket, particion["ticket_ajeno_estado_id"]).estado_id
 
     assert respuesta.status_code == 404, respuesta.text
     assert despues == antes

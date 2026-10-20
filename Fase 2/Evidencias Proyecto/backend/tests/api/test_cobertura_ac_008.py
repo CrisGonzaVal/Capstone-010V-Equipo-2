@@ -141,15 +141,24 @@ def test_homonimos_son_registros_independientes_con_stock_propio(
         motor, "INST02", dos_instituciones["producto_homonimo_ajeno_id"], 5
     )
 
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        existencias = supervisor.get(RUTA_EXISTENCIAS).json()
+    # Feature 017 (D-9/AC-15): el Superadmin ya no lee existencias; cada
+    # institucion observa su propio catalogo con su Administrador.
+    with _cliente(
+        motor, "Administrador", dos_instituciones["departamento_id"]
+    ) as cliente_propio:
+        existencias_propias = cliente_propio.get(RUTA_EXISTENCIAS).json()
+    with _cliente(
+        motor, "Administrador", dos_instituciones["departamento_ajeno_id"]
+    ) as cliente_ajeno:
+        existencias_ajenas = cliente_ajeno.get(RUTA_EXISTENCIAS).json()
 
     propio = next(
-        e for e in existencias if e["producto_id"] == dos_instituciones["producto_id"]
+        e for e in existencias_propias
+        if e["producto_id"] == dos_instituciones["producto_id"]
     )
     ajeno = next(
         e
-        for e in existencias
+        for e in existencias_ajenas
         if e["producto_id"] == dos_instituciones["producto_homonimo_ajeno_id"]
     )
 

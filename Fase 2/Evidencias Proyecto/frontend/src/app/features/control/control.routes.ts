@@ -50,4 +50,13 @@ export const controlRoutes: Routes = [
       import('./capacidades.component').then((m) => m.CapacidadesComponent),
     title: 'Capacidades institucionales | CompuStock',
   },
+  {
+    path: 'instituciones/:institucionId/administradores',
+    canActivate: [ControlSuperadminGuard],
+    loadComponent: () =>
+      import('./administradores-control.component').then(
+        (m) => m.AdministradoresControlComponent,
+      ),
+    title: 'Administradores institucionales | CompuStock',
+  },
 ];

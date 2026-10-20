@@ -6,7 +6,7 @@
 --
 -- PROPOSITO
 --   Crear TODA la estructura de una instalacion limpia:
---     * el esquema global `control` (19 tablas);
+--     * el esquema global `control` (20 tablas);
 --     * un esquema `tenant_<slug>_<hash>` por institucion, con las 17 tablas
 --       de negocio replicadas.
 --   Los datos de negocio los siembra `02_datos_semilla.sql`, que corre despues.
@@ -29,8 +29,9 @@
 --   movimiento_inventario, prioridad, estado_ticket, ticket, detalle_ticket,
 --   historial_transicion_ticket) + `departamento_encargado` auxiliar, mas las
 --   tablas de control (`funcion_institucion`, `mapa_usuario_esquema`,
---   `version_esquema`). Las justificaciones de las Features 008/010/011/012/013
---   viven en docs/spec/stack.md; aqui solo esta el DDL vigente.
+--   `registro_motivo_constancia`, `version_esquema`). Las justificaciones de las
+--   Features 008/010/011/012/013/017 viven en docs/spec/stack.md; aqui solo esta
+--   el DDL vigente.
 --
 -- VERSION OBJETIVO DEL DDL
 --   013.1 (`VERSION_ESQUEMA_OBJETIVO` en backend/app/core/config.py).
@@ -555,10 +556,74 @@ CREATE TABLE control.mapa_usuario_esquema (
     nombre_esquema VARCHAR(63) NOT NULL,
     -- Solo las asociaciones activas resuelven solicitudes.
     activo BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Feature 017: proyeccion persistida del ciclo de invitacion. NULL en
+    -- registros legados; la API los publica como `no disponible`, nunca como
+    -- `aceptada`. `expirada` se deriva de `invitacion_expira_en`.
+    estado_invitacion VARCHAR(20),
+    -- Identificador Clerk de la invitacion (localizable/revocable). Nunca URL.
+    invitacion_id VARCHAR(100),
+    -- Instante de expiracion entregado por Clerk.
+    invitacion_expira_en TIMESTAMP,
+    -- Instante de aceptacion confirmado en el primer login verificado.
+    invitacion_aceptada_en TIMESTAMP,
 
     CONSTRAINT mapa_usuario_esquema_institucion_fk
         FOREIGN KEY (institucion_id)
-        REFERENCES control.institucion (institucion_id)
+        REFERENCES control.institucion (institucion_id),
+
+    CONSTRAINT mapa_usuario_esquema_estado_invitacion_ck
+        CHECK (
+            estado_invitacion IS NULL
+            OR estado_invitacion IN ('pendiente', 'aceptada', 'revocada', 'expirada')
+        )
+);
+
+-- Feature 017: estructura auxiliar SOLO de control para evidencia recuperable
+-- de mutaciones administrativas y compensaciones. No es entidad de dominio ni se
+-- replica a los esquemas tenant. Registra actor, objetivo, institucion, accion,
+-- motivo, instante e idempotencia; conserva `invitacion_id` y el resultado de la
+-- revocacion, NUNCA la URL. Sin endpoint lector en 017 (stack.md).
+CREATE TABLE control.registro_motivo_constancia (
+    registro_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    -- `justificacion`, `constancia_compensacion` o `constancia_motivo`.
+    tipo_registro VARCHAR(30) NOT NULL,
+    -- Identidad del actor (correo normalizado).
+    actor_correo VARCHAR(150) NOT NULL,
+    -- Usuario objetivo cuando exista; sin FK cross-schema al tenant.
+    usuario_objetivo_id INTEGER,
+    -- Correo normalizado del objetivo cuando no hay fila local (compensacion).
+    correo_objetivo VARCHAR(150),
+    -- Institucion afectada; FK local al canonico de control.
+    institucion_id VARCHAR(20) NOT NULL,
+    -- Operacion auditada (edicion/baja/reactivacion/compensacion/...).
+    accion VARCHAR(50) NOT NULL,
+    -- Codigo del catalogo D-5 (solo justificaciones).
+    codigo_motivo VARCHAR(50),
+    -- Texto explicativo de hasta 500 caracteres (obligatorio para `otro`).
+    texto_motivo VARCHAR(500),
+    fecha_registro TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Clave idempotente de la operacion; unica para no duplicar evidencia.
+    clave_idempotente VARCHAR(100) NOT NULL,
+    -- Invitacion Clerk involucrada (constancia de compensacion). Nunca URL.
+    invitacion_id VARCHAR(100),
+    -- Resultado del intento de revocacion; sin enlace.
+    resultado_revocacion VARCHAR(500),
+
+    CONSTRAINT registro_motivo_constancia_institucion_fk
+        FOREIGN KEY (institucion_id)
+        REFERENCES control.institucion (institucion_id),
+
+    CONSTRAINT registro_motivo_constancia_tipo_ck
+        CHECK (
+            tipo_registro IN (
+                'justificacion',
+                'constancia_compensacion',
+                'constancia_motivo'
+            )
+        ),
+
+    CONSTRAINT registro_motivo_constancia_clave_uk
+        UNIQUE (clave_idempotente)
 );
 
 CREATE TABLE control.version_esquema (

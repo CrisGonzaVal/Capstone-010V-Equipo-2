@@ -129,6 +129,16 @@ def _cliente(motor, rol: str, verificar: Callable[[str], bool]):
     costura = _costura_verificador()
     if costura is not None:
         app.dependency_overrides[costura] = lambda: verificar
+    from tests.soporte_frontera_017 import instalar_frontera_clerk
+    from app.core import security
+
+    instalar_frontera_clerk(
+        consultar=lambda correo: security.EstadoIdentidadClerk(
+            identidad_existente=bool(verificar(correo)),
+            invitacion_pendiente=False,
+            invitacion_id=None,
+        )
+    )
     try:
         with TestClient(app, raise_server_exceptions=False) as cliente:
             yield cliente
@@ -289,23 +299,31 @@ def test_alta_deja_un_tenant_resoluble_por_su_administrador(motor):
 
 
 # ---------------------------------------------------------------------------
-# AC-8: Clerk inexistente / no disponible -> fallo explicito sin tenant
+# Feature 017/AC-3: sin identidad en Clerk se invita al primer Administrador
 # ---------------------------------------------------------------------------
 
 
-def test_alta_con_correo_clerk_inexistente_falla_sin_tenant(motor):
-    """AC-8: un correo sin identidad Clerk falla (`422`) y no deja tenant.
+def test_alta_con_correo_clerk_inexistente_crea_invitacion_y_tenant(motor):
+    """Feature 017 (D-1/D-2/AC-3): sin identidad se invita y se declara operativa.
 
-    La comprobacion ocurre antes de crear cualquier recurso: el estado previo se
-    conserva intacto.
+    La 017 supersede la exigencia de identidad preexistente del primer
+    Administrador: el alta crea la invitacion, el tenant y la asociacion
+    `pendiente`, y entrega la URL solo en esta respuesta.
     """
     antes = _estado_relevante(motor)
 
     with _cliente(motor, "Superadmin", lambda _correo: False) as cliente:
         respuesta = cliente.post(RUTA_ALTA, json=_cuerpo())
-    assert respuesta.status_code == 422, respuesta.text
-
-    assert _estado_relevante(motor) == antes, "un correo Clerk inexistente no deja tenant"
+    assert respuesta.status_code == 201, respuesta.text
+    cuerpo = respuesta.json()
+    assert cuerpo["estado"] == "operativa"
+    assert cuerpo["url_invitacion"]
+    assert _estado_relevante(motor)["usuarios"].count(CORREO_ADMINISTRADOR) == 1
+    assert any(
+        fila[0] == CORREO_ADMINISTRADOR
+        for fila in _estado_relevante(motor)["mapas"]
+    )
+    assert _estado_relevante(motor) != antes
 
 
 def test_alta_con_frontera_clerk_caida_responde_503_sin_tenant(motor):

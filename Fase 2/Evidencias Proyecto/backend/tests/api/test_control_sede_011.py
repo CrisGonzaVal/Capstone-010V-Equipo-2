@@ -86,6 +86,9 @@ def _cliente_alta(motor):
     app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
         lambda: (lambda correo: True)
     )
+    from tests.soporte_frontera_017 import instalar_frontera_clerk
+
+    instalar_frontera_clerk(identidad_existente=True)
     try:
         with TestClient(app, raise_server_exceptions=False) as cliente_http:
             yield cliente_http
@@ -197,6 +200,9 @@ def test_alta_sigue_siendo_solo_de_superadmin(motor, rol):
     app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
         lambda: (lambda correo: True)
     )
+    from tests.soporte_frontera_017 import instalar_frontera_clerk
+
+    instalar_frontera_clerk(identidad_existente=True)
     try:
         with TestClient(app, raise_server_exceptions=False) as cliente_http:
             respuesta = cliente_http.post(RUTA_ALTA, json=_CUERPO_ALTA)

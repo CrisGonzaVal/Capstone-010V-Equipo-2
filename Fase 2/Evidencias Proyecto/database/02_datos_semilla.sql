@@ -11,6 +11,8 @@
 --     2. repartir esos datos a los esquemas `tenant_*` (una institucion por
 --        esquema), dejando `control` como contexto global;
 --     3. poblar `control.mapa_usuario_esquema` y `control.version_esquema`.
+--   `control.registro_motivo_constancia` (Feature 017) queda VACIA: es evidencia
+--   recuperable generada por las operaciones administrativas, no semilla.
 --
 -- ORDEN DE EJECUCION (no lo cambies sin leer esto)
 --   PostgreSQL ejecuta los .sql de esta carpeta solo al crear el volumen, en
@@ -118,7 +120,7 @@ BEGIN
         'departamento_encargado', 'categoria', 'producto', 'inventario',
         'stock_sede', 'movimiento_inventario', 'prioridad', 'estado_ticket',
         'ticket', 'detalle_ticket', 'historial_transicion_ticket',
-        'mapa_usuario_esquema', 'version_esquema'
+        'mapa_usuario_esquema', 'version_esquema', 'registro_motivo_constancia'
     ] LOOP
         EXECUTE format('SELECT count(*) FROM control.%I', v_tabla) INTO v_conteo;
         v_total := v_total + v_conteo;
@@ -719,16 +721,22 @@ BEGIN
     -- La identidad Superadmin se asocia al esquema reservado `control` (stack
     -- 4/7); el resto apunta a su tenant derivado. Se puebla ANTES de vaciar
     -- `control.usuario`.
+    -- Feature 017: todos los usuarios de la semilla tienen identidad Clerk
+    -- preexistente, asi que su mapa nace en `aceptada` (D-1); no hay invitacion
+    -- pendiente, por lo que `invitacion_id` y sus timestamps quedan nulos.
     SELECT count(*) INTO v_mapa_esperado FROM control.usuario;
 
-    INSERT INTO control.mapa_usuario_esquema (correo, institucion_id, nombre_esquema, activo)
+    INSERT INTO control.mapa_usuario_esquema (
+        correo, institucion_id, nombre_esquema, activo, estado_invitacion
+    )
     SELECT u.correo,
            d.institucion_id,
            CASE WHEN r.nombre_rol = 'Superadmin'
                 THEN 'control'
                 ELSE pg_temp.nombre_esquema_tenant(d.institucion_id)
            END,
-           TRUE
+           TRUE,
+           'aceptada'
     FROM control.usuario u
     JOIN control.departamento d ON d.departamento_id = u.departamento_id
     JOIN control.rol r ON r.rol_id = u.rol_id
@@ -802,6 +810,16 @@ BEGIN
     END IF;
     IF (SELECT count(*) FROM control.mapa_usuario_esquema) <> v_mapa_esperado THEN
         RAISE EXCEPTION '02: el mapa de usuarios no coincide con los usuarios sembrados.';
+    END IF;
+    -- Feature 017: la semilla solo vincula identidades Clerk existentes.
+    IF EXISTS (
+        SELECT 1 FROM control.mapa_usuario_esquema
+        WHERE estado_invitacion IS DISTINCT FROM 'aceptada'
+    ) THEN
+        RAISE EXCEPTION '02: el mapa sembrado debe nacer en estado_invitacion = aceptada.';
+    END IF;
+    IF (SELECT count(*) FROM control.registro_motivo_constancia) <> 0 THEN
+        RAISE EXCEPTION '02: control.registro_motivo_constancia debe quedar vacia.';
     END IF;
 END;
 $construccion$;

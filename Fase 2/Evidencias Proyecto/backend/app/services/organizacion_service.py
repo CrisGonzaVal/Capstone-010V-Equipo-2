@@ -22,13 +22,16 @@ Reglas de dominio (AGENTS §6: la logica vive aqui, no en el router):
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from typing import List
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core import permisos
+from app.core import permisos, security
 from app.models import (
     Departamento,
     DepartamentoEncargado,
@@ -44,8 +47,10 @@ from app.schemas.organizacion_schema import (
     SedeEdicion,
 )
 from app.schemas.usuario_schema import UsuarioEdicion
-from app.services import ambito_service
+from app.services import ambito_service, motivo_service
 from app.services.auth_service import IdentidadAutenticada
+
+_ADMINISTRADOR = permisos.RolConocido.ADMINISTRADOR.value
 
 _BODEGUERO = permisos.RolConocido.BODEGUERO.value
 _SOLICITANTE = permisos.RolConocido.SOLICITANTE.value
@@ -497,8 +502,139 @@ def _dependencias_departamento(db: Session, departamento_id: int) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Edicion y estado logico de usuarios locales (Feature 012, T7, AC-8/AC-11/AC-13)
+# Edicion y estado logico de usuarios locales con motivo (Features 012/017)
 # ---------------------------------------------------------------------------
+
+
+def _correo_actor(identidad: IdentidadAutenticada | None) -> str:
+    if identidad is None or identidad.usuario is None:
+        return "sistema"
+    return security.normalizar_correo(str(identidad.usuario.correo))
+
+
+def _motivo_de(datos) -> object | None:
+    """Motivo opcional del DTO (subclases de la Feature 017)."""
+    return getattr(datos, "motivo", None)
+
+
+def _idempotencia_de(datos) -> str | None:
+    return getattr(datos, "idempotencia", None)
+
+
+def _institucion_de_mutacion(
+    db: Session,
+    usuario: Usuario,
+    identidad: IdentidadAutenticada | None,
+    institucion_id: str | None,
+) -> str:
+    """Institucion de la mutacion: explicita (control) o la del usuario."""
+    if institucion_id is not None:
+        institucion_usuario = ambito_service.institucion_de_usuario(db, usuario)
+        if institucion_usuario != institucion_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=_DETALLE_USUARIO
+            )
+        return institucion_id
+    institucion_usuario = ambito_service.institucion_de_usuario(db, usuario)
+    if institucion_usuario is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No se pudo resolver la institucion del usuario",
+        )
+    return institucion_usuario
+
+
+def _mapa_por_correo(
+    db_control: Session, correo: str
+) -> MapaUsuarioEsquema | None:
+    return (
+        db_control.query(MapaUsuarioEsquema)
+        .filter(
+            MapaUsuarioEsquema.correo
+            == security.normalizar_correo(str(correo))
+        )
+        .first()
+    )
+
+
+def _persistir_motivo(
+    db_control: Session,
+    *,
+    motivo,
+    clave: str,
+    actor_correo: str,
+    accion: str,
+    institucion_id: str,
+    usuario: Usuario,
+) -> None:
+    """Segunda confirmacion local: justificacion en control (D-5).
+
+    Si falla, el cambio tenant ya esta confirmado: se deja una constancia
+    recuperable y se responde **503**. El reintento con la misma clave completa
+    el motivo sin repetir la mutacion.
+    """
+    try:
+        motivo_service.registrar_justificacion(
+            db_control,
+            actor_correo=actor_correo,
+            accion=accion,
+            institucion_id=institucion_id,
+            clave_idempotente=clave,
+            codigo_motivo=motivo.codigo,
+            texto_motivo=motivo.texto,
+            usuario_objetivo_id=usuario.usuario_id,
+            correo_objetivo=security.normalizar_correo(str(usuario.correo)),
+        )
+    except Exception as exc:  # noqa: BLE001 - el cambio ya se aplico
+        try:
+            db_control.rollback()
+            motivo_service.registrar_constancia_motivo(
+                db_control,
+                actor_correo=actor_correo,
+                accion=accion,
+                institucion_id=institucion_id,
+                clave_idempotente=clave,
+                usuario_objetivo_id=usuario.usuario_id,
+                correo_objetivo=security.normalizar_correo(str(usuario.correo)),
+            )
+        except Exception:  # noqa: BLE001
+            db_control.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "El cambio se aplico pero no se pudo registrar el motivo; "
+                "reintente con el mismo identificador idempotente"
+            ),
+        ) from exc
+
+
+def _completar_motivo_si_pendiente(
+    db_control: Session,
+    *,
+    motivo,
+    clave: str | None,
+    actor_correo: str,
+    accion: str,
+    institucion_id: str,
+    usuario: Usuario,
+) -> None:
+    """Reintento idempotente: completa una constancia pendiente, sin crear motivo."""
+    if motivo is None or not clave:
+        return
+    try:
+        motivo_service.completar_motivo_pendiente(
+            db_control,
+            clave_idempotente=clave,
+            actor_correo=actor_correo,
+            accion=accion,
+            institucion_id=institucion_id,
+            codigo_motivo=motivo.codigo,
+            texto_motivo=motivo.texto,
+            usuario_objetivo_id=usuario.usuario_id,
+            correo_objetivo=security.normalizar_correo(str(usuario.correo)),
+        )
+    except Exception:  # noqa: BLE001 - un fallo de evidencia no repite el cambio
+        db_control.rollback()
 
 
 def editar_usuario(
@@ -506,29 +642,133 @@ def editar_usuario(
     usuario_id: int,
     datos: UsuarioEdicion,
     identidad: IdentidadAutenticada | None = None,
+    db_control: Session | None = None,
+    *,
+    institucion_id: str | None = None,
 ) -> Usuario:
-    """Modifica los atributos locales de un usuario del tenant (AC-8).
+    """Modifica los atributos locales de un usuario del tenant (AC-8/AC-10).
 
-    No cambia el correo (clave de identidad local) ni toca Clerk. Respeta el rol
-    asignable del creador (D-6/AC-10: el Administrador solo asignable
-    Bodeguero/Solicitante -> **403**), el ambito institucional (**404** para un
-    usuario o departamento ajeno) y el contrato (**422** en payload invalido).
+    No cambia el correo (clave de identidad local) ni toca Clerk. Una edicion
+    **efectiva** exige un motivo del catalogo D-5 antes de mutar; una edicion sin
+    cambios es idempotente y no exige ni genera justificacion. Respeta el rol
+    asignable del creador (D-6/AC-10), el ambito institucional (404 para un
+    usuario o departamento ajeno) y el contrato (422 en payload invalido).
     """
-    # Import local: `usuario_service` no importa este modulo, pero se evita el
-    # acoplamiento de cabecera entre servicios de administracion.
     from app.services.usuario_service import _validar_rol_asignable
 
     _validar_rol_asignable(db, datos.rol_id, identidad)
-    institucion_id = ambito_service.alcance_institucional(db, identidad)
-    usuario = _usuario_en_alcance(db, usuario_id, institucion_id)
-    _departamento_en_alcance(db, datos.departamento_id, institucion_id)
+    institucion_actor = ambito_service.alcance_institucional(db, identidad)
+    usuario = _usuario_en_alcance(db, usuario_id, institucion_actor)
+    _departamento_en_alcance(db, datos.departamento_id, institucion_actor)
+    sesion_control = db_control if db_control is not None else db
+    institucion = _institucion_de_mutacion(db, usuario, identidad, institucion_id)
+    if institucion_id is not None:
+        departamento_destino = db.get(Departamento, datos.departamento_id)
+        if (
+            departamento_destino is None
+            or departamento_destino.institucion_id != institucion_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="El departamento indicado esta fuera de la institucion",
+            )
+
+    cambio_efectivo = (
+        usuario.nombre != datos.nombre
+        or usuario.apellido != datos.apellido
+        or usuario.departamento_id != datos.departamento_id
+        or usuario.rol_id != datos.rol_id
+    )
+    # Continuidad administrativa (D-7/AC-12): degradar al unico Administrador
+    # activo a un rol no administrativo responde 409 antes de mutar usuario,
+    # mapa o motivo. No bloquea ediciones que preservan el rol ni degradaciones
+    # cuando queda otro Administrador activo.
+    if usuario.rol_id != datos.rol_id and _nombre_rol(db, usuario) == _ADMINISTRADOR:
+        rol_destino = db.get(Rol, datos.rol_id)
+        if (
+            rol_destino is None or rol_destino.nombre_rol != _ADMINISTRADOR
+        ) and _es_ultimo_administrador_activo(db, sesion_control, usuario):
+            raise _conflicto(
+                "No se puede degradar al ultimo Administrador activo de la "
+                "institucion"
+            )
+    motivo = _motivo_de(datos)
+    clave = _idempotencia_de(datos)
+    actor = _correo_actor(identidad)
+    accion = "edicion_usuario"
+
+    if not cambio_efectivo:
+        _completar_motivo_si_pendiente(
+            sesion_control,
+            motivo=motivo,
+            clave=clave,
+            actor_correo=actor,
+            accion=accion,
+            institucion_id=institucion,
+            usuario=usuario,
+        )
+        return usuario
+
+    if motivo is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="La edicion efectiva de un usuario exige un motivo del catalogo",
+        )
+    if not clave:
+        clave = f"edicion-usuario-{usuario.usuario_id}-{uuid4().hex}"
+
     usuario.nombre = datos.nombre
     usuario.apellido = datos.apellido
     usuario.departamento_id = datos.departamento_id
     usuario.rol_id = datos.rol_id
     db.commit()
     db.refresh(usuario)
+
+    _persistir_motivo(
+        sesion_control,
+        motivo=motivo,
+        clave=clave,
+        actor_correo=actor,
+        accion=accion,
+        institucion_id=institucion,
+        usuario=usuario,
+    )
     return usuario
+
+
+def _es_ultimo_administrador_activo(
+    db: Session, db_control: Session, usuario: Usuario
+) -> bool:
+    """True si dar de baja a `usuario` dejaria cero Administradores activos.
+
+    Cuenta Administradores del tenant (asociacion local activa o ausente, que el
+    listado publica como activa) excluyendo al objetivo. El bloqueo se evalua
+    antes de cualquier mutacion; en PostgreSQL la consulta toma bloqueo de fila
+    para serializar carreras (D-7/AC-12).
+    """
+    if _nombre_rol(db, usuario) != _ADMINISTRADOR:
+        return False
+    ids = (
+        db.execute(
+            select(Usuario.usuario_id)
+            .join(Rol, Rol.rol_id == Usuario.rol_id)
+            .where(Rol.nombre_rol == _ADMINISTRADOR)
+            .with_for_update()
+        )
+        .scalars()
+        .all()
+    )
+    otros_activos = 0
+    for identificador in ids:
+        if identificador == usuario.usuario_id:
+            continue
+        otro = db.get(Usuario, identificador)
+        if otro is None:
+            continue
+        mapa = _mapa_por_correo(db_control, otro.correo)
+        if mapa is None or mapa.activo:
+            otros_activos += 1
+    return otros_activos == 0
 
 
 def cambiar_estado_usuario(
@@ -537,50 +777,99 @@ def cambiar_estado_usuario(
     usuario_id: int,
     activo: bool,
     identidad: IdentidadAutenticada | None = None,
+    *,
+    motivo=None,
+    idempotencia: str | None = None,
+    institucion_id: str | None = None,
 ) -> MapaUsuarioEsquema:
-    """Activa o desactiva la vinculacion local de un usuario (idempotente, D-3/AC-8/AC-11).
+    """Activa o desactiva la vinculacion local de un usuario (D-3/D-5/AC-12).
 
-    El estado del usuario local vive en `mapa_usuario_esquema.activo` (D-3), no en
-    una columna nueva: desactivar impide que el correo resuelva al tenant sin
-    borrar la identidad de Clerk. `db` es la sesion del tenant (resuelve el usuario
-    y su ambito institucional); `db_control` es la sesion de control donde vive el
-    mapa. Una desactivacion es idempotente si ya esta inactivo; si el usuario es
-    encargado de algun departamento (dependencia activa), responde **409** con el
-    motivo concreto. Un usuario inexistente o ajeno responde **404**.
+    El estado vive en `mapa_usuario_esquema.activo`. Una baja/reactivacion
+    efectiva exige motivo D-5; repetir el mismo estado no exige ni genera motivo.
+    Una baja que dejaria cero Administradores activos, incluida la auto-baja,
+    responde **409** sin cambiar usuario, mapa ni motivo. Un usuario inexistente o
+    ajeno responde **404**.
     """
-    institucion_id = ambito_service.alcance_institucional(db, identidad)
-    usuario = _usuario_en_alcance(db, usuario_id, institucion_id)
+    institucion_actor = ambito_service.alcance_institucional(db, identidad)
+    usuario = _usuario_en_alcance(db, usuario_id, institucion_actor)
+    institucion = _institucion_de_mutacion(db, usuario, identidad, institucion_id)
 
-    mapa = db_control.get(MapaUsuarioEsquema, usuario.correo)
+    mapa = _mapa_por_correo(db_control, usuario.correo)
+    actor = _correo_actor(identidad)
+    accion = "reactivacion_usuario" if activo else "baja_usuario"
+    clave = idempotencia
+
     if mapa is not None and mapa.activo == activo:
-        # Idempotente: ya esta en el estado pedido.
+        # Idempotente: ya esta en el estado pedido; no exige ni genera motivo.
+        _completar_motivo_si_pendiente(
+            db_control,
+            motivo=motivo,
+            clave=clave,
+            actor_correo=actor,
+            accion=accion,
+            institucion_id=institucion,
+            usuario=usuario,
+        )
         return mapa
+
+    if mapa is None and activo:
+        # Sin mapa la asociacion se publica activa: no hay cambio de estado.
+        mapa = MapaUsuarioEsquema(
+            correo=security.normalizar_correo(str(usuario.correo)),
+            institucion_id=institucion,
+            nombre_esquema=_nombre_esquema_institucion(institucion),
+            activo=True,
+        )
+        db_control.add(mapa)
+        db_control.commit()
+        return mapa
+
     if not activo:
-        motivo = _dependencias_usuario(db, usuario_id)
-        if motivo is not None:
-            raise _conflicto(motivo)
-    if mapa is None:
-        institucion_usuario = ambito_service.institucion_de_usuario(db, usuario)
-        if institucion_usuario is None:
+        motivo_bloqueo = _dependencias_usuario(db, usuario_id)
+        if motivo_bloqueo is not None:
+            raise _conflicto(motivo_bloqueo)
+        if _es_ultimo_administrador_activo(db, db_control, usuario):
             raise _conflicto(
-                "No se puede cambiar el estado: el usuario no resuelve a una "
+                "No se puede dar de baja al ultimo Administrador activo de la "
                 "institucion"
             )
-        # Import local: `tenant_service` importa `control_service`; se evita el
-        # ciclo en cabecera.
-        from app.services.tenant_service import nombre_esquema_para_institucion
 
+    if motivo is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="El cambio de estado de un usuario exige un motivo del catalogo",
+        )
+    if not clave:
+        clave = f"{accion}-{usuario.usuario_id}-{uuid4().hex}"
+
+    if mapa is None:
         mapa = MapaUsuarioEsquema(
-            correo=usuario.correo,
-            institucion_id=institucion_usuario,
-            nombre_esquema=nombre_esquema_para_institucion(institucion_usuario),
+            correo=security.normalizar_correo(str(usuario.correo)),
+            institucion_id=institucion,
+            nombre_esquema=_nombre_esquema_institucion(institucion),
             activo=activo,
         )
         db_control.add(mapa)
     else:
         mapa.activo = activo
     db_control.commit()
+
+    _persistir_motivo(
+        db_control,
+        motivo=motivo,
+        clave=clave,
+        actor_correo=actor,
+        accion=accion,
+        institucion_id=institucion,
+        usuario=usuario,
+    )
     return mapa
+
+
+def _nombre_esquema_institucion(institucion_id: str) -> str:
+    from app.services.tenant_service import nombre_esquema_para_institucion
+
+    return nombre_esquema_para_institucion(institucion_id)
 
 
 def _dependencias_usuario(db: Session, usuario_id: int) -> str | None:

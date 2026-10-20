@@ -7,6 +7,7 @@ import { TestBed } from '@angular/core/testing';
 
 import { URL_API } from '../../../shared/config/url-api';
 import {
+  AdministradorListadoControl,
   CapacidadRespuesta,
   DashboardSaaS,
   InstitucionControl,
@@ -103,20 +104,40 @@ describe('ControlService (gestión SaaS)', () => {
 
   it('consulta el dashboard SaaS con GET /control/dashboard', () => {
     const respuesta: DashboardSaaS = {
+      total_instituciones: 2,
       total_instituciones_activas: 1,
+      total_administradores_activos: 1,
+      total_administradores_inactivos: 0,
+      usuarios_por_rol: { Solicitante: 3 },
+      conteos_conocidos: 1,
+      conteos_no_disponibles: 1,
       instituciones: [
         {
           institucion_id: 'INSTA',
           nombre: 'Instituto Alfa',
           activo: true,
+          estado_tecnico: 'operativo',
+          detalle_tecnico: null,
+          version_objetivo: '013.1',
+          version_persistida: '013.1',
           sedes: 2,
-          usuarios_por_rol: { Administrador: 1, Solicitante: 3 },
+          departamentos: 1,
+          administradores_activos: 1,
+          administradores_inactivos: 0,
+          usuarios_por_rol: { Solicitante: 3 },
         },
         {
           institucion_id: 'INSTB',
           nombre: 'Instituto Beta',
           activo: false,
+          estado_tecnico: 'no enrutable',
+          detalle_tecnico: 'institucion_inactiva',
+          version_objetivo: '013.1',
+          version_persistida: null,
           sedes: null,
+          departamentos: null,
+          administradores_activos: null,
+          administradores_inactivos: null,
           usuarios_por_rol: null,
         },
       ],
@@ -155,5 +176,104 @@ describe('ControlService (gestión SaaS)', () => {
 
     peticion.flush({ funcion: 'kanban', habilitada: false });
     expect(recibidos[0]).toEqual({ funcion: 'kanban', habilitada: false });
+  });
+
+  // --- Gobierno de Administradores (Feature 017, D-10) ---
+
+  it('lista Administradores con GET .../usuarios/ sin parámetros de esquema', () => {
+    const recibidos: AdministradorListadoControl[][] = [];
+    servicio.listarAdministradores('INSTA').subscribe((r) => recibidos.push(r));
+
+    const peticion = httpMock.expectOne(`${raiz}/instituciones/INSTA/usuarios/`);
+    expect(peticion.request.method).toBe('GET');
+    expect(peticion.request.params.keys()).toEqual([]);
+    peticion.flush([
+      {
+        usuario_id: 7,
+        nombre: 'Ada',
+        apellido: 'Admin',
+        correo: 'ada@example.com',
+        activo: true,
+        estado_invitacion: 'aceptada',
+      },
+    ]);
+    expect(recibidos[0][0].estado_invitacion).toBe('aceptada');
+    expect(Object.keys(recibidos[0][0]).sort()).toEqual(
+      ['activo', 'apellido', 'correo', 'estado_invitacion', 'nombre', 'usuario_id'].sort(),
+    );
+  });
+
+  it('da de alta un Administrador con POST .../usuarios/ y solo el DTO', () => {
+    servicio
+      .crearAdministrador('INSTA', {
+        nombre: 'Ada',
+        apellido: 'Admin',
+        correo: 'ada@example.com',
+        departamento_id: 10,
+        rol_id: 2,
+      })
+      .subscribe();
+
+    const peticion = httpMock.expectOne(`${raiz}/instituciones/INSTA/usuarios/`);
+    expect(peticion.request.method).toBe('POST');
+    expect(peticion.request.body).toEqual({
+      nombre: 'Ada',
+      apellido: 'Admin',
+      correo: 'ada@example.com',
+      departamento_id: 10,
+      rol_id: 2,
+    });
+    peticion.flush({});
+  });
+
+  it('edita un Administrador con PUT .../usuarios/{id} y su motivo', () => {
+    servicio
+      .editarAdministrador('INSTA', 7, {
+        nombre: 'Ada',
+        apellido: 'Admin',
+        departamento_id: 10,
+        rol_id: 2,
+        motivo: { codigo: 'correccion_datos', texto: 'Corrección' },
+        idempotencia: 'idem-7',
+      })
+      .subscribe();
+
+    const peticion = httpMock.expectOne(`${raiz}/instituciones/INSTA/usuarios/7`);
+    expect(peticion.request.method).toBe('PUT');
+    expect((peticion.request.body as Record<string, unknown>)['motivo']).toEqual({
+      codigo: 'correccion_datos',
+      texto: 'Corrección',
+    });
+    peticion.flush({});
+  });
+
+  it('cambia el estado de un Administrador con PATCH .../estado y su motivo', () => {
+    servicio
+      .cambiarEstadoAdministrador('INSTA', 7, {
+        activo: false,
+        motivo: { codigo: 'termino_vinculo', texto: null },
+      })
+      .subscribe();
+
+    const peticion = httpMock.expectOne(
+      `${raiz}/instituciones/INSTA/usuarios/7/estado`,
+    );
+    expect(peticion.request.method).toBe('PATCH');
+    expect(peticion.request.body).toEqual({
+      activo: false,
+      motivo: { codigo: 'termino_vinculo', texto: null },
+    });
+    peticion.flush({});
+  });
+
+  it('reenvía la invitación con POST .../invitacion/reenvio', () => {
+    servicio.reenviarInvitacionAdministrador('INSTA', 7).subscribe();
+
+    const peticion = httpMock.expectOne(
+      `${raiz}/instituciones/INSTA/usuarios/7/invitacion/reenvio`,
+    );
+    expect(peticion.request.method).toBe('POST');
+    expect(peticion.request.body).toEqual({});
+    peticion.flush({});
   });
 });

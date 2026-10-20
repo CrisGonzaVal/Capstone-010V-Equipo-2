@@ -53,11 +53,11 @@ _RECHAZO = {"Administrador", "Bodeguero"}
 #: y las cinco de ciclo de vida de la 013 (49 operaciones).
 MATRIZ_008: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
-    ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("POST", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/roles"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/departamentos"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
+    ("GET", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("POST", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/roles"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/departamentos"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/instituciones"): _ORGANIZACION,
     ("GET", "/api/v1/inventario/categorias"): _TODOS,
     ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
     ("GET", "/api/v1/inventario/productos"): _TODOS,
@@ -120,8 +120,8 @@ MATRIZ_008: dict[tuple[str, str], set[str]] = {
         "PATCH",
         "/api/v1/organizacion/departamentos/{departamento_id}/estado",
     ): _ORGANIZACION,
-    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
-    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ORGANIZACION,
     # Feature 013 (T6, AC-17): ciclo de vida del ticket. Cinco operaciones
     # nuevas y aditivas (44 -> 49); Superadmin queda fuera de toda escritura.
     ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): _ANULACION_Y_EDICION,
@@ -214,10 +214,39 @@ def _cliente(app_sonda: FastAPI, motor, rol: str | None = None, *, autenticar=Fa
 # ---------------------------------------------------------------------------
 
 
-def test_matriz_central_es_la_esperada_para_008():
-    assert {
+#: Feature 017 (D-9/AC-15): lecturas de negocio retiradas al Superadmin.
+RETIRADAS_017: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/v1/dashboard/"),
+        ("GET", "/api/v1/tickets/catalogos"),
+        ("GET", "/api/v1/tickets/"),
+        ("GET", "/api/v1/tickets/{ticket_id}"),
+        ("GET", "/api/v1/tickets/{ticket_id}/historial"),
+        ("GET", "/api/v1/inventario/movimientos"),
+        ("GET", "/api/v1/inventario/categorias"),
+        ("GET", "/api/v1/inventario/categorias/{categoria_id}"),
+        ("GET", "/api/v1/inventario/productos"),
+        ("GET", "/api/v1/inventario/productos/{producto_id}"),
+        ("GET", "/api/v1/inventario/existencias"),
+        ("GET", "/api/v1/inventario/stock"),
+    }
+)
+
+
+def test_matriz_central_conserva_la_esperada_para_008():
+    """La 008 conserva sus filas; las features posteriores pueden agregar mas.
+
+    Feature 017 (D-9/AC-15): las 11 lecturas retiradas al Superadmin ajustan
+    solo ese rol; los roles institucionales conservan el conjunto de la 008.
+    """
+    vigente = {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
-    } == MATRIZ_008
+    }
+    for clave, roles in MATRIZ_008.items():
+        if clave in RETIRADAS_017:
+            assert vigente.get(clave) == roles - {"Superadmin"}, clave
+        else:
+            assert vigente.get(clave) == roles, clave
     assert len(MATRIZ_008) == 49
 
 

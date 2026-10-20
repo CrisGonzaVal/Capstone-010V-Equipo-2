@@ -109,18 +109,18 @@ OPERACIONES_012_ORGANIZACION: dict[tuple[str, str], set[str]] = {
         "PATCH",
         "/api/v1/organizacion/departamentos/{departamento_id}/estado",
     ): _ORGANIZACION,
-    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
-    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ORGANIZACION,
 }
 
 #: Matriz vigente tras las Features 008/009, SIN el alta de la 010 (21 operaciones).
 MATRIZ_009: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
-    ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("POST", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/roles"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/departamentos"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
+    ("GET", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("POST", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/roles"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/departamentos"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/instituciones"): _ORGANIZACION,
     ("GET", "/api/v1/inventario/categorias"): _TODOS,
     ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
     ("GET", "/api/v1/inventario/productos"): _TODOS,
@@ -247,10 +247,39 @@ def test_matriz_010_transcrita_tiene_28_operaciones():
     assert len(MATRIZ_009) == 21
 
 
-def test_matriz_central_es_la_esperada_para_010():
-    assert {
+#: Feature 017 (D-9/AC-15): lecturas de negocio retiradas al Superadmin.
+RETIRADAS_017: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/v1/dashboard/"),
+        ("GET", "/api/v1/tickets/catalogos"),
+        ("GET", "/api/v1/tickets/"),
+        ("GET", "/api/v1/tickets/{ticket_id}"),
+        ("GET", "/api/v1/tickets/{ticket_id}/historial"),
+        ("GET", "/api/v1/inventario/movimientos"),
+        ("GET", "/api/v1/inventario/categorias"),
+        ("GET", "/api/v1/inventario/categorias/{categoria_id}"),
+        ("GET", "/api/v1/inventario/productos"),
+        ("GET", "/api/v1/inventario/productos/{producto_id}"),
+        ("GET", "/api/v1/inventario/existencias"),
+        ("GET", "/api/v1/inventario/stock"),
+    }
+)
+
+
+def test_matriz_central_conserva_la_esperada_para_010():
+    """La 010 conserva sus filas; las features posteriores pueden agregar mas.
+
+    Feature 017 (D-9/AC-15): solo cambia el rol Superadmin en las 11 lecturas
+    retiradas; los roles institucionales conservan su matriz.
+    """
+    vigente = {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
-    } == MATRIZ_010
+    }
+    for clave, roles in MATRIZ_010.items():
+        if clave in RETIRADAS_017:
+            assert vigente.get(clave) == roles - {"Superadmin"}, clave
+        else:
+            assert vigente.get(clave) == roles, clave
 
 
 def test_alta_institucion_es_la_unica_operacion_agregada_por_010():

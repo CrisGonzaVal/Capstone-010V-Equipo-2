@@ -39,11 +39,11 @@ _ORGANIZACION = {"Administrador"}
 #: no-modificacion). La 012 no cambia ninguna.
 MATRIZ_010: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
-    ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("POST", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/roles"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/departamentos"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
+    ("GET", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("POST", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/roles"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/departamentos"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/instituciones"): _ORGANIZACION,
     ("GET", "/api/v1/inventario/categorias"): _TODOS,
     ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
     ("GET", "/api/v1/inventario/productos"): _TODOS,
@@ -103,8 +103,8 @@ OPERACIONES_ORGANIZACION_012: dict[tuple[str, str], set[str]] = {
     ("POST", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
     ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}"): _ORGANIZACION,
     ("PATCH", "/api/v1/organizacion/departamentos/{departamento_id}/estado"): _ORGANIZACION,
-    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
-    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ORGANIZACION,
 }
 
 MATRIZ_012: dict[tuple[str, str], set[str]] = {
@@ -147,12 +147,38 @@ def test_matriz_012_transcrita_es_aditiva():
 # ---------------------------------------------------------------------------
 
 
+#: Feature 017 (D-9/AC-15): lecturas de negocio retiradas al Superadmin.
+RETIRADAS_017: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/v1/dashboard/"),
+        ("GET", "/api/v1/tickets/catalogos"),
+        ("GET", "/api/v1/tickets/"),
+        ("GET", "/api/v1/tickets/{ticket_id}"),
+        ("GET", "/api/v1/tickets/{ticket_id}/historial"),
+        ("GET", "/api/v1/inventario/movimientos"),
+        ("GET", "/api/v1/inventario/categorias"),
+        ("GET", "/api/v1/inventario/categorias/{categoria_id}"),
+        ("GET", "/api/v1/inventario/productos"),
+        ("GET", "/api/v1/inventario/productos/{producto_id}"),
+        ("GET", "/api/v1/inventario/existencias"),
+        ("GET", "/api/v1/inventario/stock"),
+    }
+)
+
+
 def test_matriz_central_conserva_las_28_operaciones():
-    """AC-13: la 012 no retira ni relaja ninguna de las 28 entradas vigentes."""
+    """AC-13: la 012 no retira ni relaja ninguna de las 28 entradas vigentes.
+
+    Feature 017 (D-9/AC-15): en las 11 lecturas retiradas solo se ajusta el rol
+    Superadmin; los roles institucionales conservan sus permisos.
+    """
     for clave, roles in MATRIZ_010.items():
         actual = permisos.MATRIZ_PERMISOS.get(clave)
         assert actual is not None, f"la operacion {clave} desaparecio de la matriz"
-        assert set(actual) == roles, clave
+        if clave in RETIRADAS_017:
+            assert set(actual) == roles - {"Superadmin"}, clave
+        else:
+            assert set(actual) == roles, clave
 
 
 def test_matriz_central_es_la_esperada_para_012():
@@ -168,7 +194,10 @@ def test_matriz_central_es_la_esperada_para_012():
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
     }
     for clave, roles in MATRIZ_012.items():
-        assert vigente.get(clave) == roles, clave
+        if clave in RETIRADAS_017:
+            assert vigente.get(clave) == roles - {"Superadmin"}, clave
+        else:
+            assert vigente.get(clave) == roles, clave
 
 
 def test_operaciones_control_012_son_solo_superadmin():

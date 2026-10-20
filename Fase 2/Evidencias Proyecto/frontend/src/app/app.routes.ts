@@ -1,6 +1,11 @@
 import { Route, Routes } from '@angular/router';
 
-import { ROLES_ADMINISTRATIVOS, ROLES_TICKETS, ROLES_TODOS } from './core/auth/roles';
+import {
+  ROLES_ADMINISTRATIVOS,
+  ROLES_DASHBOARD,
+  ROLES_INVENTARIO,
+  ROLES_TICKETS,
+} from './core/auth/roles';
 import { AutenticacionGuard } from './core/guards/auth.guard';
 import { RolGuard } from './core/guards/role.guard';
 
@@ -38,27 +43,32 @@ export const routes: Routes = [
     title: 'Iniciar sesión | CompuStock',
   },
   {
+    // Feature 017, AC-15: dashboard, inventario y tickets son superficies de
+    // negocio. El Superadmin solo navega `/control/*`; los roles institucionales
+    // conservan su matriz de navegación.
     path: 'dashboard',
-    ...seccionProtegida(ROLES_TODOS),
+    ...seccionProtegida(ROLES_DASHBOARD),
     loadChildren: () =>
       import('./features/dashboard/dashboard.routes').then((m) => m.dashboardRoutes),
   },
   {
     path: 'inventario',
-    ...seccionProtegida(ROLES_TODOS),
+    ...seccionProtegida(ROLES_INVENTARIO),
     loadChildren: () =>
       import('./features/inventario/inventario.routes').then((m) => m.inventarioRoutes),
   },
   {
     path: 'tickets',
-    // Feature 012, AC-3: el Superadmin no navega al Kanban operativo (su vista
-    // es `/control`). `ROLES_TICKETS` excluye solo a Superadmin; los roles de
-    // negocio conservan el acceso. Es navegación/UI, no matriz de backend.
+    // Features 012 (AC-3) y 017 (AC-15): el Superadmin no navega al Kanban
+    // operativo (su vista es `/control`). Los roles de negocio conservan el
+    // acceso. Es navegación/UI, no matriz de backend.
     ...seccionProtegida(ROLES_TICKETS),
     loadChildren: () =>
       import('./features/tickets/tickets.routes').then((m) => m.ticketsRoutes),
   },
   {
+    // Feature 017, AC-15: la administración tenant queda para el Administrador;
+    // el Superadmin gestiona Administradores desde `/control`.
     path: 'administracion',
     ...seccionProtegida(ROLES_ADMINISTRATIVOS),
     loadChildren: () =>

@@ -17,8 +17,29 @@ export const ROLES_TODOS = [
   'Solicitante',
 ] as const;
 
-/** Roles con acceso al área de administración (AC-3, AC-5). */
-export const ROLES_ADMINISTRATIVOS = ['Superadmin', 'Administrador'] as const;
+/**
+ * Roles con acceso al área de administración (AC-3, AC-5).
+ *
+ * Desde la Feature 017 (D-9/AC-15, T10) solo el Administrador institucional: el
+ * Superadmin perdió `/administracion` porque las rutas tenant `/usuarios/*` y
+ * `/organizacion/*` le responden 403. Su gobierno de Administradores vive en
+ * `/control/instituciones/:institucionId/administradores`.
+ */
+export const ROLES_ADMINISTRATIVOS = ['Administrador'] as const;
+
+/**
+ * Roles con navegación a las superficies de negocio (Feature 017, D-9/AC-15).
+ *
+ * Es `ROLES_TODOS` menos `Superadmin`: dashboard, inventario y tickets exponen
+ * datos operativos del tenant y la única superficie del Superadmin es
+ * `/control/*` más la gestión de Administradores. Es una lista de
+ * **navegación/UI**; la frontera de seguridad real sigue en la API (D-2).
+ */
+export const ROLES_NEGOCIO = [
+  'Administrador',
+  'Bodeguero',
+  'Solicitante',
+] as const;
 
 /**
  * Roles con acceso al portal de control (Feature 010, AC-7/AC-15): **solo**
@@ -41,19 +62,17 @@ export const ROLES_OPERATIVOS_TICKETS = [
 ] as const;
 
 /**
- * Roles que acceden a la vista de tickets/Kanban por navegación (Feature 012,
- * AC-3). Es `ROLES_TODOS` menos `Superadmin`: su vista operativa es el portal
- * `/control`, no el Kanban de una institución. El Administrador, el Bodeguero y
- * el Solicitante conservan el acceso tal como estaba configurado.
+ * Roles que acceden a dashboard, inventario y tickets/Kanban por navegación
+ * (Feature 012, AC-3; Feature 017, AC-15). Las tres superficies comparten el
+ * conjunto de negocio: el Superadmin no activa ninguna. El Administrador, el
+ * Bodeguero y el Solicitante conservan el acceso tal como estaba configurado.
  *
- * Es una lista de **navegación/UI**: no recorta la matriz de permisos del
+ * Son listas de **navegación/UI**: no recortan la matriz de permisos del
  * backend, que sigue siendo la frontera de seguridad real (D-2).
  */
-export const ROLES_TICKETS = [
-  'Administrador',
-  'Bodeguero',
-  'Solicitante',
-] as const;
+export const ROLES_DASHBOARD = ROLES_NEGOCIO;
+export const ROLES_INVENTARIO = ROLES_NEGOCIO;
+export const ROLES_TICKETS = ROLES_NEGOCIO;
 
 /**
  * Roles que un Administrador puede asignar en el alta/edición de usuarios
@@ -114,6 +133,16 @@ export function puedeAsignarRol(
 /** `true` si el rol puede operar tickets (Kanban/estado/despacho). */
 export function puedeOperarTickets(rol: string | null): boolean {
   return contiene(ROLES_OPERATIVOS_TICKETS, rol);
+}
+
+/** `true` si el rol puede navegar al dashboard consolidado (017, AC-15). */
+export function puedeVerDashboard(rol: string | null): boolean {
+  return contiene(ROLES_DASHBOARD, rol);
+}
+
+/** `true` si el rol puede navegar al inventario (017, AC-15). */
+export function puedeVerInventario(rol: string | null): boolean {
+  return contiene(ROLES_INVENTARIO, rol);
 }
 
 /** `true` si el rol puede navegar a la vista de tickets/Kanban (AC-3). */

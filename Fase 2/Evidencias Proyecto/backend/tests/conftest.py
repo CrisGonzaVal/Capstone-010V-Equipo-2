@@ -132,6 +132,9 @@ def _cliente_de_prueba(motor, **opciones):
     app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
         lambda: (lambda _correo: True)
     )
+    from tests.soporte_frontera_017 import instalar_frontera_clerk
+
+    instalar_frontera_clerk(identidad_existente=True)
     try:
         with TestClient(app, **opciones) as cliente_http:
             yield cliente_http

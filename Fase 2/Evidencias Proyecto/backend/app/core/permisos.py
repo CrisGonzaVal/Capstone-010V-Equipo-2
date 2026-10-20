@@ -38,18 +38,20 @@ _ADMINISTRADOR = RolConocido.ADMINISTRADOR.value
 _BODEGUERO = RolConocido.BODEGUERO.value
 _SOLICITANTE = RolConocido.SOLICITANTE.value
 
-#: Los cuatro roles de la semilla (acceso de negocio general).
+#: Los cuatro roles de la semilla (identidad autenticada, p. ej. `/auth/me`).
 _TODOS: frozenset[str] = frozenset(
     {_SUPERADMIN, _ADMINISTRADOR, _BODEGUERO, _SOLICITANTE}
 )
 #: Roles administrativos (usuarios, departamentos y catalogo maestro).
 _ADMINISTRATIVOS: frozenset[str] = frozenset({_SUPERADMIN, _ADMINISTRADOR})
-#: Roles que operan inventario/movimientos y el flujo de tickets (lectura global
-#: de movimientos). Tras el ajuste de la Feature 008 su uso es solo de lectura;
-#: las escrituras institucionales usan los conjuntos `_ESCRITURA_*` de abajo.
-_INVENTARIO_Y_TICKETS: frozenset[str] = frozenset(
-    {_SUPERADMIN, _ADMINISTRADOR, _BODEGUERO}
+#: Lectura de negocio de los tres roles institucionales (Feature 017, D-9/AC-15):
+#: Superadmin deja de leer dashboard, tickets, catalogo, existencias y stock.
+_LECTURA_NEGOCIO: frozenset[str] = frozenset(
+    {_ADMINISTRADOR, _BODEGUERO, _SOLICITANTE}
 )
+#: Lectura del historial de movimientos: operativa de la institucion (sin
+#: Solicitante y, desde la Feature 017, sin Superadmin).
+_MOVIMIENTOS: frozenset[str] = frozenset({_ADMINISTRADOR, _BODEGUERO})
 
 # --- Ajuste puntual de la Feature 008 (D-3/AC-10) ---------------------------
 # Superadmin conserva su lectura global pero deja de escribir datos de una
@@ -77,46 +79,54 @@ _ORGANIZACION: frozenset[str] = frozenset({_ADMINISTRADOR})
 #: Matriz explicita operacion -> roles permitidos (D-3, AC-9).
 #:
 #: La clave es (metodo HTTP en mayusculas, ruta completa tal como la publica el
-#: contrato, con los parametros de path en su forma `{param}`). Los 22 endpoints
-#: de negocio quedan cubiertos (las 18 operaciones de 007, los dos `GET` por
-#: objeto de catalogo que exige la Feature 008, el `GET` consolidado del
-#: dashboard de la Feature 009 y el `POST` de aprovisionamiento de la Feature
-#: 010); una operacion ausente de esta matriz no concede permiso a ningun rol.
+#: contrato, con los parametros de path en su forma `{param}`). Una operacion
+#: ausente de esta matriz no concede permiso a ningun rol.
+#:
+#: Feature 017 (D-9/AC-15): se retira **solo** Superadmin de las lecturas de
+#: negocio enumeradas (`dashboard`, tickets y su detalle/historial, movimientos,
+#: categorias, productos, existencias y stock). T10 agrega a esa retirada
+#: `GET /tickets/catalogos`, que expone catalogo y stock del tenant. No se retira
+#: ni se agrega ninguna fila: los roles institucionales conservan exactamente sus
+#: permisos previos.
 MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # Autenticacion: identidad autenticada, cualquier rol.
     ("GET", "/api/v1/auth/me"): _TODOS,
     # Administracion de usuarios y catalogos de apoyo.
-    ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("POST", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/roles"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/departamentos"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
-    # Inventario: lectura para los cuatro roles; escritura administrativa o de bodega.
-    ("GET", "/api/v1/inventario/categorias"): _TODOS,
-    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
-    ("GET", "/api/v1/inventario/productos"): _TODOS,
-    ("GET", "/api/v1/inventario/productos/{producto_id}"): _TODOS,
+    ("GET", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("POST", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/roles"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/departamentos"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/instituciones"): _ORGANIZACION,
+    # Inventario: lectura de los roles institucionales; escritura administrativa
+    # o de bodega. Feature 017: Superadmin ya no lee catalogo, existencias ni stock.
+    ("GET", "/api/v1/inventario/categorias"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/productos"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/productos/{producto_id}"): _LECTURA_NEGOCIO,
     # 008 D-3: escritura de catalogo solo institucional (Superadmin no escribe).
     ("POST", "/api/v1/inventario/productos"): _ESCRITURA_CATALOGO,
-    ("GET", "/api/v1/inventario/existencias"): _TODOS,
-    ("GET", "/api/v1/inventario/stock"): _TODOS,
-    ("GET", "/api/v1/inventario/movimientos"): _INVENTARIO_Y_TICKETS,
+    ("GET", "/api/v1/inventario/existencias"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/inventario/stock"): _LECTURA_NEGOCIO,
+    # 017 D-9: historial de movimientos sin Superadmin; sigue sin Solicitante.
+    ("GET", "/api/v1/inventario/movimientos"): _MOVIMIENTOS,
     # 008 D-3: movimientos de stock sin Superadmin (escritura institucional).
     ("POST", "/api/v1/inventario/movimientos"): _ESCRITURA_STOCK,
-    # Tickets: alta y consulta para los cuatro; estado y despacho sin Solicitante.
-    ("GET", "/api/v1/tickets/catalogos"): _TODOS,
-    ("GET", "/api/v1/tickets/"): _TODOS,
+    # Tickets: alta para los roles institucionales; estado y despacho sin
+    # Solicitante. Feature 017: Superadmin no lee tickets ni su detalle/historial.
+    # T10 (D-9/AC-15): el catalogo del modal tambien es lectura de negocio
+    # (productos, stock y solicitantes del tenant), no una superficie de control.
+    ("GET", "/api/v1/tickets/catalogos"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/tickets/"): _LECTURA_NEGOCIO,
     # 008 D-3: alta de ticket sin Superadmin (escritura institucional).
     ("POST", "/api/v1/tickets/"): _ESCRITURA_TICKETS,
     # 008 D-3: despacho y cambio de estado sin Superadmin.
     ("POST", "/api/v1/tickets/{ticket_id}/despacho"): _ESCRITURA_STOCK,
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
-    # Feature 009 (D-3/AC-13/AC-14): el dashboard consolidado es una lectura para
-    # los cuatro roles. La actividad de movimientos dentro de su respuesta se
-    # gobierna en el servicio (Solicitante sin actividad); esta operacion NO
-    # amplia el permiso de `GET /inventario/movimientos`, que sigue reservado a
-    # `_INVENTARIO_Y_TICKETS` (Solicitante excluido).
-    ("GET", "/api/v1/dashboard/"): _TODOS,
+    # Feature 009 (D-3/AC-13/AC-14) y Feature 017 (D-9/AC-15): el dashboard
+    # consolidado es lectura de los roles institucionales; Superadmin lo pierde.
+    # La actividad de movimientos dentro de su respuesta se gobierna en el
+    # servicio (Solicitante sin actividad).
+    ("GET", "/api/v1/dashboard/"): _LECTURA_NEGOCIO,
     # Feature 010 (D-7/AC-7…AC-9/AC-17): aprovisionamiento de instituciones.
     # Es la unica incorporacion de la 010: solo Superadmin.
     ("POST", "/api/v1/control/instituciones/"): frozenset({_SUPERADMIN}),
@@ -154,8 +164,15 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
         "PATCH",
         "/api/v1/organizacion/departamentos/{departamento_id}/estado",
     ): _ORGANIZACION,
-    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ADMINISTRATIVOS,
-    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ADMINISTRATIVOS,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ORGANIZACION,
+    # Feature 017 (D-4/D-10/AC-9): reenvio ordinario del Administrador a sus
+    # Bodegueros/Solicitantes. Exclusivo del Administrador tenant; Superadmin
+    # recibe 403 en toda ruta ordinaria de `/usuarios/`.
+    (
+        "POST",
+        "/api/v1/usuarios/{usuario_id}/invitacion/reenvio",
+    ): _ORGANIZACION,
     # Feature 011 (D-4/D-5, AC-5): gestion organizacional minima. Las seis
     # operaciones las autoriza solo el Administrador institucional; no hay permiso
     # implicito para el resto de roles ni escritura de Superadmin en tenants.
@@ -180,8 +197,8 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # del AC-17: anulacion y edicion las opera el dueño del ticket (Solicitante)
     # junto con el Administrador institucional; el rechazo es operativo de
     # bodega (Bodeguero) mas el Administrador; detalle e historial son lectura
-    # de los cuatro roles. Superadmin queda fuera de toda escritura (D-8) y
-    # conserva la lectura de detalle e historial (AC-19).
+    # de los roles institucionales. Superadmin queda fuera de toda escritura
+    # (D-8) y, desde la Feature 017 (D-9/AC-15), tambien de la lectura.
     ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): frozenset(
         {_ADMINISTRADOR, _SOLICITANTE}
     ),
@@ -191,8 +208,31 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     ("PUT", "/api/v1/tickets/{ticket_id}"): frozenset(
         {_ADMINISTRADOR, _SOLICITANTE}
     ),
-    ("GET", "/api/v1/tickets/{ticket_id}"): _TODOS,
-    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _TODOS,
+    ("GET", "/api/v1/tickets/{ticket_id}"): _LECTURA_NEGOCIO,
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _LECTURA_NEGOCIO,
+    # Feature 017 (D-10/AC-8/AC-9): gobierno de Administradores por institucion.
+    # Cinco operaciones nuevas **exclusivas de Superadmin**. Las rutas ordinarias
+    # de `/usuarios/` dejan de conceder Superadmin (solo Administrador tenant).
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ): frozenset({_SUPERADMIN}),
+    (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/",
+    ): frozenset({_SUPERADMIN}),
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}",
+    ): frozenset({_SUPERADMIN}),
+    (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/estado",
+    ): frozenset({_SUPERADMIN}),
+    (
+        "POST",
+        "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/invitacion/reenvio",
+    ): frozenset({_SUPERADMIN}),
 }
 
 

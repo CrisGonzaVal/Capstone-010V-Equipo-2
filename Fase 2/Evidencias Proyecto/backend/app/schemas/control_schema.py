@@ -56,6 +56,9 @@ class InstitucionAltaControlRespuesta(BaseModel):
     version_esquema: str
     estado: str
     mensaje: str
+    #: URL de la invitacion del primer Administrador, solo en la respuesta del
+    #: alta cuando hubo que invitar (Feature 017, D-1/D-4). Nunca se persiste.
+    url_invitacion: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -139,22 +142,83 @@ class CapacidadActualizar(BaseModel):
     habilitada: bool
 
 
-class InstitucionMetricasRespuesta(BaseModel):
-    """Metricas atribuidas a una institucion en el dashboard SaaS (D-5/AC-4).
+#: Clases de la taxonomia unica de tenant (Feature 017, D-8). Toda institucion
+#: cae exactamente en una: la UI y la API no inventan estados intermedios.
+CLASE_OPERATIVO = "operativo"
+CLASE_NO_ENRUTABLE = "no enrutable"
+CLASE_NO_DISPONIBLE = "no disponible"
 
-    Las instituciones desactivadas se listan identificadas (`activo=False`) y
-    **sin** metricas actuales: `sedes` y `usuarios_por_rol` quedan en `None`.
+#: Detalles tecnicos acotados que acompanan la clase (nunca datos personales ni
+#: de negocio). `None` en la clase operativa.
+DETALLE_INSTITUCION_INACTIVA = "institucion_inactiva"
+DETALLE_TENANT_NO_RESOLUBLE = "tenant_no_resoluble"
+DETALLE_TENANT_NO_DISPONIBLE = "tenant_no_disponible"
+DETALLE_VERSION_AUSENTE = "version_ausente_o_ilegible"
+DETALLE_VERSION_INCOMPATIBLE = "version_incompatible"
+
+
+class InstitucionMetricasRespuesta(BaseModel):
+    """Metrica tecnica de una institucion en el dashboard SaaS (D-8/AC-13/AC-14).
+
+    `estado_tecnico` es la clase unica (`operativo`, `no enrutable`,
+    `no disponible`). Los conteos del tenant solo se publican en la clase
+    operativa; en las otras dos quedan en `None` (**nunca** en cero).
+    `usuarios_por_rol` incluye solo roles no privilegiados con asociacion local
+    activa; los Administradores tienen sus dos metricas separadas. No expone
+    datos personales, de tickets, catalogo, stock ni motivos.
     """
 
     institucion_id: str
     nombre: str
     activo: bool
+    estado_tecnico: str
+    detalle_tecnico: str | None = None
+    version_objetivo: str
+    version_persistida: str | None = None
     sedes: int | None = None
+    departamentos: int | None = None
+    administradores_activos: int | None = None
+    administradores_inactivos: int | None = None
     usuarios_por_rol: dict[str, int] | None = None
 
 
 class DashboardSaaSRespuesta(BaseModel):
-    """Panorama global del Superadmin: activas y metricas por institucion (AC-4)."""
+    """Panorama tecnico global del Superadmin (D-8/AC-13).
 
+    `conteos_conocidos` y `conteos_no_disponibles` cuentan instituciones, de modo
+    que su suma es `total_instituciones`. Los totales por rol y de
+    Administradores agregan **solo** tenants operativos; no duplican el detalle
+    por institucion. `total_instituciones_activas` conserva el contrato previo de
+    la Feature 012 como dato informativo del ciclo de vida.
+    """
+
+    total_instituciones: int
     total_instituciones_activas: int
+    total_administradores_activos: int
+    total_administradores_inactivos: int
+    usuarios_por_rol: dict[str, int]
+    conteos_conocidos: int
+    conteos_no_disponibles: int
     instituciones: list[InstitucionMetricasRespuesta]
+
+
+# ---------------------------------------------------------------------------
+# Gobierno de Administradores por institucion (Feature 017, D-10/AC-5)
+# ---------------------------------------------------------------------------
+
+
+class AdministradorListadoControlRespuesta(BaseModel):
+    """Listado minimo de Administradores de una institucion (Feature 017, AC-5).
+
+    Expone exactamente los cinco campos acordados por la spec, con
+    `estado_invitacion` ya proyectado por el servidor (`no disponible` para un
+    registro legado o desconocido). **No** contiene URL ni consulta Clerk.
+    """
+
+    usuario_id: int
+    nombre: str
+    apellido: str
+    correo: str
+    activo: bool
+    estado_invitacion: str
+

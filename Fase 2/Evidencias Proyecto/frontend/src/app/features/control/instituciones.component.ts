@@ -172,6 +172,15 @@ export class InstitucionesComponent implements OnInit {
     ]);
   }
 
+  /** Navega a la gestión de Administradores de la institución (Feature 017, D-10). */
+  verAdministradores(institucion: InstitucionControl): void {
+    void this.router.navigate([
+      '/control/instituciones',
+      institucion.institucion_id,
+      'administradores',
+    ]);
+  }
+
   private cargar(): void {
     this.cargando.set(true);
     this.mensajeError.set(null);

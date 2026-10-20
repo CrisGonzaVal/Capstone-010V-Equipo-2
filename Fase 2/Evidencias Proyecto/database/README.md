@@ -4,7 +4,7 @@ Dos scripts, en este orden alfabético y funcional:
 
 | Script | Qué hace |
 |---|---|
-| `01_esquema.sql` | Crea `control` (19 tablas) y un esquema `tenant_<slug>_<hash>` por institución (17 tablas de negocio cada uno). Siembra la topología: las 4 instituciones de QA (las capacidades funcionales las llena `02_`). |
+| `01_esquema.sql` | Crea `control` (20 tablas) y un esquema `tenant_<slug>_<hash>` por institución (17 tablas de negocio cada uno). Siembra la topología: las 4 instituciones de QA (las capacidades funcionales las llena `02_`). |
 | `02_datos_semilla.sql` | Llena la semilla QA, la reparte a los tenants, replica catálogos, consolida `stock_sede`, puebla el mapa `correo -> esquema`, fija la versión `013.1` y deja `control` como contexto global. Corre en una transacción con guardia fail-closed. |
 
 El prefijo numérico es funcional: `docker-compose.yml` monta esta carpeta en

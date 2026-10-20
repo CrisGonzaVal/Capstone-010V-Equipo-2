@@ -6,6 +6,7 @@ import {
   InstitucionAltaControlCrear,
   InstitucionAltaControlRespuesta,
 } from '../../shared/interfaces';
+import { EnlaceInvitacionComponent } from '../../shared/components/enlace-invitacion.component';
 import { ControlService } from './services/control.service';
 
 /**
@@ -20,7 +21,7 @@ import { ControlService } from './services/control.service';
 @Component({
   selector: 'app-alta-institucion',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, EnlaceInvitacionComponent],
   templateUrl: './alta-institucion.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

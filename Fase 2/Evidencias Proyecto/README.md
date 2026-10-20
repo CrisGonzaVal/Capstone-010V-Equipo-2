@@ -32,7 +32,7 @@ En el **primer arranque con el volumen vacío**, PostgreSQL ejecuta automáticam
 
 | Script | Función |
 |---|---|
-| `01_esquema.sql` | Crea el DDL completo: el esquema global `control` (19 tablas) y un esquema `tenant_<slug>_<hash>` por institución con las 17 tablas de negocio replicadas. Siembra la topología (4 instituciones). |
+| `01_esquema.sql` | Crea el DDL completo: el esquema global `control` (20 tablas) y un esquema `tenant_<slug>_<hash>` por institución con las 17 tablas de negocio replicadas. Siembra la topología (4 instituciones). |
 | `02_datos_semilla.sql` | Siembra la base QA y la reparte a los tenants: capacidades, sedes, departamentos, usuarios, catálogo, stock, movimientos, tickets y el mapa `correo -> esquema`. Corre en una transacción con guardia fail-closed. |
 
 Al terminar, la base queda lista **sin pasos manuales**: esquema `control` como

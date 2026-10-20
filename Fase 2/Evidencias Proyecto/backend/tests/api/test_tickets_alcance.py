@@ -421,16 +421,12 @@ def test_bodeguero_lista_solo_su_institucion(motor, ambito_tickets):
     assert ambito_tickets["ticket_ajeno_id"] not in ids
 
 
-def test_superadmin_lista_global(motor, ambito_tickets):
+def test_superadmin_recibe_403_en_listado_ac_15(motor, ambito_tickets):
+    """Feature 017 (D-9/AC-15): el listado de tickets se retira al Superadmin."""
     with _cliente(motor, "Superadmin", None) as cliente:
         respuesta = cliente.get(RUTA_TICKETS)
-    assert respuesta.status_code == 200, respuesta.text
-
-    ids = _ids(respuesta.json())
-    assert {
-        ambito_tickets["ticket_propio_id"],
-        ambito_tickets["ticket_ajeno_id"],
-    } <= ids
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
 
 
 # ---------------------------------------------------------------------------
@@ -459,16 +455,16 @@ def test_catalogo_administrador_solo_su_institucion(motor, ambito_tickets):
     assert ambito_tickets["usuario_ajeno_id"] not in solicitantes
 
 
-def test_catalogo_superadmin_es_global(motor, ambito_tickets):
+def test_catalogo_superadmin_recibe_403_ac_15(motor, ambito_tickets):
+    """Feature 017 (D-9/AC-15, T10): el catalogo del modal es lectura de negocio.
+
+    Superadmin gobernaba el SaaS y no inspecciona productos, stock ni
+    solicitantes del tenant; los roles institucionales conservan el permiso.
+    """
     with _cliente(motor, "Superadmin", None) as cliente:
         respuesta = cliente.get(RUTA_CATALOGOS)
-    assert respuesta.status_code == 200, respuesta.text
-
-    solicitantes = {s["usuario_id"] for s in respuesta.json()["solicitantes"]}
-    assert {
-        ambito_tickets["solicitante_id"],
-        ambito_tickets["usuario_ajeno_id"],
-    } <= solicitantes
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
 
 
 def test_catalogo_productos_y_stock_son_institucionales(motor, ambito_tickets):
@@ -496,10 +492,10 @@ def test_catalogo_productos_y_stock_son_institucionales(motor, ambito_tickets):
 
 
 def test_administrador_patch_ticket_ajeno_404_sin_mutar(motor, ambito_tickets):
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        antes = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), ambito_tickets["ticket_estado_ajeno_id"]
-        )["estado_id"]
+    # Feature 017 (D-9/AC-15): el Superadmin ya no lista tickets; el estado se
+    # observa por ORM antes y despues.
+    with sessionmaker(bind=motor)() as db:
+        antes = db.get(Ticket, ambito_tickets["ticket_estado_ajeno_id"]).estado_id
 
     with _cliente(motor, "Administrador", ambito_tickets["departamento_id"]) as cliente:
         respuesta = cliente.patch(
@@ -507,10 +503,8 @@ def test_administrador_patch_ticket_ajeno_404_sin_mutar(motor, ambito_tickets):
             json={"estado_id": ambito_tickets["estado_en_curso_id"]},
         )
 
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        despues = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), ambito_tickets["ticket_estado_ajeno_id"]
-        )["estado_id"]
+    with sessionmaker(bind=motor)() as db:
+        despues = db.get(Ticket, ambito_tickets["ticket_estado_ajeno_id"]).estado_id
 
     assert respuesta.status_code == 404, respuesta.text
     assert despues == antes
@@ -543,10 +537,8 @@ def test_administrador_patch_ticket_propio_200(motor, ambito_tickets):
 
 
 def test_bodeguero_despacho_ticket_ajeno_404_sin_mutar(motor, ambito_tickets):
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        antes = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), ambito_tickets["ticket_despacho_ajeno_id"]
-        )["estado_id"]
+    with sessionmaker(bind=motor)() as db:
+        antes = db.get(Ticket, ambito_tickets["ticket_despacho_ajeno_id"]).estado_id
 
     with _cliente(motor, "Bodeguero", ambito_tickets["departamento_id"]) as cliente:
         respuesta = cliente.post(
@@ -554,10 +546,8 @@ def test_bodeguero_despacho_ticket_ajeno_404_sin_mutar(motor, ambito_tickets):
             json={"usuario_id": ambito_tickets["usuario_id"]},
         )
 
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        despues = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), ambito_tickets["ticket_despacho_ajeno_id"]
-        )["estado_id"]
+    with sessionmaker(bind=motor)() as db:
+        despues = db.get(Ticket, ambito_tickets["ticket_despacho_ajeno_id"]).estado_id
 
     assert respuesta.status_code == 404, respuesta.text
     assert despues == antes

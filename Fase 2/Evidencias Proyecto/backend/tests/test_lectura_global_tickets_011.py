@@ -248,11 +248,12 @@ def mundo_ticket_global():
             engine.dispose()
 
 
-def test_lectura_global_de_tickets_responde_200_con_categoria(mundo_ticket_global):
-    """`GET /tickets/` global (Superadmin) serializa `detalle.producto.categoria`.
+def test_lectura_global_de_tickets_ya_no_se_expone_al_superadmin(mundo_ticket_global):
+    """Feature 017 (D-9/AC-15): la lectura global de tickets se retira.
 
-    Antes de la correccion respondia 500: la sesion por tenant se cerraba antes
-    de la serializacion y `categoria` no estaba cargada eager.
+    La Feature 011 acredito aqui el `DetachedInstanceError` de la serializacion
+    global. Desde la 017 ese camino deja de existir para Superadmin: la matriz
+    responde **403** antes de leer y ningun ticket se serializa.
     """
     from app.api import dependencies
 
@@ -262,12 +263,6 @@ def test_lectura_global_de_tickets_responde_200_con_categoria(mundo_ticket_globa
     ) as cliente:
         respuesta = cliente.get("/api/v1/tickets/")
 
-    assert respuesta.status_code == 200, respuesta.text
-    cuerpo = respuesta.json()
-    ticket = next(
-        t for t in cuerpo if t["ticket_id"] == mundo_ticket_global["ticket_id"]
-    )
-    assert ticket["detalles"], "el ticket sembrado debe traer su detalle"
-    categoria = ticket["detalles"][0]["producto"]["categoria"]
-    assert categoria is not None, "la categoria debe viajar en la respuesta"
-    assert categoria["nombre_cat"] == mundo_ticket_global["categoria_nombre"]
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
+    assert not isinstance(respuesta.json(), list)

@@ -399,6 +399,9 @@ def test_alta_usuario_por_admin_de_tenant_persiste_en_su_esquema(mundo_012):
         app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
             lambda: (lambda _correo: True)
         )
+        from tests.soporte_frontera_017 import instalar_frontera_clerk
+
+        instalar_frontera_clerk(identidad_existente=True)
         respuesta = cliente.post(
             "/api/v1/usuarios/",
             json={
@@ -481,8 +484,13 @@ def test_listado_usuarios_publica_estado_y_sede_desde_el_tenant(mundo_012):
     assert "sede_id" in admin
 
 
-def test_dashboard_saas_activa_incompatible_falla_completo(mundo_012):
-    """AC-4: una activa requerida con version incompatible produce error, no parcial."""
+def test_dashboard_saas_activa_incompatible_es_no_disponible(mundo_012):
+    """Feature 017 (D-8/AC-14): la version incompatible es `no disponible`, no fallo.
+
+    La Feature 012 D-5/AC-4 exigia fallo completo; la Feature 017 la supersede:
+    una institucion activa resoluble con version incompatible se clasifica `no
+    disponible` con conteos `None`, sin sustituirlos por cero.
+    """
     # B vuelve a estar activa pero con su tenant fuera de la version objetivo.
     _estado_institucion(mundo_012["engine"], _INSTITUCION_B, True)
     esquema_b = tenant_service.nombre_esquema_para_institucion(_INSTITUCION_B)
@@ -495,7 +503,17 @@ def test_dashboard_saas_activa_incompatible_falla_completo(mundo_012):
 
     sesion = crear_sesion_control(mundo_012["engine"])
     try:
-        with pytest.raises(control_service.ErrorDashboardSaaS):
-            control_service.dashboard_saas(sesion)
+        resumen = control_service.dashboard_saas(sesion)
     finally:
         sesion.close()
+
+    por_id = {fila.institucion_id: fila for fila in resumen.instituciones}
+    assert por_id[_INSTITUCION_A].estado_tecnico == "operativo"
+    incompatible = por_id[_INSTITUCION_B]
+    assert incompatible.activo is True
+    assert incompatible.estado_tecnico == "no disponible"
+    assert incompatible.version_persistida == "011.1"
+    assert incompatible.sedes is None
+    assert incompatible.usuarios_por_rol is None
+    assert resumen.conteos_conocidos == 1
+    assert resumen.conteos_no_disponibles == 1

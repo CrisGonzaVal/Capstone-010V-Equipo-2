@@ -18,8 +18,10 @@ import {
   SedeEstadoRespuesta,
   Usuario,
   UsuarioCrear,
-  UsuarioEdicion,
+  UsuarioEdicionConMotivo,
+  UsuarioEstadoConMotivo,
   UsuarioEstadoRespuesta,
+  UsuarioInvitacionRespuesta,
 } from '../../../shared/interfaces';
 
 /**
@@ -147,12 +149,17 @@ export class AdministracionService {
   }
 
   /**
-   * `POST /usuarios/` — alta de usuario local (AC-8). El correo debe existir ya en
-   * Clerk: si no, responde 422 sin crear fila; si la frontera externa no responde,
-   * 503; un correo ya vinculado de forma activa, 409.
+   * `POST /usuarios/` — alta de usuario local (AC-8; Feature 017 D-1/D-2).
+   *
+   * El backend distingue tres desenlaces: identidad existente → asociación
+   * `aceptada` sin invitación; invitación pendiente → asociación `pendiente`
+   * reutilizando la invitación; ninguna → invitación nueva con
+   * `url_invitacion` **solo en esta respuesta**. Los errores de frontera son
+   * 409 (duplicado/conflicto), 422 (cuerpo/rol inválido) y 503 (Clerk o
+   * asociación local no disponibles; el reintento completa el alta parcial).
    */
-  crearUsuario(datos: UsuarioCrear): Observable<Usuario> {
-    return this.http.post<Usuario>(`${this.usuarios}/`, datos);
+  crearUsuario(datos: UsuarioCrear): Observable<UsuarioInvitacionRespuesta> {
+    return this.http.post<UsuarioInvitacionRespuesta>(`${this.usuarios}/`, datos);
   }
 
   /** `GET /usuarios/roles` — catálogo de roles para los formularios (AC-8). */
@@ -160,19 +167,53 @@ export class AdministracionService {
     return this.http.get<Rol[]>(`${this.usuarios}/roles`);
   }
 
-  /** `PUT /usuarios/{id}` — edita rol/ámbito; nunca el correo (AC-8). */
-  editarUsuario(usuarioId: number, datos: UsuarioEdicion): Observable<Usuario> {
+  /**
+   * `PUT /usuarios/{id}` — edita rol/ámbito; nunca el correo (AC-8).
+   *
+   * Desde la Feature 017 una edición efectiva exige `motivo` del catálogo D-5 e
+   * `idempotencia` para que un reintento complete el motivo sin repetir el
+   * cambio. La institución/esquema los resuelve el servidor.
+   */
+  editarUsuario(
+    usuarioId: number,
+    datos: UsuarioEdicionConMotivo,
+  ): Observable<Usuario> {
     return this.http.put<Usuario>(`${this.usuarios}/${usuarioId}`, datos);
   }
 
-  /** `PATCH /usuarios/{id}/estado` — activa/desactiva el vínculo local (AC-8/AC-11). */
+  /**
+   * `PATCH /usuarios/{id}/estado` — activa/desactiva el vínculo local
+   * (AC-8/AC-11). Una baja/reactivación efectiva exige motivo (Feature 017,
+   * D-5/D-7); repetir el mismo estado no exige ni registra motivo.
+   */
   cambiarEstadoUsuario(
     usuarioId: number,
-    activo: boolean,
+    datos: UsuarioEstadoConMotivo,
   ): Observable<UsuarioEstadoRespuesta> {
     return this.http.patch<UsuarioEstadoRespuesta>(
       `${this.usuarios}/${usuarioId}/estado`,
-      { activo },
+      datos,
+    );
+  }
+
+  /**
+   * `POST /usuarios/{id}/invitacion/reenvio` — invitación nueva (Feature 017,
+   * D-4/D-10; ruta ordinaria de T11).
+   *
+   * Sin cuerpo: el ámbito lo resuelve el servidor y el identificador va en la
+   * ruta. El backend intenta revocar la invitación pendiente anterior y crea una
+   * nueva, entregando `url_invitacion` **solo** en esta respuesta. Responde 409
+   * cuando la invitación ya fue aceptada, el vínculo local está inactivo o Clerk
+   * informa un conflicto —la reactivación (`PATCH .../estado` con motivo) es una
+   * operación aparte que se hace antes— y 503 si la frontera Clerk no está
+   * disponible.
+   */
+  reenviarInvitacionUsuario(
+    usuarioId: number,
+  ): Observable<UsuarioInvitacionRespuesta> {
+    return this.http.post<UsuarioInvitacionRespuesta>(
+      `${this.usuarios}/${usuarioId}/invitacion/reenvio`,
+      null,
     );
   }
 

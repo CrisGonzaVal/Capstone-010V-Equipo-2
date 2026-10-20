@@ -68,14 +68,14 @@ OPERACIONES_012: tuple[tuple[str, str, set[str]], ...] = (
     ("POST", RUTA_DEPARTAMENTOS, _ORGANIZACION),
     ("PUT", RUTA_DEPARTAMENTO, _ORGANIZACION),
     ("PATCH", RUTA_DEPARTAMENTO_ESTADO, _ORGANIZACION),
-    ("PUT", RUTA_USUARIO, _ADMINISTRATIVOS),
-    ("PATCH", RUTA_USUARIO_ESTADO, _ADMINISTRATIVOS),
+    ("PUT", RUTA_USUARIO, _ORGANIZACION),
+    ("PATCH", RUTA_USUARIO_ESTADO, _ORGANIZACION),
 )
 
 #: Roles que NO pueden administrar la organizacion institucional.
 _ROLES_DENEGADOS_ORG = ("Bodeguero", "Solicitante", "Superadmin")
-#: Roles que NO pueden editar/estado de usuarios locales.
-_ROLES_DENEGADOS_USUARIO = ("Bodeguero", "Solicitante")
+#: Roles que NO pueden editar/estado de usuarios locales (Feature 017, D-10).
+_ROLES_DENEGADOS_USUARIO = ("Bodeguero", "Solicitante", "Superadmin")
 
 _CORREO = "sonda.crud012@compustock.cl"
 
@@ -109,6 +109,9 @@ def _cliente(
     app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
         lambda: (lambda _correo: correo_en_clerk)
     )
+    from tests.soporte_frontera_017 import instalar_frontera_clerk
+
+    instalar_frontera_clerk(identidad_existente=correo_en_clerk)
     if rol is not SIN_AUTENTICAR:
         app.dependency_overrides[dependencies.get_current_user] = lambda: identidad(
             rol, departamento_id, usuario_id, None, correo
@@ -444,6 +447,10 @@ def test_editar_usuario_actualiza_atributos(motor, dos_instituciones):
                 "apellido": "Inst01",
                 "departamento_id": dos_instituciones["departamento_id"],
                 "rol_id": dos_instituciones["rol_bodeguero_id"],
+                "motivo": {
+                    "codigo": "correccion_datos",
+                    "texto": "Correccion del nombre del Bodeguero",
+                },
             },
         )
     assert respuesta.status_code == 200, respuesta.text
@@ -474,13 +481,21 @@ def test_estado_usuario_persiste_en_mapa_y_es_idempotente(motor, dos_institucion
         motor, "Administrador", departamento_id=dos_instituciones["departamento_id"]
     ) as cliente_http:
         baja = cliente_http.patch(
-            RUTA_USUARIO_ESTADO.format(usuario_id=usuario_id), json={"activo": False}
+            RUTA_USUARIO_ESTADO.format(usuario_id=usuario_id),
+            json={
+                "activo": False,
+                "motivo": {"codigo": "termino_vinculo", "texto": "Fin de contrato"},
+            },
         )
         repetida = cliente_http.patch(
             RUTA_USUARIO_ESTADO.format(usuario_id=usuario_id), json={"activo": False}
         )
         alta = cliente_http.patch(
-            RUTA_USUARIO_ESTADO.format(usuario_id=usuario_id), json={"activo": True}
+            RUTA_USUARIO_ESTADO.format(usuario_id=usuario_id),
+            json={
+                "activo": True,
+                "motivo": {"codigo": "seguridad_acceso", "texto": "Reincorporacion"},
+            },
         )
     assert baja.status_code == 200 and baja.json()["activo"] is False, baja.text
     assert repetida.status_code == 200 and repetida.json()["activo"] is False
@@ -513,7 +528,12 @@ def test_desactivar_usuario_encargado_responde_409(motor, dos_instituciones):
 # ---------------------------------------------------------------------------
 
 
-def test_alta_usuario_con_correo_inexistente_en_clerk_responde_422(motor, datos_base):
+def test_alta_usuario_con_correo_inexistente_en_clerk_crea_invitacion(motor, datos_base):
+    """Feature 017 (AC-1): sin identidad en Clerk se crea invitacion y asociacion.
+
+    La spec 017 supersede la exigencia de identidad preexistente: el alta invita,
+    deja el estado `pendiente` y entrega la URL solo en la respuesta.
+    """
     correo = "no.existe.en.clerk@compustock.cl"
     with _cliente(
         motor,
@@ -531,12 +551,15 @@ def test_alta_usuario_con_correo_inexistente_en_clerk_responde_422(motor, datos_
                 "rol_id": datos_base["rol_bodeguero_id"],
             },
         )
-    assert respuesta.status_code == 422, respuesta.text
-    assert _mapa_activo(motor, correo) is None
+    assert respuesta.status_code == 201, respuesta.text
+    cuerpo = respuesta.json()
+    assert cuerpo["estado_invitacion"] == "pendiente"
+    assert cuerpo["url_invitacion"]
+    assert _mapa_activo(motor, correo) is True
     with sessionmaker(bind=motor)() as db:
-        assert (
-            db.query(Usuario).filter(Usuario.correo == correo).first() is None
-        ), "no debe quedar un usuario local no autenticable"
+        mapa = db.get(MapaUsuarioEsquema, correo)
+        assert mapa is not None and mapa.estado_invitacion == "pendiente"
+        assert mapa.invitacion_id
 
 
 def test_alta_usuario_con_correo_existente_en_clerk_responde_201(motor, datos_base):

@@ -153,20 +153,48 @@ def test_matriz_declara_las_cinco_operaciones_con_los_roles_exactos_ac_17():
         assert set(obtenidos) == roles, (clave, sorted(obtenidos), sorted(roles))
 
 
+#: Feature 017 (D-9/AC-15): lecturas de negocio retiradas al Superadmin. La
+#: 013 las conservaba para los cuatro roles; la 017 solo retira ese rol.
+RETIRADAS_017: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/v1/dashboard/"),
+        ("GET", "/api/v1/tickets/catalogos"),
+        ("GET", "/api/v1/tickets/"),
+        ("GET", "/api/v1/tickets/{ticket_id}"),
+        ("GET", "/api/v1/tickets/{ticket_id}/historial"),
+        ("GET", "/api/v1/inventario/movimientos"),
+        ("GET", "/api/v1/inventario/categorias"),
+        ("GET", "/api/v1/inventario/categorias/{categoria_id}"),
+        ("GET", "/api/v1/inventario/productos"),
+        ("GET", "/api/v1/inventario/productos/{producto_id}"),
+        ("GET", "/api/v1/inventario/existencias"),
+        ("GET", "/api/v1/inventario/stock"),
+    }
+)
+
+
 def test_matriz_conserva_las_44_operaciones_previas_intactas_ac_17():
-    """AC-17: la 013 no retira ni relaja ninguna de las 44 filas vigentes."""
+    """AC-17: la 013 no retira ni relaja ninguna de las 44 filas vigentes.
+
+    Feature 017: las 11 lecturas de D-9 ajustan solo el rol Superadmin; los
+    roles institucionales conservan exactamente el conjunto de la 012.
+    """
     assert len(MATRIZ_012) == 44
     for clave, roles in MATRIZ_012.items():
         actual = permisos.MATRIZ_PERMISOS.get(clave)
         assert actual is not None, f"la operacion {clave} desaparecio de la matriz"
-        assert set(actual) == roles, clave
+        if clave in RETIRADAS_017:
+            assert set(actual) == set(roles) - {"Superadmin"}, clave
+        else:
+            assert set(actual) == roles, clave
 
 
-def test_matriz_tiene_exactamente_49_operaciones_ac_17():
-    """AC-17/plan §2: 44 previas + 5 nuevas, sin filas extra."""
+def test_matriz_tiene_exactamente_55_operaciones_tras_017():
+    """AC-17/plan §2: 44 previas + 5 nuevas de la 013 + 6 de la 017."""
     totales = len(permisos.MATRIZ_PERMISOS)
-    assert totales == 49, (
-        f"la matriz debe tener 49 operaciones (44 + 5 de la 013); tiene {totales}"
+    assert totales == 55, (
+        f"la matriz debe tener 55 operaciones (49 de la 013 + 5 de control 017 + "
+        f"el reenvio ordinario de la 017); tiene {totales}"
     )
 
 
@@ -200,8 +228,8 @@ def test_openapi_publica_las_cinco_operaciones_ac_17(cliente):
             )
 
 
-def test_openapi_tiene_49_operaciones_ac_17(cliente):
-    """AC-17: el contrato v1 publica las 49 operaciones (44 previas + 5 nuevas)."""
+def test_openapi_tiene_55_operaciones_tras_017(cliente):
+    """AC-17: el contrato v1 publica las 55 operaciones de la matriz vigente."""
     contrato = cliente.get("/openapi.json").json()
     total = sum(
         1
@@ -210,8 +238,8 @@ def test_openapi_tiene_49_operaciones_ac_17(cliente):
         for metodo in operaciones
         if metodo in _METODOS_OPENAPI
     )
-    assert total == 49, (
-        f"/openapi.json debe publicar 49 operaciones del contrato v1; publica {total}"
+    assert total == 55, (
+        f"/openapi.json debe publicar 55 operaciones del contrato v1; publica {total}"
     )
 
 
@@ -372,23 +400,34 @@ def test_superadmin_obtiene_403_en_toda_escritura_nueva_ac_17(motor, datos_013):
 
         for respuesta in (anulacion, rechazo, edicion):
             assert respuesta.status_code == 403, respuesta.text
-        assert abrir_ticket(cliente, ticket_id)["estado_id"] == (
-            datos_013["estados"]["Pendiente"]
-        ), "el 403 no puede mutar el ticket"
+        # Feature 017: el Superadmin ya no puede leer `GET /tickets/`; la
+        # ausencia de mutacion se observa por ORM.
+        with sesion(motor) as db:
+            assert db.get(Ticket, ticket_id).estado_id == (
+                datos_013["estados"]["Pendiente"]
+            ), "el 403 no puede mutar el ticket"
 
 
 def test_superadmin_lee_detalle_e_historial_ac_19(motor, datos_013):
-    """AC-19: la lectura global del Superadmin alcanza detalle e historial."""
+    """Feature 017 (D-9/AC-15): el detalle y el historial ya no son del Superadmin.
+
+    La 013 AC-19 concedia esta lectura global; la 017 la retira y responde 403
+    sin datos. Los roles institucionales conservan su lectura (AC-19).
+    """
     ticket_id = sembrar_ticket(motor, datos_013)
 
     with _cliente_superadmin(motor, datos_013) as cliente:
         detalle = cliente.get(f"/api/v1/tickets/{ticket_id}")
-        assert detalle.status_code == 200, detalle.text
-        assert CAMPOS_DETALLE <= set(detalle.json()), sorted(detalle.json())
+        assert detalle.status_code == 403, detalle.text
+        assert detalle.json() == {
+            "detail": "Permiso insuficiente para la operacion"
+        }
 
         historial = cliente.get(f"/api/v1/tickets/{ticket_id}/historial")
-        assert historial.status_code == 200, historial.text
-        assert isinstance(historial.json(), list)
+        assert historial.status_code == 403, historial.text
+        assert historial.json() == {
+            "detail": "Permiso insuficiente para la operacion"
+        }
 
 
 def test_solicitante_lee_su_detalle_y_no_el_ajeno_ac_19(motor, datos_013):

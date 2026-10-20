@@ -222,12 +222,41 @@ describe('AdministracionService', () => {
     });
   });
 
-  it('cambia el estado de un usuario con PATCH .../estado', () => {
-    servicio.cambiarEstadoUsuario(5, false).subscribe();
+  it('cambia el estado de un usuario con PATCH .../estado y su motivo', () => {
+    servicio
+      .cambiarEstadoUsuario(5, {
+        activo: false,
+        motivo: { codigo: 'termino_vinculo', texto: null },
+        idempotencia: 'idem-5',
+      })
+      .subscribe();
     const peticion = httpMock.expectOne(`${usuarios}/5/estado`);
     expect(peticion.request.method).toBe('PATCH');
-    expect(peticion.request.body).toEqual({ activo: false });
+    expect(peticion.request.body).toEqual({
+      activo: false,
+      motivo: { codigo: 'termino_vinculo', texto: null },
+      idempotencia: 'idem-5',
+    });
     peticion.flush({ usuario_id: 5, activo: false });
+  });
+
+  it('AC-6: reenvía una invitación con POST sin cuerpo (Feature 017, T12)', () => {
+    servicio.reenviarInvitacionUsuario(5).subscribe();
+    const peticion = httpMock.expectOne(`${usuarios}/5/invitacion/reenvio`);
+    expect(peticion.request.method).toBe('POST');
+    expect(peticion.request.body).toBeNull();
+    peticion.flush({
+      usuario_id: 5,
+      nombre: 'Ana',
+      apellido: 'Pérez',
+      correo: 'ana@example.com',
+      departamento_id: 10,
+      rol_id: 3,
+      sede_id: null,
+      activo: true,
+      estado_invitacion: 'pendiente',
+      url_invitacion: 'https://clerk.example/inv/nueva',
+    });
   });
 
   it('asigna sede a un usuario con PUT /organizacion/usuarios/{id}/sede', () => {

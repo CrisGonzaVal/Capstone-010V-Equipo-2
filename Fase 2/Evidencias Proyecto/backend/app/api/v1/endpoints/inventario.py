@@ -27,6 +27,11 @@ router = APIRouter(prefix="/inventario", tags=["Inventario y Productos"])
     response_model=List[CategoriaRespuesta],
     status_code=status.HTTP_200_OK,
     summary="Listar categorias de productos",
+    description=(
+        "Devuelve el catalogo de categorias del ambito del actor. Feature 017 "
+        "(D-9/AC-15): el **Superadmin no tiene esta lectura** y recibe **403** "
+        "sin datos; Administrador, Bodeguero y Solicitante conservan su permiso."
+    ),
     responses=dependencies.respuestas_de_autorizacion(),
     dependencies=[
         Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/categorias")),
@@ -53,7 +58,8 @@ def listar_categorias(
     summary="Obtener una categoria por id",
     description=(
         "Devuelve la categoria pedida si pertenece al ambito del usuario. Un id "
-        "ajeno se oculta con **404**, igual que uno inexistente (Feature 008, D-4)."
+        "ajeno se oculta con **404**, igual que uno inexistente (Feature 008, D-4). "
+        "Feature 017 (D-9/AC-15): el **Superadmin no tiene esta lectura** (**403**)."
     ),
     responses={
         **dependencies.respuestas_de_autorizacion(),
@@ -91,6 +97,11 @@ def obtener_categoria(
     response_model=List[ProductoRespuesta],
     status_code=status.HTTP_200_OK,
     summary="Listar productos del catalogo",
+    description=(
+        "Devuelve el catalogo de productos del ambito del actor. Feature 017 "
+        "(D-9/AC-15): el **Superadmin no tiene esta lectura** y recibe **403** "
+        "sin datos; Administrador, Bodeguero y Solicitante conservan su permiso."
+    ),
     responses=dependencies.respuestas_de_autorizacion(),
     dependencies=[
         Depends(dependencies.requiere_operacion("GET", "/api/v1/inventario/productos")),
@@ -117,7 +128,8 @@ def listar_productos(
     summary="Obtener un producto por id",
     description=(
         "Devuelve el producto pedido si pertenece al ambito del usuario. Un id "
-        "ajeno se oculta con **404**, igual que uno inexistente (Feature 008, D-4)."
+        "ajeno se oculta con **404**, igual que uno inexistente (Feature 008, D-4). "
+        "Feature 017 (D-9/AC-15): el **Superadmin no tiene esta lectura** (**403**)."
     ),
     responses={
         **dependencies.respuestas_de_autorizacion(),
@@ -184,7 +196,8 @@ def crear_producto(
         "y el desglose por sede. Un producto sin existencias aparece con `sedes` "
         "vacio y `stock_total` en 0, en vez de desaparecer. `solo_criticos` se "
         "evalua sobre el total: un producto con `stock_total <= stock_minimo` "
-        "queda marcado como critico."
+        "queda marcado como critico. Feature 017 (D-9/AC-15): el **Superadmin no "
+        "tiene esta lectura** y recibe **403** sin datos."
     ),
     responses=dependencies.respuestas_de_autorizacion(),
     dependencies=[
@@ -237,7 +250,8 @@ def listar_existencias(
         "`POST /inventario/movimientos`.\n\n"
         "`sede_id` opcional acota a una sede: un id inexistente o ajeno al "
         "tenant, o distinto de la sede del Bodeguero/Solicitante, se oculta con "
-        "**404** (AC-3/AC-7). Sin sede asignada, el rol acotado recibe **409**."
+        "**404** (AC-3/AC-7). Sin sede asignada, el rol acotado recibe **409**. "
+        "Feature 017 (D-9/AC-15): el **Superadmin no tiene esta lectura** (**403**)."
     ),
     responses={
         **dependencies.respuestas_de_autorizacion(),
@@ -278,7 +292,9 @@ def listar_stock_sede(
         "El orden es determinista: `fecha_movimiento` descendente y, ante "
         "empates, `movimiento_id` descendente. El recurso es de solo lectura: no "
         "ofrece modificacion ni borrado, porque el historial es la evidencia "
-        "inmutable de la trazabilidad de stock."
+        "inmutable de la trazabilidad de stock. Feature 017 (D-9/AC-15): el "
+        "**Superadmin no tiene esta lectura** y recibe **403** sin datos; "
+        "Administrador y Bodeguero conservan su permiso."
     ),
     responses=dependencies.respuestas_de_autorizacion(),
     dependencies=[

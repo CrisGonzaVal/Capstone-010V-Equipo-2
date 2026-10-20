@@ -18,6 +18,7 @@ del alta (T7) llegan en sus propias tareas; esta tarea no los implementa.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -25,8 +26,12 @@ from sqlalchemy.orm import Session
 
 from app.core import security
 from app.core.config import VERSION_ESQUEMA_OBJETIVO
-from app.db.database import Base
-from app.models.control import MapaUsuarioEsquema, VersionEsquema
+from app.db.database import Base, ESQUEMA_CONTROL
+from app.models.control import (
+    MapaUsuarioEsquema,
+    RegistroMotivoConstancia,
+    VersionEsquema,
+)
 from app.models.control_canonico import (
     CAPACIDADES,
     FuncionInstitucion,
@@ -37,7 +42,16 @@ from app.models.rol import Rol
 from app.models.sede import Sede
 from app.models.usuario import Usuario
 from app.schemas.control_schema import (
+    CLASE_NO_DISPONIBLE,
+    CLASE_NO_ENRUTABLE,
+    CLASE_OPERATIVO,
+    DETALLE_INSTITUCION_INACTIVA,
+    DETALLE_TENANT_NO_DISPONIBLE,
+    DETALLE_TENANT_NO_RESOLUBLE,
+    DETALLE_VERSION_AUSENTE,
+    DETALLE_VERSION_INCOMPATIBLE,
     ESTADO_OPERATIVA,
+    AdministradorListadoControlRespuesta,
     CapacidadRespuesta,
     DashboardSaaSRespuesta,
     InstitucionAltaControlCrear,
@@ -47,6 +61,31 @@ from app.schemas.control_schema import (
     InstitucionEstadoRespuesta,
     InstitucionMetricasRespuesta,
 )
+
+#: Estructuras auxiliares que viven **solo** en el esquema de control. El
+#: aprovisionamiento tenant las excluye de `Base.metadata`; la Feature 017 suma
+#: `registro_motivo_constancia` al mapa de la Feature 010.
+_TABLAS_SOLO_CONTROL: frozenset[str] = frozenset(
+    {
+        MapaUsuarioEsquema.__tablename__,
+        RegistroMotivoConstancia.__tablename__,
+    }
+)
+
+
+def tablas_metadata_tenant() -> list:
+    """Tablas de `Base.metadata` que se replican en cada esquema tenant.
+
+    Excluye las auxiliares de control (mapa de usuarios y registro de
+    motivos/constancias). Es la unica fuente del filtro de aprovisionamiento: un
+    modelo nuevo de control debe sumarse a `_TABLAS_SOLO_CONTROL` y no al tenant.
+    """
+    return [
+        tabla
+        for tabla in Base.metadata.sorted_tables
+        if tabla.name not in _TABLAS_SOLO_CONTROL
+    ]
+
 
 #: Catalogos de rol replicados en cada tenant (D-4). El rol Superadmin vive solo
 #: en control y nunca se replica en un tenant.
@@ -115,6 +154,14 @@ class ErrorClerkNoDisponible(ErrorAprovisionamiento):
     """La frontera Clerk no pudo verificar el correo -> HTTP 503."""
 
 
+class ErrorAltaParcialIncompatible(ErrorAprovisionamiento):
+    """El esquema existente no es el resto compatible del alta -> HTTP 503."""
+
+
+class ErrorTenantNoDisponible(Exception):
+    """La sesion/lectura/escritura del tenant no esta disponible -> HTTP 503."""
+
+
 class ErrorConflictoAprovisionamiento(ErrorAprovisionamiento):
     """Institucion/correo/esquema ya tomado o fallo de etapa -> HTTP 409."""
 
@@ -123,16 +170,16 @@ class ErrorInstitucionNoEncontrada(Exception):
     """La institucion canonica no existe en control -> HTTP 404."""
 
 
+class ErrorAdministradorNoEncontrado(Exception):
+    """El usuario no existe o no es Administrador de la institucion -> HTTP 404."""
+
+
+class ErrorRolAdministradorInvalido(Exception):
+    """La ruta de control solo gestiona Administradores -> HTTP 403."""
+
+
 class ErrorFuncionInvalida(Exception):
     """La funcion no pertenece al conjunto cerrado de capacidades -> HTTP 422."""
-
-
-class ErrorDashboardSaaS(Exception):
-    """Una institucion activa requerida no pudo agregarse -> HTTP 409/503.
-
-    El dashboard falla **completo**: nunca entrega un agregado parcial si una
-    institucion activa es inaccesible o incompatible (D-5/AC-4).
-    """
 
 
 def es_version_objetivo(version: str | None) -> bool:
@@ -295,8 +342,12 @@ def _mapa_por_nombre_esquema(
 
 def _es_correo_usuario_local(db: Session, correo: str) -> bool:
     return (
-        db.execute(select(Usuario.usuario_id).where(Usuario.correo == correo))
-        .scalar_one_or_none()
+        db.execute(
+            select(Usuario.usuario_id).where(
+                func.lower(func.trim(Usuario.correo))
+                == security.normalizar_correo(correo)
+            )
+        ).scalar_one_or_none()
         is not None
     )
 
@@ -321,6 +372,12 @@ def _reservar_control(
         raise ErrorConflictoAprovisionamiento("el nombre de esquema ya esta en uso")
     if _es_correo_usuario_local(db, datos.correo_administrador):
         raise ErrorConflictoAprovisionamiento("el correo ya es un usuario local")
+    from app.services.usuario_service import _es_identidad_de_control
+
+    if _es_identidad_de_control(db, datos.correo_administrador):
+        raise ErrorConflictoAprovisionamiento(
+            "el correo pertenece a una identidad global de control"
+        )
 
 
 def _rol_administrador(sesion: Session) -> Rol:
@@ -409,7 +466,12 @@ def _inicializar_capacidades(db: Session, institucion_id: str) -> None:
 
 
 def _provisionar_tenant_logico(
-    db: Session, datos: InstitucionAltaControlCrear
+    db: Session,
+    datos: InstitucionAltaControlCrear,
+    *,
+    estado_invitacion: str,
+    invitacion_id: str | None,
+    expira_en,
 ) -> None:
     """Aprovisiona en el **contexto logico unico** (suite SQLite, AC-16).
 
@@ -430,10 +492,13 @@ def _provisionar_tenant_logico(
     _inicializar_capacidades(db, datos.institucion_id)
     db.add(
         MapaUsuarioEsquema(
-            correo=datos.correo_administrador,
+            correo=security.normalizar_correo(datos.correo_administrador),
             institucion_id=datos.institucion_id,
             nombre_esquema=_nombre_esquema(datos.institucion_id),
             activo=True,
+            estado_invitacion=estado_invitacion,
+            invitacion_id=invitacion_id,
+            invitacion_expira_en=expira_en,
         )
     )
     db.flush()
@@ -443,15 +508,22 @@ def _provisionar_tenant_logico(
 
 
 def _provisionar_tenant_postgres(
-    db: Session, datos: InstitucionAltaControlCrear, nombre_esquema: str
+    db: Session,
+    datos: InstitucionAltaControlCrear,
+    nombre_esquema: str,
+    *,
+    estado_invitacion: str,
+    invitacion_id: str | None,
+    expira_en,
 ) -> None:
     """Aprovisiona el esquema tenant real (PostgreSQL) y el registro de control.
 
-    Crea el esquema, su DDL canonical (las 12 entidades 3NF mas
-    `version_esquema`; el mapa es solo de control), la institucion espejo, los
-    catalogos replicados y el usuario Administrador inicial, y deja el tenant en
-    la version objetivo al final. El registro canonico de institucion y el mapa
-    quedan en el esquema de control (`db`).
+    Crea el esquema, su DDL canonical (las 17 tablas del tenant, incluida
+    `version_esquema`; el mapa y el registro de motivos/constancias son solo de
+    control), la institucion espejo, los catalogos replicados y el usuario
+    Administrador inicial, y deja el tenant en la version objetivo al final. El
+    registro canonico de institucion y el mapa quedan en el esquema de control
+    (`db`).
     """
     # Import local: `tenant_service` importa este modulo.
     from app.db import database
@@ -461,12 +533,7 @@ def _provisionar_tenant_postgres(
     with motor.begin() as conexion:
         conexion.execute(CreateSchema(nombre_esquema))
 
-    tabla_mapa = Base.metadata.tables[MapaUsuarioEsquema.__tablename__]
-    tablas_tenant = [
-        tabla
-        for tabla in Base.metadata.sorted_tables
-        if tabla is not tabla_mapa
-    ]
+    tablas_tenant = tablas_metadata_tenant()
     motor_tenant = motor.execution_options(
         schema_translate_map={None: nombre_esquema}
     )
@@ -517,10 +584,13 @@ def _provisionar_tenant_postgres(
     _inicializar_capacidades(db, datos.institucion_id)
     db.add(
         MapaUsuarioEsquema(
-            correo=datos.correo_administrador,
+            correo=security.normalizar_correo(datos.correo_administrador),
             institucion_id=datos.institucion_id,
             nombre_esquema=nombre_esquema,
             activo=True,
+            estado_invitacion=estado_invitacion,
+            invitacion_id=invitacion_id,
+            invitacion_expira_en=expira_en,
         )
     )
 
@@ -531,51 +601,328 @@ def _nombre_esquema(institucion_id: str) -> str:
     return nombre_esquema_para_institucion(institucion_id)
 
 
-def aprovisionar_institucion(
-    db: Session,
-    datos: InstitucionAltaControlCrear,
+def _estado_identidad_aprovisionamiento(
+    correo: str,
     verificar_correo: Callable[[str], bool],
-) -> InstitucionAltaControlRespuesta:
-    """Da de alta una institucion y su primer Administrador (D-7, AC-7…AC-9).
-
-    Flujo: (1) verifica que el correo del Administrador exista en Clerk antes de
-    crear recursos; (2) calcula el nombre de esquema determinista en servidor;
-    (3) rechaza duplicados/colisiones; (4) crea el tenant con su estructura,
-    catalogos, usuario inicial, mapa y version objetivo; (5) confirma. Un fallo
-    de cualquier etapa compensa (rollback) sin dejar tenant parcial y un reintento
-    no duplica ni sobrescribe.
-    """
-    correo = datos.correo_administrador
-
+    consultar_identidad: Callable | None,
+) -> security.EstadoIdentidadClerk:
+    if consultar_identidad is not None:
+        try:
+            return consultar_identidad(correo)
+        except security.ErrorInvitacionConflicto as exc:
+            raise ErrorConflictoAprovisionamiento(str(exc)) from exc
+        except security.ErrorClerkNoDisponible as exc:
+            raise ErrorClerkNoDisponible(str(exc)) from exc
+        except security.ErrorAutenticacion as exc:
+            raise ErrorClerkNoDisponible(
+                "no fue posible verificar el correo contra Clerk"
+            ) from exc
     try:
         existe = verificar_correo(correo)
     except security.ErrorAutenticacion as exc:
         raise ErrorClerkNoDisponible(
             "no fue posible verificar el correo contra Clerk"
         ) from exc
-    if not existe:
-        raise ErrorCorreoInexistente(
-            "el correo del Administrador no existe en Clerk"
-        )
+    return security.EstadoIdentidadClerk(
+        identidad_existente=bool(existe),
+        invitacion_pendiente=False,
+        invitacion_id=None,
+    )
 
-    nombre_esquema = _nombre_esquema(datos.institucion_id)
-    _reservar_control(db, datos, nombre_esquema)
 
-    es_postgres = db.get_bind().dialect.name == "postgresql"
+def _compensar_invitacion_aprovisionamiento(
+    db: Session,
+    *,
+    invitacion: security.InvitacionCreada | None,
+    correo: str,
+    institucion_id: str,
+    revocar_invitacion_fn: Callable[[str], None] | None,
+) -> None:
+    """Revoca la invitacion del primer Administrador o deja constancia (D-2)."""
+    if invitacion is None:
+        return
     try:
-        if es_postgres:
-            _provisionar_tenant_postgres(db, datos, nombre_esquema)
-        else:
-            _provisionar_tenant_logico(db, datos)
+        if revocar_invitacion_fn is None:
+            raise RuntimeError("revocador no disponible")
+        revocar_invitacion_fn(invitacion.invitacion_id)
+    except Exception as exc:  # noqa: BLE001
+        try:
+            db.rollback()
+            from app.services import motivo_service
+
+            motivo_service.registrar_compensacion_invitacion(
+                db,
+                actor_correo="sistema",
+                institucion_id=institucion_id,
+                correo_objetivo=correo,
+                invitacion_id=invitacion.invitacion_id,
+                resultado_revocacion=f"revocacion_fallida: {type(exc).__name__}",
+            )
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+
+def _esquema_tenant_existente(db: Session, nombre_esquema: str) -> bool:
+    """True si el esquema determinista del tenant ya existe (PostgreSQL)."""
+    from sqlalchemy import inspect
+
+    try:
+        return inspect(db.get_bind()).has_schema(nombre_esquema)
+    except Exception:  # noqa: BLE001 - sin metadatos el alta no puede continuar
+        return False
+
+
+def _validar_tenant_parcial(
+    db: Session, datos: InstitucionAltaControlCrear, nombre_esquema: str
+) -> None:
+    """Valida que el esquema existente sea el resto del alta de esta institucion.
+
+    El alta institucional tiene dos confirmaciones (D-2): si el commit de
+    tenant se aplico y el de control no, el reintento debe completar solo la
+    etapa de control. Antes de reutilizar el esquema se exige que contenga el
+    espejo institucional, exactamente la version objetivo y el usuario
+    Administrador inicial normalizado; cualquier otro contenido responde 503
+    recuperable y nunca se declara operativo.
+    """
+    from app.db import database
+
+    sesion = database.crear_sesion_esquema(nombre_esquema, motor=db.get_bind())
+    try:
+        try:
+            espejo = sesion.get(Institucion, datos.institucion_id)
+            if espejo is None or espejo.nombre != datos.nombre:
+                raise ErrorAltaParcialIncompatible(
+                    "el esquema existente no corresponde a esta institucion; "
+                    "requiere reconciliacion"
+                )
+            versiones = sesion.execute(select(VersionEsquema.version)).scalars().all()
+            if versiones != [VERSION_ESQUEMA_OBJETIVO]:
+                raise ErrorAltaParcialIncompatible(
+                    "el esquema existente no esta en la version objetivo; "
+                    "requiere reconciliacion"
+                )
+            usuarios = (
+                sesion.execute(
+                    select(Usuario).where(
+                        func.lower(func.trim(Usuario.correo))
+                        == security.normalizar_correo(datos.correo_administrador)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if len(usuarios) != 1:
+                raise ErrorAltaParcialIncompatible(
+                    "el esquema existente no tiene un unico Administrador inicial "
+                    "compatible; requiere reconciliacion"
+                )
+            rol = sesion.get(Rol, usuarios[0].rol_id)
+            if rol is None or rol.nombre_rol != "Administrador":
+                raise ErrorAltaParcialIncompatible(
+                    "el usuario inicial del esquema existente no es Administrador; "
+                    "requiere reconciliacion"
+                )
+        except ErrorAltaParcialIncompatible:
+            raise
+        except Exception as exc:  # noqa: BLE001 - resto ilegible = incompatible
+            raise ErrorAltaParcialIncompatible(
+                "el esquema existente esta incompleto o es ilegible; requiere "
+                "reconciliacion"
+            ) from exc
+    finally:
+        sesion.close()
+
+
+def _completar_alta_institucional_control(
+    db: Session,
+    datos: InstitucionAltaControlCrear,
+    nombre_esquema: str,
+    *,
+    verificar_correo: Callable[[str], bool],
+    consultar_identidad: Callable | None,
+) -> InstitucionAltaControlRespuesta:
+    """Completa la etapa de control de un alta cuyo tenant ya se confirmo (D-2).
+
+    No crea esquema, usuario ni invitacion: **solo** recupera el estado Clerk
+    (lectura) para conservar `invitacion_id` cuando exista y confirma en control
+    la institucion, las capacidades y el mapa. Nunca reemite la URL.
+    """
+    correo = security.normalizar_correo(str(datos.correo_administrador))
+    estado = _estado_identidad_aprovisionamiento(
+        correo, verificar_correo, consultar_identidad
+    )
+    if estado.identidad_existente:
+        estado_invitacion, invitacion_id = "aceptada", None
+    elif estado.invitacion_pendiente:
+        estado_invitacion, invitacion_id = "pendiente", estado.invitacion_id
+    else:
+        estado_invitacion, invitacion_id = "pendiente", None
+
+    try:
+        db.add(
+            InstitucionControl(
+                institucion_id=datos.institucion_id,
+                nombre=datos.nombre,
+                rut=datos.rut,
+                direccion=datos.direccion,
+            )
+        )
+        db.flush()
+        _inicializar_capacidades(db, datos.institucion_id)
+        db.add(
+            MapaUsuarioEsquema(
+                correo=correo,
+                institucion_id=datos.institucion_id,
+                nombre_esquema=nombre_esquema,
+                activo=True,
+                estado_invitacion=estado_invitacion,
+                invitacion_id=invitacion_id,
+            )
+        )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise ErrorConflictoAprovisionamiento(
+            "otra solicitud completo el alta de la institucion mientras se "
+            "reintentaba"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - se responde 503 recuperable
+        db.rollback()
+        raise ErrorClerkNoDisponible(
+            "el alta no se completo; requiere reconciliacion"
+        ) from exc
+
+    return InstitucionAltaControlRespuesta(
+        institucion_id=datos.institucion_id,
+        nombre=datos.nombre,
+        correo_administrador=correo,
+        nombre_esquema=nombre_esquema,
+        version_esquema=VERSION_ESQUEMA_OBJETIVO,
+        estado=ESTADO_OPERATIVA,
+        mensaje=(
+            "Institucion aprovisionada: reintento completo el registro de control "
+            "sin duplicar tenant, usuario ni invitacion"
+        ),
+        url_invitacion=None,
+    )
+
+
+def aprovisionar_institucion(
+    db: Session,
+    datos: InstitucionAltaControlCrear,
+    verificar_correo: Callable[[str], bool],
+    *,
+    consultar_identidad: Callable | None = None,
+    crear_invitacion_fn: Callable | None = None,
+    revocar_invitacion_fn: Callable[[str], None] | None = None,
+) -> InstitucionAltaControlRespuesta:
+    """Da de alta una institucion y su primer Administrador (D-7/AC-3).
+
+    Flujo (Feature 017): normalizar el correo, validar duplicados antes de
+    invitar, clasificar la identidad en Clerk (identidad existente ->
+    `aceptada`; invitacion pendiente -> reutilizarla; ninguna -> crear
+    invitacion), crear el tenant con su mapa y confirmar. Si falla la creacion
+    local se intenta revocar la invitacion; si la revocacion falla se deja una
+    constancia con `invitacion_id` (nunca URL). La institucion solo se informa
+    operativa cuando el flujo completo se confirmo.
+    """
+    correo = security.normalizar_correo(str(datos.correo_administrador))
+    datos = datos.model_copy(update={"correo_administrador": correo})
+
+    # D-2/C-B: alta institucional parcialmente confirmada. Si el tenant ya existe
+    # y control no tiene institucion/mapa, el reintento completa solo control sin
+    # recrear esquema, usuario ni invitacion (ni responder 503 permanente).
+    nombre_esquema = _nombre_esquema(datos.institucion_id)
+    es_postgres = db.get_bind().dialect.name == "postgresql"
+    if es_postgres and _esquema_tenant_existente(db, nombre_esquema):
+        if (
+            db.get(InstitucionControl, datos.institucion_id) is not None
+            or _mapa_por_correo(db, correo) is not None
+        ):
+            raise ErrorConflictoAprovisionamiento(
+                "la institucion o el correo ya estan registrados"
+            )
+        _validar_tenant_parcial(db, datos, nombre_esquema)
+        return _completar_alta_institucional_control(
+            db,
+            datos,
+            nombre_esquema,
+            verificar_correo=verificar_correo,
+            consultar_identidad=consultar_identidad,
+        )
+
+    # D-2: todas las validaciones locales (duplicados, colisiones, identidad de
+    # control) preceden a cualquier llamada externa que cree una invitacion.
+    _reservar_control(db, datos, nombre_esquema)
+
+    estado = _estado_identidad_aprovisionamiento(
+        correo, verificar_correo, consultar_identidad
+    )
+    estado_invitacion, invitacion_id, expira_en = "aceptada", None, None
+    invitacion = None
+    if not estado.identidad_existente:
+        if estado.invitacion_pendiente:
+            estado_invitacion = "pendiente"
+            invitacion_id = estado.invitacion_id
+        else:
+            if crear_invitacion_fn is None:
+                raise ErrorClerkNoDisponible(
+                    "la frontera de invitaciones no esta configurada"
+                )
+            try:
+                invitacion = crear_invitacion_fn(correo, ignore_existing=False)
+            except security.ErrorInvitacionConflicto as exc:
+                raise ErrorConflictoAprovisionamiento(str(exc)) from exc
+            except security.ErrorClerkNoDisponible as exc:
+                raise ErrorClerkNoDisponible(str(exc)) from exc
+            estado_invitacion = "pendiente"
+            invitacion_id = invitacion.invitacion_id
+            expira_en = invitacion.expira_en
+
+    es_postgres = db.get_bind().dialect.name == "postgresql"
+    try:
+        if es_postgres:
+            _provisionar_tenant_postgres(
+                db,
+                datos,
+                nombre_esquema,
+                estado_invitacion=estado_invitacion,
+                invitacion_id=invitacion_id,
+                expira_en=expira_en,
+            )
+        else:
+            _provisionar_tenant_logico(
+                db,
+                datos,
+                estado_invitacion=estado_invitacion,
+                invitacion_id=invitacion_id,
+                expira_en=expira_en,
+            )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        _compensar_invitacion_aprovisionamiento(
+            db,
+            invitacion=invitacion,
+            correo=correo,
+            institucion_id=datos.institucion_id,
+            revocar_invitacion_fn=revocar_invitacion_fn,
+        )
+        raise ErrorConflictoAprovisionamiento(
             "conflicto al crear el tenant: el alta no aplico ningun cambio"
         ) from exc
-    except Exception:
+    except Exception as exc:
         db.rollback()
-        raise
+        _compensar_invitacion_aprovisionamiento(
+            db,
+            invitacion=invitacion,
+            correo=correo,
+            institucion_id=datos.institucion_id,
+            revocar_invitacion_fn=revocar_invitacion_fn,
+        )
+        raise ErrorClerkNoDisponible(
+            "el alta no se completo; requiere reconciliacion"
+        ) from exc
 
     return InstitucionAltaControlRespuesta(
         institucion_id=datos.institucion_id,
@@ -585,6 +932,7 @@ def aprovisionar_institucion(
         version_esquema=VERSION_ESQUEMA_OBJETIVO,
         estado=ESTADO_OPERATIVA,
         mensaje="Institucion aprovisionada y tenant operativo",
+        url_invitacion=None if invitacion is None else invitacion.url,
     )
 
 
@@ -772,27 +1120,46 @@ def actualizar_capacidad(
 
 
 # ---------------------------------------------------------------------------
-# Dashboard SaaS atribuido (T6, D-5/AC-4)
+# Dashboard tecnico SaaS y taxonomia unica de tenant (Feature 017, D-8/AC-13/AC-14)
 # ---------------------------------------------------------------------------
 
+#: Rol privilegiado con metrica separada; nunca se agrega a `usuarios_por_rol`.
+_ROL_ADMINISTRADOR = "Administrador"
 
-def _leer_metricas(db: Session, institucion_id: str) -> tuple[int, dict[str, int]]:
-    """Cuenta sedes y usuarios por rol de una institucion en la sesion dada."""
-    sedes = db.execute(
-        select(func.count())
-        .select_from(Sede)
-        .where(Sede.institucion_id == institucion_id)
-    ).scalar_one()
-    filas = db.execute(
-        select(Rol.nombre_rol, func.count(Usuario.usuario_id))
-        .select_from(Usuario)
-        .join(Departamento, Usuario.departamento_id == Departamento.departamento_id)
-        .join(Rol, Usuario.rol_id == Rol.rol_id)
-        .where(Departamento.institucion_id == institucion_id)
-        .group_by(Rol.nombre_rol)
-    ).all()
-    usuarios_por_rol = {nombre: cantidad for nombre, cantidad in filas}
-    return sedes, usuarios_por_rol
+
+@contextmanager
+def _abrir_sesion_dashboard(db: Session, nombre_esquema: str):
+    """Sesion de lectura del tenant para el dashboard (derivada en servidor).
+
+    En PostgreSQL abre una sesion con `schema_translate_map` por ejecucion, de
+    modo que una institucion no ve el esquema de otra. En el contexto logico
+    unico de SQLite la sesion de control ya cubre la base completa. Es una
+    costura inyectable para probar las clases de D-8 en la suite SQLite.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        yield db
+        return
+
+    from app.db import database
+
+    sesion = database.crear_sesion_esquema(nombre_esquema, motor=db.get_bind())
+    try:
+        yield sesion
+    finally:
+        sesion.close()
+
+
+def _version_persistida_tenant(
+    sesion: Session, institucion_id: str
+) -> str | None:
+    """Version del tenant: exactamente una fila; ausente/duplicada es ilegible.
+
+    `institucion_id` no se usa en PostgreSQL (cada sesion ya esta ligada a su
+    esquema), pero forma parte de la costura para poder representar versiones
+    distintas por institucion en el contexto logico de SQLite.
+    """
+    versiones = sesion.execute(select(VersionEsquema.version)).scalars().all()
+    return versiones[0] if len(versiones) == 1 else None
 
 
 def _instituciones_canonicas(db: Session) -> list[InstitucionControl]:
@@ -812,95 +1179,510 @@ def _instituciones_canonicas(db: Session) -> list[InstitucionControl]:
     )
 
 
-def dashboard_saas(db: Session) -> DashboardSaaSRespuesta:
-    """Panorama global del Superadmin con atribucion por institucion (D-5/AC-4).
+def _metrica_base(
+    institucion: InstitucionControl,
+    *,
+    estado_tecnico: str,
+    detalle_tecnico: str | None,
+    version_persistida: str | None,
+) -> dict:
+    """Campos comunes del read model: nunca incluye datos de negocio."""
+    return {
+        "institucion_id": institucion.institucion_id,
+        "nombre": institucion.nombre,
+        "activo": institucion.activo,
+        "estado_tecnico": estado_tecnico,
+        "detalle_tecnico": detalle_tecnico,
+        "version_objetivo": VERSION_ESQUEMA_OBJETIVO,
+        "version_persistida": version_persistida,
+    }
 
-    Recorre el registro institucional: las activas se agregan leyendo su tenant
-    en una transaccion consistente (patron `global_service.lectura_global`);
-    las inactivas se listan identificadas y **sin** metricas. Una institucion
-    activa inaccesible o incompatible hace fallar el agregado **completo**.
+
+def _contar_metricas_tenant(
+    db_control: Session, sesion: Session, institucion_id: str
+) -> dict[str, object]:
+    """Conteos tecnicos de un tenant operativo (D-8).
+
+    Solo asociaciones locales **activas** cuentan por rol. Los Administradores
+    se separan en activos/inactivos; el rol privilegiado no se duplica en
+    `usuarios_por_rol`. Los conteos no tocan tickets, catalogo, stock ni
+    movimientos.
     """
-    instituciones = _instituciones_canonicas(db)
-    activas = sum(1 for institucion in instituciones if institucion.activo)
+    sedes = sesion.execute(
+        select(func.count())
+        .select_from(Sede)
+        .where(Sede.institucion_id == institucion_id)
+    ).scalar_one()
+    departamentos = sesion.execute(
+        select(func.count())
+        .select_from(Departamento)
+        .where(Departamento.institucion_id == institucion_id)
+    ).scalar_one()
 
-    if db.get_bind().dialect.name != "postgresql":
-        metricas = [_metricas_logicas(db, institucion) for institucion in instituciones]
-    else:
-        metricas = _metricas_postgres(db, instituciones)
+    filas = sesion.execute(
+        select(Usuario.correo, Rol.nombre_rol)
+        .select_from(Usuario)
+        .join(Departamento, Usuario.departamento_id == Departamento.departamento_id)
+        .join(Rol, Usuario.rol_id == Rol.rol_id)
+        .where(Departamento.institucion_id == institucion_id)
+    ).all()
+
+    from app.services import usuario_service
+
+    mapas = usuario_service._mapas_locales(
+        db_control, [correo for correo, _rol in filas]
+    )
+    administradores_activos = 0
+    administradores_inactivos = 0
+    usuarios_por_rol: dict[str, int] = {}
+    for correo, rol_nombre in filas:
+        mapa = mapas.get(security.normalizar_correo(correo))
+        asociacion_valida = (
+            mapa is not None and mapa.institucion_id == institucion_id
+        )
+        if rol_nombre == _ROL_ADMINISTRADOR:
+            if asociacion_valida and mapa.activo:
+                administradores_activos += 1
+            elif asociacion_valida:
+                administradores_inactivos += 1
+        elif asociacion_valida and mapa.activo:
+            usuarios_por_rol[rol_nombre] = usuarios_por_rol.get(rol_nombre, 0) + 1
+
+    return {
+        "sedes": sedes,
+        "departamentos": departamentos,
+        "administradores_activos": administradores_activos,
+        "administradores_inactivos": administradores_inactivos,
+        "usuarios_por_rol": usuarios_por_rol,
+    }
+
+
+def _clasificar_institucion(
+    db: Session, institucion: InstitucionControl
+) -> InstitucionMetricasRespuesta:
+    """Clasifica una institucion antes de abrir su tenant (D-8).
+
+    Orden: estado institucional -> resolucion de metadatos/routing -> lectura
+    del tenant. Una institucion inactiva o sin tenant resoluble es
+    `no enrutable` y **no se consulta**; un fallo de lectura o de version es
+    `no disponible` con conteos `None` (nunca cero).
+    """
+    if not institucion.activo:
+        return InstitucionMetricasRespuesta(
+            **_metrica_base(
+                institucion,
+                estado_tecnico=CLASE_NO_ENRUTABLE,
+                detalle_tecnico=DETALLE_INSTITUCION_INACTIVA,
+                version_persistida=None,
+            )
+        )
+
+    mapa = _mapa_de_institucion(db, institucion.institucion_id)
+    if (
+        mapa is None
+        or not mapa.nombre_esquema
+        or mapa.nombre_esquema == ESQUEMA_CONTROL
+    ):
+        return InstitucionMetricasRespuesta(
+            **_metrica_base(
+                institucion,
+                estado_tecnico=CLASE_NO_ENRUTABLE,
+                detalle_tecnico=DETALLE_TENANT_NO_RESOLUBLE,
+                version_persistida=None,
+            )
+        )
+
+    try:
+        with _abrir_sesion_dashboard(db, mapa.nombre_esquema) as sesion:
+            version = _version_persistida_tenant(sesion, institucion.institucion_id)
+            if version is None:
+                return InstitucionMetricasRespuesta(
+                    **_metrica_base(
+                        institucion,
+                        estado_tecnico=CLASE_NO_DISPONIBLE,
+                        detalle_tecnico=DETALLE_VERSION_AUSENTE,
+                        version_persistida=None,
+                    )
+                )
+            if not es_version_objetivo(version):
+                return InstitucionMetricasRespuesta(
+                    **_metrica_base(
+                        institucion,
+                        estado_tecnico=CLASE_NO_DISPONIBLE,
+                        detalle_tecnico=DETALLE_VERSION_INCOMPATIBLE,
+                        version_persistida=version,
+                    )
+                )
+            metricas = _contar_metricas_tenant(
+                db, sesion, institucion.institucion_id
+            )
+            return InstitucionMetricasRespuesta(
+                **_metrica_base(
+                    institucion,
+                    estado_tecnico=CLASE_OPERATIVO,
+                    detalle_tecnico=None,
+                    version_persistida=version,
+                ),
+                **metricas,
+            )
+    except Exception:  # noqa: BLE001 - un tenant caido es una clase, no un fallo global
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001 - nunca se enmascara la clasificacion
+            pass
+        return InstitucionMetricasRespuesta(
+            **_metrica_base(
+                institucion,
+                estado_tecnico=CLASE_NO_DISPONIBLE,
+                detalle_tecnico=DETALLE_TENANT_NO_DISPONIBLE,
+                version_persistida=None,
+            )
+        )
+
+
+def dashboard_saas(db: Session) -> DashboardSaaSRespuesta:
+    """Panorama tecnico del Superadmin con taxonomia unica de tenant (D-8).
+
+    Enumera las instituciones del registro sin la administrativa de control y
+    clasifica cada una: `operativo` (activa, enrutable y version exacta; muestra
+    conteos), `no enrutable` (inactiva o sin metadatos/routing; no se abre el
+    tenant) y `no disponible` (tenant caido o version ausente/ilegible/
+    incompatible). La inactiva se lista y cuenta en el total. Los agregados
+    separan instituciones con conteos conocidos de las no disponibles y suman
+    solo los tenants operativos. Nunca se consultan datos de negocio.
+    """
+    try:
+        instituciones = _instituciones_canonicas(db)
+    except Exception as exc:  # noqa: BLE001 - control no disponible -> 503
+        raise _error_tenant(exc) from exc
+    metricas = [
+        _clasificar_institucion(db, institucion) for institucion in instituciones
+    ]
+
+    activas = sum(1 for institucion in instituciones if institucion.activo)
+    conocidos = sum(
+        1 for fila in metricas if fila.estado_tecnico == CLASE_OPERATIVO
+    )
+    total_administradores_activos = sum(
+        fila.administradores_activos or 0
+        for fila in metricas
+        if fila.estado_tecnico == CLASE_OPERATIVO
+    )
+    total_administradores_inactivos = sum(
+        fila.administradores_inactivos or 0
+        for fila in metricas
+        if fila.estado_tecnico == CLASE_OPERATIVO
+    )
+    usuarios_por_rol: dict[str, int] = {}
+    for fila in metricas:
+        if fila.estado_tecnico != CLASE_OPERATIVO:
+            continue
+        for rol_nombre, cantidad in (fila.usuarios_por_rol or {}).items():
+            usuarios_por_rol[rol_nombre] = (
+                usuarios_por_rol.get(rol_nombre, 0) + cantidad
+            )
 
     return DashboardSaaSRespuesta(
+        total_instituciones=len(instituciones),
         total_instituciones_activas=activas,
+        total_administradores_activos=total_administradores_activos,
+        total_administradores_inactivos=total_administradores_inactivos,
+        usuarios_por_rol=usuarios_por_rol,
+        conteos_conocidos=conocidos,
+        conteos_no_disponibles=len(metricas) - conocidos,
         instituciones=metricas,
     )
 
 
-def _metricas_logicas(
-    db: Session, institucion: InstitucionControl
-) -> InstitucionMetricasRespuesta:
-    """Metricas en el contexto logico unico (SQLite): institucion activa o no."""
-    if not institucion.activo:
-        return InstitucionMetricasRespuesta(
-            institucion_id=institucion.institucion_id,
-            nombre=institucion.nombre,
-            activo=False,
-        )
-    sedes, usuarios_por_rol = _leer_metricas(db, institucion.institucion_id)
-    return InstitucionMetricasRespuesta(
-        institucion_id=institucion.institucion_id,
-        nombre=institucion.nombre,
-        activo=True,
-        sedes=sedes,
-        usuarios_por_rol=usuarios_por_rol,
+# ---------------------------------------------------------------------------
+# Gobierno de Administradores por institucion (Feature 017, D-10/AC-8)
+# ---------------------------------------------------------------------------
+
+
+def _institucion_existente(db: Session, institucion_id: str) -> InstitucionControl:
+    institucion = db.get(InstitucionControl, institucion_id)
+    if institucion is None:
+        raise ErrorInstitucionNoEncontrada("la institucion no existe")
+    return institucion
+
+
+def _nombre_esquema_de_institucion(db: Session, institucion_id: str) -> str:
+    mapa = _mapa_de_institucion(db, institucion_id)
+    if mapa is not None:
+        return mapa.nombre_esquema
+    from app.services.tenant_service import nombre_esquema_para_institucion
+
+    return nombre_esquema_para_institucion(institucion_id)
+
+
+def _error_tenant(exc: Exception) -> Exception:
+    """Traduce un fallo de sesion/tenant a 503 sin ocultar errores de dominio.
+
+    La taxonomia D-10 conserva 404/403/409/422; solo los fallos de apertura,
+    lectura o escritura del tenant (SQLAlchemy/conexion) se normalizan a
+    `ErrorTenantNoDisponible` -> **503** documentado (C-E).
+    """
+    from fastapi import HTTPException
+
+    if isinstance(
+        exc,
+        (
+            ErrorInstitucionNoEncontrada,
+            ErrorAdministradorNoEncontrado,
+            ErrorRolAdministradorInvalido,
+            ErrorTenantNoDisponible,
+            HTTPException,
+        ),
+    ):
+        return exc
+    return ErrorTenantNoDisponible(
+        "La sesion del tenant no esta disponible; reintente la operacion"
     )
 
 
-def _metricas_postgres(
-    db: Session, instituciones: list[InstitucionControl]
-) -> list[InstitucionMetricasRespuesta]:
-    """Metricas PostgreSQL: cada institucion activa sobre una transaccion comun.
 
-    Las sesiones por tenant se apoyan en una unica conexion `REPEATABLE READ`
-    (`global_service.lectura_global`), de modo que el agregado representa un solo
-    instante. Una institucion activa sin tenant o con version incompatible
-    levanta `ErrorDashboardSaaS` y revierte **todo** el agregado.
+@contextmanager
+def _sesion_tenant_derivada(db: Session, institucion_id: str):
+    """Abre la sesion tenant desde el registro de control, nunca desde el cliente.
+
+    En PostgreSQL se usa `schema_translate_map` por ejecucion; en el contexto
+    logico unico de SQLite la sesion de control ya es la base completa.
     """
-    from app.services import global_service
+    nombre_esquema = _nombre_esquema_de_institucion(db, institucion_id)
+    if db.get_bind().dialect.name != "postgresql":
+        yield db
+        return
 
-    resultado: list[InstitucionMetricasRespuesta] = []
-    with global_service.lectura_global(db) as lector:
-        for institucion in instituciones:
-            if not institucion.activo:
+    from app.db import database
+
+    sesion = database.crear_sesion_esquema(nombre_esquema, motor=db.get_bind())
+    try:
+        yield sesion
+    finally:
+        sesion.close()
+
+
+def _administrador_de_institucion(
+    db: Session, sesion_tenant: Session, institucion_id: str, usuario_id: int
+):
+    from app.services import ambito_service
+
+    usuario = sesion_tenant.get(Usuario, usuario_id)
+    if usuario is None:
+        raise ErrorAdministradorNoEncontrado("el Administrador no existe")
+    if ambito_service.institucion_de_usuario(sesion_tenant, usuario) != institucion_id:
+        raise ErrorAdministradorNoEncontrado("el Administrador no existe")
+    rol = sesion_tenant.get(Rol, usuario.rol_id)
+    if rol is None or rol.nombre_rol != "Administrador":
+        raise ErrorAdministradorNoEncontrado(
+            "el usuario no es Administrador de la institucion"
+        )
+    return usuario
+
+
+def listar_administradores_control(
+    db: Session, institucion_id: str
+) -> list[AdministradorListadoControlRespuesta]:
+    """Listado minimo de Administradores de una institucion (AC-5/AC-8).
+
+    Solo asociaciones locales cuyo rol es `Administrador`; publica los cinco
+    campos acordados (ids/nombre/correo/estado local/estado de invitacion) y
+    **nunca** consulta Clerk ni expone URL.
+    """
+    from app.services import usuario_service
+
+    _institucion_existente(db, institucion_id)
+    try:
+        with _sesion_tenant_derivada(db, institucion_id) as sesion_tenant:
+            usuarios = (
+                sesion_tenant.execute(
+                    select(Usuario)
+                    .join(Rol, Rol.rol_id == Usuario.rol_id)
+                    .join(
+                        Departamento,
+                        Usuario.departamento_id == Departamento.departamento_id,
+                    )
+                    .where(
+                        Rol.nombre_rol == "Administrador",
+                        Departamento.institucion_id == institucion_id,
+                    )
+                    .order_by(Usuario.usuario_id)
+                )
+                .scalars()
+                .all()
+            )
+            mapas = usuario_service._mapas_locales(
+                db, [usuario.correo for usuario in usuarios]
+            )
+            resultado = []
+            for usuario in usuarios:
+                clave = security.normalizar_correo(usuario.correo)
+                mapa = mapas.get(clave)
                 resultado.append(
-                    InstitucionMetricasRespuesta(
-                        institucion_id=institucion.institucion_id,
-                        nombre=institucion.nombre,
-                        activo=False,
+                    AdministradorListadoControlRespuesta(
+                        usuario_id=usuario.usuario_id,
+                        nombre=usuario.nombre,
+                        apellido=usuario.apellido,
+                        correo=usuario.correo,
+                        activo=True if mapa is None else mapa.activo,
+                        estado_invitacion=usuario_service.estado_invitacion_efectivo(
+                            mapa
+                        ),
                     )
                 )
-                continue
-            mapa = _mapa_de_institucion(db, institucion.institucion_id)
-            if mapa is None:
-                raise ErrorDashboardSaaS(
-                    "una institucion activa no tiene tenant resoluble"
+            return resultado
+    except Exception as exc:  # noqa: BLE001 - se normaliza a 503 documentado
+        raise _error_tenant(exc) from exc
+
+
+def crear_administrador_control(
+    db: Session,
+    institucion_id: str,
+    datos,
+    identidad,
+    *,
+    consultar_identidad=None,
+    crear_invitacion_fn=None,
+    revocar_invitacion_fn=None,
+):
+    """Alta de un Administrador institucional desde control (D-10).
+
+    Valida la institucion en control, deriva el esquema en servidor y exige que
+    el rol destino sea `Administrador`. La orquestacion de invitacion y
+    compensacion es la misma del alta tenant (`usuario_service.crear_usuario`).
+    """
+    from app.services import usuario_service
+
+    _institucion_existente(db, institucion_id)
+    try:
+        with _sesion_tenant_derivada(db, institucion_id) as sesion_tenant:
+            rol = sesion_tenant.get(Rol, datos.rol_id)
+            if rol is None or rol.nombre_rol != "Administrador":
+                raise ErrorRolAdministradorInvalido(
+                    "la gestion de control solo permite el rol Administrador"
                 )
-            tenant = global_service.Tenant(
-                institucion_id=institucion.institucion_id,
-                nombre_esquema=mapa.nombre_esquema,
+            usuario = usuario_service.crear_usuario(
+                sesion_tenant,
+                datos,
+                identidad,
+                db_control=db,
+                consultar_identidad=consultar_identidad,
+                crear_invitacion_fn=crear_invitacion_fn,
+                revocar_invitacion_fn=revocar_invitacion_fn,
+                institucion_id=institucion_id,
             )
-            try:
-                with lector.sesion(tenant) as sesion:
-                    sedes, usuarios_por_rol = _leer_metricas(
-                        sesion, institucion.institucion_id
-                    )
-            except global_service.ErrorLecturaGlobal as exc:
-                raise ErrorDashboardSaaS(str(exc)) from exc
-            resultado.append(
-                InstitucionMetricasRespuesta(
-                    institucion_id=institucion.institucion_id,
-                    nombre=institucion.nombre,
-                    activo=True,
-                    sedes=sedes,
-                    usuarios_por_rol=usuarios_por_rol,
-                )
+            sesion_tenant.refresh(usuario)
+            sesion_tenant.expunge(usuario)
+            return usuario
+    except Exception as exc:  # noqa: BLE001 - se normaliza a 503 documentado
+        raise _error_tenant(exc) from exc
+
+
+def editar_administrador_control(
+    db: Session,
+    institucion_id: str,
+    usuario_id: int,
+    datos,
+    identidad,
+):
+    """Edicion motivada de un Administrador de la institucion (D-7/D-10)."""
+    from app.services import organizacion_service
+
+    _institucion_existente(db, institucion_id)
+    try:
+        with _sesion_tenant_derivada(db, institucion_id) as sesion_tenant:
+            usuario = _administrador_de_institucion(
+                db, sesion_tenant, institucion_id, usuario_id
             )
-    return resultado
+            resultado = organizacion_service.editar_usuario(
+                sesion_tenant,
+                usuario_id,
+                datos,
+                identidad,
+                db_control=db,
+                institucion_id=institucion_id,
+            )
+            _proyectar_mapa(resultado, db)
+            sesion_tenant.refresh(resultado)
+            sesion_tenant.expunge(resultado)
+            return resultado
+    except Exception as exc:  # noqa: BLE001 - se normaliza a 503 documentado
+        raise _error_tenant(exc) from exc
+
+
+def cambiar_estado_administrador_control(
+    db: Session,
+    institucion_id: str,
+    usuario_id: int,
+    datos,
+    identidad,
+):
+    """Baja/reactivacion motivada de un Administrador (D-7/D-10/AC-12)."""
+    from app.services import organizacion_service
+
+    _institucion_existente(db, institucion_id)
+    try:
+        with _sesion_tenant_derivada(db, institucion_id) as sesion_tenant:
+            usuario = _administrador_de_institucion(
+                db, sesion_tenant, institucion_id, usuario_id
+            )
+            mapa = organizacion_service.cambiar_estado_usuario(
+                sesion_tenant,
+                db,
+                usuario_id,
+                datos.activo,
+                identidad,
+                motivo=getattr(datos, "motivo", None),
+                idempotencia=getattr(datos, "idempotencia", None),
+                institucion_id=institucion_id,
+            )
+            _proyectar_mapa(usuario, db)
+            sesion_tenant.refresh(usuario)
+            sesion_tenant.expunge(usuario)
+            return usuario, mapa
+    except Exception as exc:  # noqa: BLE001 - se normaliza a 503 documentado
+        raise _error_tenant(exc) from exc
+
+
+def reenviar_invitacion_administrador_control(
+    db: Session,
+    institucion_id: str,
+    usuario_id: int,
+    *,
+    consultar_identidad=None,
+    crear_invitacion_fn,
+    revocar_invitacion_fn=None,
+    actor_correo: str = "sistema",
+):
+    """Reenvia la invitacion de un Administrador creando una nueva (D-4)."""
+    from app.services import usuario_service
+
+    _institucion_existente(db, institucion_id)
+    try:
+        with _sesion_tenant_derivada(db, institucion_id) as sesion_tenant:
+            usuario = _administrador_de_institucion(
+                db, sesion_tenant, institucion_id, usuario_id
+            )
+            resultado = usuario_service.reenviar_invitacion(
+                sesion_tenant,
+                db,
+                usuario,
+                consultar_identidad=consultar_identidad,
+                crear_invitacion_fn=crear_invitacion_fn,
+                revocar_invitacion_fn=revocar_invitacion_fn,
+                actor_correo=actor_correo,
+            )
+            sesion_tenant.refresh(resultado)
+            sesion_tenant.expunge(resultado)
+            return resultado
+    except Exception as exc:  # noqa: BLE001 - se normaliza a 503 documentado
+        raise _error_tenant(exc) from exc
+
+
+def _proyectar_mapa(usuario, db: Session) -> None:
+    """Carga la proyeccion del mapa en el usuario de respuesta (sin URL)."""
+    from app.services import usuario_service
+
+    mapa = usuario_service._mapa_por_correo(db, usuario.correo)
+    usuario.activo = True if mapa is None else mapa.activo
+    usuario.estado_invitacion = usuario_service.estado_invitacion_efectivo(mapa)

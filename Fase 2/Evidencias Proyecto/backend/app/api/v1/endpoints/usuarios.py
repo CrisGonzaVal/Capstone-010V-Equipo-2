@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 from app.api import dependencies
 from app.schemas.usuario_schema import (
     UsuarioCrear,
-    UsuarioEdicion,
-    UsuarioEstado,
+    UsuarioEdicionConMotivo,
+    UsuarioEstadoConMotivo,
     UsuarioEstadoRespuesta,
+    UsuarioInvitacionRespuesta,
     UsuarioRespuesta,
 )
 from app.services import organizacion_service, usuario_service
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/usuarios", tags=["Administracion y Roles"])
 #: Rutas de edicion/estado del usuario local (Feature 012, T7, diseno §1.2).
 RUTA_USUARIO = "/api/v1/usuarios/{usuario_id}"
 RUTA_USUARIO_ESTADO = "/api/v1/usuarios/{usuario_id}/estado"
+RUTA_USUARIO_REENVIO = "/api/v1/usuarios/{usuario_id}/invitacion/reenvio"
 
 
 @router.get(
@@ -43,28 +45,33 @@ def listar_usuarios(
 
 @router.post(
     "/",
-    response_model=UsuarioRespuesta,
+    response_model=UsuarioInvitacionRespuesta,
     status_code=status.HTTP_201_CREATED,
     summary="Crear un usuario",
     description=(
-        "Da de alta un usuario local (D-3/AC-8). Clerk es la unica autoridad de "
-        "identidad: el correo debe existir previamente como identidad verificada "
-        "en Clerk; si no existe responde **422** y si la frontera externa no puede "
-        "verificarse responde **503**, sin crear un usuario local no autenticable. "
+        "Da de alta un usuario local con invitacion Clerk (Feature 017, D-1/D-2). "
+        "Si el correo ya es una identidad en Clerk, solo se crea la asociacion "
+        "local `aceptada` sin invitar; si tiene invitacion pendiente se reutiliza "
+        "como asociacion `pendiente`; si no existe, se crea una invitacion y la "
+        "URL se devuelve **solo** en esta respuesta. Un fallo de la frontera Clerk "
+        "responde **503** y un conflicto/duplicado **409**, sin usuario local. "
         "No se crean ni modifican identidades de Clerk."
     ),
     responses={
         **dependencies.respuestas_de_autorizacion(),
-        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+        status.HTTP_409_CONFLICT: {
             "description": (
-                "Cuerpo invalido o correo sin identidad verificada en Clerk; no se "
-                "crea una fila local no autenticable."
+                "Correo duplicado, ya vinculado o identidad global de control; no "
+                "se crea ni se sobrescribe ningun usuario."
             )
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "description": "Cuerpo invalido; no se crea una fila local."
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "description": (
-                "No fue posible verificar el correo contra Clerk: la frontera "
-                "externa esta indisponible y no se crea ningun usuario."
+                "Frontera Clerk no disponible o asociacion local no confirmada; el "
+                "reintento completa un alta parcial sin invitar de nuevo."
             )
         },
     },
@@ -79,6 +86,15 @@ def crear_usuario(
     ),
     verificar_correo: Callable[[str], bool] = Depends(
         dependencies.obtener_verificador_correo_clerk
+    ),
+    consultar_identidad: Callable = Depends(
+        dependencies.obtener_consultor_identidad_clerk
+    ),
+    crear_invitacion_fn: Callable = Depends(
+        dependencies.obtener_creador_invitacion_clerk
+    ),
+    revocar_invitacion_fn: Callable = Depends(
+        dependencies.obtener_revocador_invitacion_clerk
     ),
     db: Session = Depends(dependencies.get_db_negocio),
     db_control: Session = Depends(dependencies.get_db),
@@ -95,6 +111,9 @@ def crear_usuario(
         identidad,
         verificar_correo=verificar_correo,
         db_control=db_control,
+        consultar_identidad=consultar_identidad,
+        crear_invitacion_fn=crear_invitacion_fn,
+        revocar_invitacion_fn=revocar_invitacion_fn,
     )
 
 
@@ -126,13 +145,16 @@ def crear_usuario(
 )
 def editar_usuario(
     usuario_id: int,
-    datos: UsuarioEdicion,
+    datos: UsuarioEdicionConMotivo,
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("PUT", RUTA_USUARIO)
     ),
     db: Session = Depends(dependencies.get_db_negocio),
+    db_control: Session = Depends(dependencies.get_db),
 ):
-    return organizacion_service.editar_usuario(db, usuario_id, datos, identidad)
+    return organizacion_service.editar_usuario(
+        db, usuario_id, datos, identidad, db_control=db_control
+    )
 
 
 @router.patch(
@@ -158,7 +180,7 @@ def editar_usuario(
 )
 def cambiar_estado_usuario(
     usuario_id: int,
-    datos: UsuarioEstado,
+    datos: UsuarioEstadoConMotivo,
     identidad: IdentidadAutenticada = Depends(
         dependencies.requiere_operacion("PATCH", RUTA_USUARIO_ESTADO)
     ),
@@ -166,9 +188,90 @@ def cambiar_estado_usuario(
     db_control: Session = Depends(dependencies.get_db),
 ):
     mapa = organizacion_service.cambiar_estado_usuario(
-        db, db_control, usuario_id, datos.activo, identidad
+        db,
+        db_control,
+        usuario_id,
+        datos.activo,
+        identidad,
+        motivo=datos.motivo,
+        idempotencia=datos.idempotencia,
     )
     return UsuarioEstadoRespuesta(usuario_id=usuario_id, activo=mapa.activo)
+
+
+@router.post(
+    "/{usuario_id}/invitacion/reenvio",
+    response_model=UsuarioInvitacionRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Reenviar la invitacion de un Bodeguero o Solicitante",
+    description=(
+        "Crea una invitacion nueva para un Bodeguero/Solicitante activo del tenant "
+        "del Administrador (Feature 017, D-4/D-10/AC-6/AC-9): intenta revocar la "
+        "pendiente anterior y entrega la URL **solo** en esta respuesta. Una "
+        "invitacion aceptada, una asociacion inactiva o un conflicto de Clerk "
+        "responde **409** sin cambiar el identificador persistido; la reactivacion "
+        "de una asociacion inactiva es una operacion separada (`PATCH .../estado` "
+        "con motivo) y se realiza antes del reenvio. Superadmin recibe **403** en "
+        "toda ruta ordinaria de `/usuarios/`."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+        status.HTTP_409_CONFLICT: {
+            "description": (
+                "Invitacion ya aceptada, asociacion inactiva, usuario sin "
+                "asociacion o conflicto de Clerk; no se entrega enlace ni se "
+                "cambia el ID persistido."
+            )
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "description": "Cuerpo invalido; no se aplica ningun cambio."
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": (
+                "Frontera Clerk no disponible; no se afirma que la invitacion "
+                "anterior siga activa."
+            )
+        },
+    },
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("POST", RUTA_USUARIO_REENVIO))
+    ],
+)
+def reenviar_invitacion_usuario(
+    usuario_id: int,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("POST", RUTA_USUARIO_REENVIO)
+    ),
+    consultar_identidad: Callable = Depends(
+        dependencies.obtener_consultor_identidad_clerk
+    ),
+    crear_invitacion_fn: Callable = Depends(
+        dependencies.obtener_creador_invitacion_clerk
+    ),
+    revocar_invitacion_fn: Callable = Depends(
+        dependencies.obtener_revocador_invitacion_clerk
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+    db_control: Session = Depends(dependencies.get_db),
+):
+    from app.core import security
+
+    actor = (
+        security.normalizar_correo(str(identidad.usuario.correo))
+        if identidad.usuario is not None
+        else "sistema"
+    )
+    return usuario_service.reenviar_invitacion_usuario(
+        db,
+        db_control,
+        usuario_id,
+        identidad,
+        consultar_identidad=consultar_identidad,
+        crear_invitacion_fn=crear_invitacion_fn,
+        revocar_invitacion_fn=revocar_invitacion_fn,
+        actor_correo=actor,
+    )
 
 
 @router.get(

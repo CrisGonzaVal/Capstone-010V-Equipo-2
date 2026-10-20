@@ -375,7 +375,23 @@ export interface Usuario {
    * alta/edición, donde el mapa de control no se consulta.
    */
   activo?: boolean | null;
+  /**
+   * Proyección persistida del ciclo de invitación (Feature 017, D-3/AC-5).
+   * Es un concepto **separado** del vínculo local `activo`: los estados son
+   * `pendiente`, `aceptada`, `revocada`, `expirada` y `no disponible` para
+   * legados. Nunca contiene la URL de la invitación.
+   */
+  estado_invitacion?: string | null;
 }
+
+/** Códigos cerrados del catálogo de motivos de mutación (Feature 017, D-5). */
+export type MotivoCodigo =
+  | 'cambio_funciones'
+  | 'reasignacion_organizacional'
+  | 'correccion_datos'
+  | 'termino_vinculo'
+  | 'seguridad_acceso'
+  | 'otro';
 
 export interface Rol {
   rol_id: number;
@@ -433,6 +449,12 @@ export interface InstitucionAltaControlRespuesta {
   version_esquema: string;
   estado: string;
   mensaje: string;
+  /**
+   * URL de la invitación del primer Administrador (Feature 017, D-1/D-4).
+   * Solo llega en esta respuesta y nunca se persiste; `null` cuando el correo ya
+   * existía en Clerk.
+   */
+  url_invitacion?: string | null;
 }
 
 // --- Control / gestión SaaS (Feature 012) ---
@@ -502,21 +524,62 @@ export interface CapacidadActualizar {
 
 /**
  * Métricas atribuidas a una institución en el dashboard SaaS (Feature 012,
- * D-5/AC-4). Una institución desactivada se lista identificada (`activo=false`) y
- * **sin** métricas actuales: `sedes` y `usuarios_por_rol` quedan en `null`.
+ * D-5/AC-4; ampliadas por Feature 017, D-8/AC-13/AC-14).
+ *
+ * `estado_tecnico` es la clase única de la taxonomía: `operativo`,
+ * `no enrutable` o `no disponible`. Los conteos del tenant solo son fiables en
+ * la clase operativa; en las otras quedan en `null` (nunca en cero). La vista
+ * distingue explícitamente lo conocido de lo no disponible.
  */
 export interface InstitucionMetricas {
   institucion_id: string;
   nombre: string;
   activo: boolean;
+  estado_tecnico: string;
+  detalle_tecnico: string | null;
+  version_objetivo: string;
+  version_persistida: string | null;
   sedes: number | null;
+  departamentos: number | null;
+  administradores_activos: number | null;
+  administradores_inactivos: number | null;
   usuarios_por_rol: Record<string, number> | null;
 }
 
-/** Panorama global del Superadmin: conteo de activas y métricas por institución (AC-4). */
+/**
+ * Panorama global del Superadmin (Feature 017, D-8/AC-13).
+ *
+ * Los agregados suman solo instituciones operativas y separan las cantidades
+ * conocidas de las no disponibles: `conteos_conocidos + conteos_no_disponibles`
+ * es el total de instituciones. No contiene datos personales ni de negocio.
+ */
 export interface DashboardSaaS {
+  total_instituciones: number;
   total_instituciones_activas: number;
+  total_administradores_activos: number;
+  total_administradores_inactivos: number;
+  usuarios_por_rol: Record<string, number>;
+  conteos_conocidos: number;
+  conteos_no_disponibles: number;
   instituciones: InstitucionMetricas[];
+}
+
+// --- Gobierno de Administradores por institución (Feature 017, D-10/AC-5) ---
+
+/**
+ * Fila del listado mínimo de Administradores de una institución.
+ *
+ * Refleja 1:1 `AdministradorListadoControlRespuesta`: solo los campos
+ * acordados, con `estado_invitacion` proyectado por el servidor. **Nunca**
+ * contiene la URL de la invitación ni consulta Clerk.
+ */
+export interface AdministradorListadoControl {
+  usuario_id: number;
+  nombre: string;
+  apellido: string;
+  correo: string;
+  activo: boolean;
+  estado_invitacion: string;
 }
 
 // --- Administración institucional (Feature 012, AC-6…AC-12) ---
@@ -643,6 +706,31 @@ export interface UsuarioEdicion {
 }
 
 /**
+ * Motivo obligatorio de las mutaciones del conjunto cerrado D-7 (Feature 017,
+ * D-5). El catálogo es cerrado; `otro` exige texto y el texto admite hasta 500
+ * caracteres. No viaja en listados.
+ */
+export interface MotivoMutacion {
+  codigo: MotivoCodigo;
+  texto: string | null;
+}
+
+/** Entrada de `PUT /usuarios/{id}` con motivo e idempotencia (Feature 017). */
+export interface UsuarioEdicionConMotivo extends UsuarioEdicion {
+  /** Obligatorio solo si la edición cambia efectivamente algún atributo. */
+  motivo?: MotivoMutacion | null;
+  /** Clave que permite completar el motivo en un reintento sin repetir el cambio. */
+  idempotencia?: string | null;
+}
+
+/** Entrada de `PATCH /usuarios/{id}/estado` con motivo e idempotencia (017). */
+export interface UsuarioEstadoConMotivo extends UsuarioEstado {
+  /** Obligatorio solo si el estado cambia; una repetición es idempotente. */
+  motivo?: MotivoMutacion | null;
+  idempotencia?: string | null;
+}
+
+/**
  * Entrada de `POST /usuarios/` (Feature 012, AC-8): alta de usuario local.
  *
  * El cliente aporta solo el correo (que debe existir ya en Clerk) y el ámbito
@@ -661,6 +749,17 @@ export interface UsuarioCrear {
 /** Entrada de `PATCH /usuarios/{id}/estado` (estado en `mapa_usuario_esquema`). */
 export interface UsuarioEstado {
   activo: boolean;
+}
+
+/**
+ * Respuesta de `POST /usuarios/` y del reenvío de invitación (Feature 017, D-4).
+ *
+ * `url_invitacion` solo existe en la respuesta inmediata de alta/reenvío: no se
+ * persiste ni aparece en listados. Puede ser `null` cuando Clerk ya tenía
+ * identidad (alta `aceptada`) o cuando la operación no generó enlace.
+ */
+export interface UsuarioInvitacionRespuesta extends Usuario {
+  url_invitacion: string | null;
 }
 
 /** Respuesta del cambio de estado local de usuario: estado persistido. */

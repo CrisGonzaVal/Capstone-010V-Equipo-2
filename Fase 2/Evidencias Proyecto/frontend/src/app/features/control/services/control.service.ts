@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 
 import { URL_API } from '../../../shared/config/url-api';
 import {
+  AdministradorListadoControl,
   CapacidadRespuesta,
   DashboardSaaS,
   InstitucionAltaControlCrear,
@@ -11,6 +12,11 @@ import {
   InstitucionControl,
   InstitucionEdicion,
   InstitucionEstadoRespuesta,
+  Usuario,
+  UsuarioCrear,
+  UsuarioEdicionConMotivo,
+  UsuarioEstadoConMotivo,
+  UsuarioInvitacionRespuesta,
 } from '../../../shared/interfaces';
 
 /**
@@ -101,6 +107,74 @@ export class ControlService {
     return this.http.put<CapacidadRespuesta>(
       `${this.raiz}/instituciones/${institucionId}/capacidades/${funcion}`,
       { habilitada },
+    );
+  }
+
+  // --- Gobierno de Administradores por institución (Feature 017, D-10) ---
+
+  /**
+   * `GET /control/instituciones/{id}/usuarios/` — listado mínimo de
+   * Administradores (AC-5). Solo estado persistido; nunca URL ni Clerk.
+   */
+  listarAdministradores(
+    institucionId: string,
+  ): Observable<AdministradorListadoControl[]> {
+    return this.http.get<AdministradorListadoControl[]>(
+      `${this.raiz}/instituciones/${institucionId}/usuarios/`,
+    );
+  }
+
+  /**
+   * `POST /control/instituciones/{id}/usuarios/` — alta de Administrador
+   * (D-10). El cliente manda solo el DTO de usuario y el ID institucional de la
+   * ruta; el esquema lo deriva el servidor. La URL llega solo en esta respuesta.
+   */
+  crearAdministrador(
+    institucionId: string,
+    datos: UsuarioCrear,
+  ): Observable<UsuarioInvitacionRespuesta> {
+    return this.http.post<UsuarioInvitacionRespuesta>(
+      `${this.raiz}/instituciones/${institucionId}/usuarios/`,
+      datos,
+    );
+  }
+
+  /** `PUT .../usuarios/{usuarioId}` — edición motivada (D-7/D-10). */
+  editarAdministrador(
+    institucionId: string,
+    usuarioId: number,
+    datos: UsuarioEdicionConMotivo,
+  ): Observable<Usuario> {
+    return this.http.put<Usuario>(
+      `${this.raiz}/instituciones/${institucionId}/usuarios/${usuarioId}`,
+      datos,
+    );
+  }
+
+  /** `PATCH .../usuarios/{usuarioId}/estado` — baja/reactivación motivada (D-7/D-10). */
+  cambiarEstadoAdministrador(
+    institucionId: string,
+    usuarioId: number,
+    datos: UsuarioEstadoConMotivo,
+  ): Observable<Usuario> {
+    return this.http.patch<Usuario>(
+      `${this.raiz}/instituciones/${institucionId}/usuarios/${usuarioId}/estado`,
+      datos,
+    );
+  }
+
+  /**
+   * `POST .../usuarios/{usuarioId}/invitacion/reenvio` — crea una invitación
+   * nueva y entrega la URL solo en esta respuesta (D-4/D-10). Una invitación
+   * aceptada o un conflicto de Clerk responde 409 sin cambiar el ID persistido.
+   */
+  reenviarInvitacionAdministrador(
+    institucionId: string,
+    usuarioId: number,
+  ): Observable<UsuarioInvitacionRespuesta> {
+    return this.http.post<UsuarioInvitacionRespuesta>(
+      `${this.raiz}/instituciones/${institucionId}/usuarios/${usuarioId}/invitacion/reenvio`,
+      {},
     );
   }
 }

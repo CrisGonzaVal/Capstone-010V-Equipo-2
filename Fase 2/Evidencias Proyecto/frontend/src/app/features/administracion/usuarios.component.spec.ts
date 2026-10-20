@@ -14,21 +14,20 @@ import {
   Rol,
   Sede,
   Usuario,
+  UsuarioInvitacionRespuesta,
 } from '../../shared/interfaces';
 import { UsuariosComponent } from './usuarios.component';
 
 /**
- * Feature 012 (T10): vista de usuarios locales (AC-8/AC-9/AC-11).
+ * Feature 012 (T10) y Feature 017 (T9): vista de usuarios locales.
  *
- * Seam bajo prueba: la interfaz pública del componente. Se verifica el listado
- * con rol/departamento resueltos y el estado activo/inactivo, la edición sin
- * correo (PUT), el cambio de estado (PATCH) con su 409, y la asignación de sede
- * de un Bodeguero limitada a las sedes del tenant, incluido el 409 por rol.
- *
- * Ajuste post-cierre (D-6/AC-10): el combo de rol del **alta** solo ofrece los
- * roles que la identidad activa puede asignar (Administrador → Bodeguero/
- * Solicitante; Superadmin → los cuatro), alineado con el backend sin alterar la
- * regla de servidor.
+ * Seam bajo prueba: la interfaz pública del componente — DOM y peticiones reales
+ * del `AdministracionService` bajo `HttpTestingController`. Se verifica el
+ * listado con el estado de invitación persistido separado del vínculo local, el
+ * alta con invitación y copia del enlace solo en la respuesta inmediata, los
+ * motivos obligatorios de edición y estado, los errores 409/422/503 y —desde
+ * T12— el reenvío ordinario (`POST /usuarios/{id}/invitacion/reenvio`) con su
+ * restricción por rol/estado y la secuencia reactivar (con motivo) → reenviar.
  */
 describe('UsuariosComponent', () => {
   const RUTA_USUARIOS = `${URL_API}/usuarios/`;
@@ -42,7 +41,6 @@ describe('UsuariosComponent', () => {
     { rol_id: 4, nombre_rol: 'Solicitante', descripcion: null },
   ];
 
-  /** Catálogo completo: solo se sirve para la identidad Superadmin. */
   const ROLES_CUATRO: Rol[] = [
     { rol_id: 1, nombre_rol: 'Superadmin', descripcion: null },
     { rol_id: 2, nombre_rol: 'Administrador', descripcion: null },
@@ -88,6 +86,17 @@ describe('UsuariosComponent', () => {
       rol_id: 3,
       sede_id: 1,
       activo: true,
+      estado_invitacion: 'aceptada',
+      ...sobrescribir,
+    };
+  }
+
+  function invitacion(
+    sobrescribir: Partial<UsuarioInvitacionRespuesta> = {},
+  ): UsuarioInvitacionRespuesta {
+    return {
+      ...usuario(),
+      url_invitacion: null,
       ...sobrescribir,
     };
   }
@@ -95,17 +104,26 @@ describe('UsuariosComponent', () => {
   let fixture: ComponentFixture<UsuariosComponent>;
   let httpMock: HttpTestingController;
   let identidadFalsa: WritableSignal<IdentidadAutenticada | null>;
+  let portapapeles: string[];
 
   beforeEach(async () => {
     identidadFalsa = signal<IdentidadAutenticada | null>(identidad('Administrador'));
+    portapapeles = [];
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: (texto: string) => {
+          portapapeles.push(texto);
+          return Promise.resolve();
+        },
+      },
+    });
 
     await TestBed.configureTestingModule({
       imports: [UsuariosComponent],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        // La vista deriva los roles asignables del rol de la identidad activa;
-        // se sustituye el servicio real por una señal doble (sin Clerk).
         { provide: AutenticacionService, useValue: { identidad: identidadFalsa } },
       ],
     }).compileComponents();
@@ -137,13 +155,24 @@ describe('UsuariosComponent', () => {
     fixture.detectChanges();
   }
 
-  /** Opciones del combo de rol del formulario de alta, en orden. */
   function opcionesRolAlta(): string[] {
     return Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll(
         '#crear-usuario-rol option',
       ),
     ).map((o) => o.textContent?.trim() ?? '');
+  }
+
+  function rellenarAlta(sobrescribir: Record<string, unknown> = {}): void {
+    fixture.componentInstance.formularioCreacion.patchValue({
+      nombre: 'Nuevo',
+      apellido: 'Solicitante',
+      correo: 'nuevo@example.com',
+      rol_id: 4,
+      departamento_id: 10,
+      ...sobrescribir,
+    });
+    fixture.detectChanges();
   }
 
   it('AC-8: renderiza rol, departamento, estado y sede del Bodeguero', () => {
@@ -155,6 +184,30 @@ describe('UsuariosComponent', () => {
     expect(visible).toContain('Logística');
     expect(visible).toContain('Activo');
     expect(visible).toContain('Sede Central');
+  });
+
+  it('AC-5: muestra el estado de invitación persistido separado del vínculo local', () => {
+    montar([
+      usuario({ usuario_id: 1, activo: false, estado_invitacion: 'pendiente' }),
+      usuario({ usuario_id: 2, nombre: 'Beto', activo: true, estado_invitacion: 'aceptada' }),
+    ]);
+    const visible = texto();
+    expect(visible).toContain('Inactivo');
+    expect(visible).toContain('Activo');
+    expect(visible).toContain('Invitación: Pendiente');
+    expect(visible).toContain('Invitación: Aceptada');
+  });
+
+  it('AC-5: un estado de invitación desconocido se presenta como «No disponible»', () => {
+    montar([usuario({ estado_invitacion: undefined })]);
+    expect(texto()).toContain('Invitación: No disponible');
+    expect(texto()).not.toContain('Invitación: Aceptada');
+  });
+
+  it('AC-5: el listado nunca muestra una URL de invitación', () => {
+    montar([usuario({ estado_invitacion: 'pendiente' })]);
+    expect(texto()).not.toContain('http');
+    expect(texto().toLowerCase()).not.toContain('copiar enlace');
   });
 
   it('AC-8/AC-11: un usuario inactivo se muestra como tal y ofrece Reactivar', () => {
@@ -174,7 +227,7 @@ describe('UsuariosComponent', () => {
     expect(visible).not.toContain('Estado no informado');
   });
 
-  it('AC-8: edita con PUT sin enviar el correo', () => {
+  it('AC-10: edita con PUT y motivo del catálogo, sin enviar el correo', () => {
     montar();
     boton('editar')?.click();
     fixture.detectChanges();
@@ -185,6 +238,10 @@ describe('UsuariosComponent', () => {
       rol_id: 4,
       departamento_id: 10,
     });
+    fixture.componentInstance.motivoEdicion.patchValue({
+      codigo: 'cambio_funciones',
+      texto: 'Nuevo rol',
+    });
     fixture.detectChanges();
 
     boton('guardar cambios')?.click();
@@ -192,28 +249,87 @@ describe('UsuariosComponent', () => {
 
     const peticion = httpMock.expectOne(`${URL_API}/usuarios/1`);
     expect(peticion.request.method).toBe('PUT');
-    expect(peticion.request.body).toEqual({
-      nombre: 'Ana María',
-      apellido: 'Pérez',
-      rol_id: 4,
-      departamento_id: 10,
-    });
-    expect((peticion.request.body as Record<string, unknown>)['correo']).toBeUndefined();
+    const cuerpo = peticion.request.body as Record<string, unknown>;
+    expect(cuerpo['nombre']).toBe('Ana María');
+    expect(cuerpo['apellido']).toBe('Pérez');
+    expect(cuerpo['rol_id']).toBe(4);
+    expect(cuerpo['departamento_id']).toBe(10);
+    expect(cuerpo['correo']).toBeUndefined();
+    expect(cuerpo['motivo']).toEqual({ codigo: 'cambio_funciones', texto: 'Nuevo rol' });
+    expect(typeof cuerpo['idempotencia']).toBe('string');
 
     peticion.flush(usuario({ nombre: 'Ana María', rol_id: 4 }));
     fixture.detectChanges();
     expect(texto()).toContain('Ana María');
   });
 
+  it('AC-10: una edición sin cambios no exige motivo', () => {
+    montar();
+    boton('editar')?.click();
+    fixture.detectChanges();
+
+    boton('guardar cambios')?.click();
+    fixture.detectChanges();
+
+    const peticion = httpMock.expectOne(`${URL_API}/usuarios/1`);
+    const cuerpo = peticion.request.body as Record<string, unknown>;
+    expect(cuerpo['motivo']).toBeUndefined();
+    expect(cuerpo['idempotencia']).toBeUndefined();
+    peticion.flush(usuario());
+    fixture.detectChanges();
+  });
+
+  it('AC-10: «otro» sin texto no envía la edición', () => {
+    montar();
+    boton('editar')?.click();
+    fixture.detectChanges();
+    fixture.componentInstance.formularioEdicion.patchValue({ nombre: 'Cambio' });
+    fixture.componentInstance.motivoEdicion.patchValue({ codigo: 'otro', texto: '   ' });
+    fixture.detectChanges();
+
+    boton('guardar cambios')?.click();
+    fixture.detectChanges();
+
+    httpMock.expectNone(`${URL_API}/usuarios/1`);
+    expect(texto()).toContain('exige un texto explicativo');
+  });
+
+  it('AC-10: un texto de motivo mayor a 500 caracteres no envía la edición', () => {
+    montar();
+    boton('editar')?.click();
+    fixture.detectChanges();
+    fixture.componentInstance.formularioEdicion.patchValue({ nombre: 'Cambio' });
+    fixture.componentInstance.motivoEdicion.patchValue({
+      codigo: 'otro',
+      texto: 'a'.repeat(501),
+    });
+    fixture.detectChanges();
+
+    boton('guardar cambios')?.click();
+    fixture.detectChanges();
+
+    httpMock.expectNone(`${URL_API}/usuarios/1`);
+  });
+
   it('AC-11: un 409 al desactivar (encargado) muestra el motivo', () => {
     montar();
     boton('desactivar')?.click();
     fixture.detectChanges();
+    fixture.componentInstance.motivoEstado.patchValue({
+      codigo: 'termino_vinculo',
+      texto: '',
+    });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.motivoEstadoCompleto()).withContext('motivo completo').toBe(true);
+    expect(boton('confirmar')?.disabled).withContext('confirmar habilitado').toBe(false);
     boton('confirmar')?.click();
     fixture.detectChanges();
 
     const peticion = httpMock.expectOne(`${URL_API}/usuarios/1/estado`);
-    expect(peticion.request.body).toEqual({ activo: false });
+    const cuerpo = peticion.request.body as Record<string, unknown>;
+    expect(cuerpo['activo']).toBe(false);
+    expect(cuerpo['motivo']).toEqual({ codigo: 'termino_vinculo', texto: null });
+    expect(typeof cuerpo['idempotencia']).toBe('string');
     peticion.flush(
       { detail: 'No se puede desactivar el usuario: es encargado de uno o mas departamentos' },
       { status: 409, statusText: 'Conflict' },
@@ -223,6 +339,17 @@ describe('UsuariosComponent', () => {
     const alerta = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
     expect(alerta?.textContent).toContain('es encargado');
     expect(texto()).toContain('Activo');
+  });
+
+  it('AC-10: sin motivo válido el cambio de estado no se envía', () => {
+    montar();
+    boton('desactivar')?.click();
+    fixture.detectChanges();
+    fixture.componentInstance.confirmarCambioEstado();
+    fixture.detectChanges();
+
+    httpMock.expectNone(`${URL_API}/usuarios/1/estado`);
+    expect(texto()).toContain('Selecciona un motivo');
   });
 
   it('AC-9: asigna sede a un Bodeguero con opciones limitadas al tenant', () => {
@@ -251,10 +378,181 @@ describe('UsuariosComponent', () => {
     expect(texto()).toContain('Bodega Norte');
   });
 
-  it('AC-9: un 409 al asignar sede a un no Bodeguero muestra el motivo', () => {
+  it('AC-9: un Solicitante no ofrece la acción de asignar sede', () => {
     montar([usuario({ rol_id: 4, sede_id: null })]);
-    // Un Solicitante no ofrece la acción de sede; se comprueba que no aparece.
     expect(boton('asignar sede')).toBeFalsy();
+  });
+
+  // --- Reenvío ordinario de invitación (Feature 017, T12) ---
+
+  describe('reenvío ordinario de invitación (T12)', () => {
+    function tarjetas(): HTMLElement[] {
+      return Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('li'),
+      );
+    }
+
+    function botonEn(indice: number, etiqueta: string): HTMLButtonElement | undefined {
+      return Array.from(tarjetas()[indice].querySelectorAll('button')).find((b) =>
+        new RegExp(etiqueta, 'i').test(b.textContent ?? ''),
+      );
+    }
+
+    function textoDe(indice: number): string {
+      return tarjetas()[indice].textContent ?? '';
+    }
+
+    it('AC-6/AC-9: solo se ofrece a Bodeguero/Solicitante activos con invitación no aceptada', () => {
+      montar([
+        usuario({ usuario_id: 1, estado_invitacion: 'pendiente' }),
+        usuario({ usuario_id: 2, estado_invitacion: 'aceptada' }),
+        usuario({ usuario_id: 3, estado_invitacion: 'expirada', activo: false }),
+        usuario({ usuario_id: 4, rol_id: 1, estado_invitacion: 'pendiente' }),
+        usuario({ usuario_id: 5, rol_id: 4, estado_invitacion: 'revocada' }),
+      ]);
+
+      expect(botonEn(0, 'reenviar')).toBeTruthy();
+      expect(botonEn(1, 'reenviar')).toBeFalsy();
+      expect(botonEn(2, 'reenviar')).toBeFalsy();
+      expect(botonEn(3, 'reenviar')).toBeFalsy();
+      expect(botonEn(4, 'reenviar')).toBeTruthy();
+    });
+
+    it('AC-6: un vínculo inactivo no ofrece reenvío y pide reactivarlo primero', () => {
+      montar([usuario({ usuario_id: 3, estado_invitacion: 'expirada', activo: false })]);
+
+      expect(botonEn(0, 'reenviar')).toBeFalsy();
+      expect(textoDe(0)).toContain('Reactívalo primero');
+    });
+
+    it('AC-6: reenvía con POST sin cuerpo y muestra la URL solo en esa respuesta', async () => {
+      montar([usuario({ usuario_id: 7, estado_invitacion: 'expirada' })]);
+
+      botonEn(0, 'reenviar')?.click();
+      fixture.detectChanges();
+
+      const peticion = httpMock.expectOne(`${URL_API}/usuarios/7/invitacion/reenvio`);
+      expect(peticion.request.method).toBe('POST');
+      expect(peticion.request.body).toBeNull();
+      peticion.flush(
+        invitacion({
+          usuario_id: 7,
+          estado_invitacion: 'pendiente',
+          url_invitacion: 'https://clerk.example/inv/nueva',
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(textoDe(0)).toContain('Invitación: Pendiente');
+      expect(texto()).toContain('https://clerk.example/inv/nueva');
+      expect(texto()).toContain('reenviada');
+
+      boton('copiar enlace')?.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(portapapeles).toEqual(['https://clerk.example/inv/nueva']);
+      expect(texto()).toContain('Enlace copiado');
+    });
+
+    it('AC-6: no envía el reenvío dos veces mientras está en vuelo', () => {
+      montar([usuario({ usuario_id: 7, estado_invitacion: 'pendiente' })]);
+
+      const objetivo = usuario({ usuario_id: 7, estado_invitacion: 'pendiente' });
+      fixture.componentInstance.reenviarInvitacion(objetivo);
+      fixture.componentInstance.reenviarInvitacion(objetivo);
+      fixture.detectChanges();
+
+      const peticiones = httpMock.match(
+        `${URL_API}/usuarios/7/invitacion/reenvio`,
+      );
+      expect(peticiones.length).toBe(1);
+      peticiones[0].flush(
+        invitacion({ usuario_id: 7, estado_invitacion: 'pendiente', url_invitacion: null }),
+      );
+      fixture.detectChanges();
+    });
+
+    it('AC-6: un 409 (aceptada/conflicto) se muestra sin enlace', () => {
+      montar([usuario({ usuario_id: 8, estado_invitacion: 'pendiente' })]);
+
+      botonEn(0, 'reenviar')?.click();
+      fixture.detectChanges();
+
+      httpMock
+        .expectOne(`${URL_API}/usuarios/8/invitacion/reenvio`)
+        .flush(
+          { detail: 'La invitacion ya fue aceptada; no se reenvia' },
+          { status: 409, statusText: 'Conflict' },
+        );
+      fixture.detectChanges();
+
+      expect(texto()).toContain('ya fue aceptada');
+      expect(texto()).not.toContain('Copiar enlace');
+      expect(botonEn(0, 'reenviar')).toBeTruthy();
+    });
+
+    it('AC-6: un 503 de la frontera Clerk se informa y es reintentable', () => {
+      montar([usuario({ usuario_id: 8, estado_invitacion: 'pendiente' })]);
+
+      botonEn(0, 'reenviar')?.click();
+      fixture.detectChanges();
+
+      httpMock
+        .expectOne(`${URL_API}/usuarios/8/invitacion/reenvio`)
+        .flush('', { status: 503, statusText: 'Service Unavailable' });
+      fixture.detectChanges();
+
+      expect(texto()).toContain('no está disponible');
+      expect(botonEn(0, 'reenviar')).toBeTruthy();
+    });
+
+    it('AC-2: reactivar no reenvía; después el reenvío es una operación separada', () => {
+      montar([usuario({ usuario_id: 9, estado_invitacion: 'pendiente', activo: false })]);
+
+      expect(botonEn(0, 'reenviar')).toBeFalsy();
+
+      botonEn(0, 'reactivar')?.click();
+      fixture.detectChanges();
+      fixture.componentInstance.motivoEstado.patchValue({
+        codigo: 'reasignacion_organizacional',
+        texto: '',
+      });
+      fixture.detectChanges();
+
+      boton('confirmar')?.click();
+      fixture.detectChanges();
+
+      const cambio = httpMock.expectOne(`${URL_API}/usuarios/9/estado`);
+      expect(cambio.request.method).toBe('PATCH');
+      expect(cambio.request.body.activo).toBe(true);
+      expect(cambio.request.body.motivo).toEqual({
+        codigo: 'reasignacion_organizacional',
+        texto: null,
+      });
+      cambio.flush({ usuario_id: 9, activo: true });
+      fixture.detectChanges();
+
+      // La reactivación no llama a Clerk ni crea invitaciones.
+      httpMock.expectNone(`${URL_API}/usuarios/9/invitacion/reenvio`);
+      expect(textoDe(0)).toContain('La reactivación no reenvía la invitación');
+
+      expect(botonEn(0, 'reenviar')).toBeTruthy();
+      botonEn(0, 'reenviar')?.click();
+      fixture.detectChanges();
+
+      const reenvio = httpMock.expectOne(`${URL_API}/usuarios/9/invitacion/reenvio`);
+      expect(reenvio.request.method).toBe('POST');
+      reenvio.flush(
+        invitacion({
+          usuario_id: 9,
+          estado_invitacion: 'pendiente',
+          url_invitacion: 'https://clerk.example/inv/reactivado',
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(texto()).toContain('https://clerk.example/inv/reactivado');
+    });
   });
 
   it('AC-8: estado vacío cuando no hay usuarios', () => {
@@ -262,7 +560,7 @@ describe('UsuariosComponent', () => {
     expect(texto()).toContain('Aún no hay usuarios');
   });
 
-  // --- Alta de usuario (Feature 012, correccion T13) ---
+  // --- Alta de usuario con invitación (Feature 017, T9) ---
 
   it('AC-8: el botón Nuevo usuario abre el formulario de alta', () => {
     montar();
@@ -279,86 +577,97 @@ describe('UsuariosComponent', () => {
     expect(campos.length).toBe(3);
   });
 
-  it('AC-8: el alta envía el payload y recarga el listado', () => {
+  it('AC-1: el alta con invitación muestra el estado pendiente y el enlace copiable', async () => {
     montar([]);
     boton('nuevo usuario')?.click();
     fixture.detectChanges();
-
-    fixture.componentInstance.formularioCreacion.patchValue({
-      nombre: 'Nuevo',
-      apellido: 'Solicitante',
-      correo: 'nuevo@example.com',
-      rol_id: 4,
-      departamento_id: 10,
-    });
-    fixture.detectChanges();
+    rellenarAlta();
 
     boton('crear usuario')?.click();
     fixture.detectChanges();
 
     const peticion = httpMock.expectOne(`${URL_API}/usuarios/`);
     expect(peticion.request.method).toBe('POST');
-    expect(peticion.request.body).toEqual({
-      nombre: 'Nuevo',
-      apellido: 'Solicitante',
-      correo: 'nuevo@example.com',
-      departamento_id: 10,
-      rol_id: 4,
-    });
     peticion.flush(
-      usuario({
+      invitacion({
         usuario_id: 5,
         nombre: 'Nuevo',
         apellido: 'Solicitante',
         correo: 'nuevo@example.com',
         rol_id: 4,
         sede_id: null,
+        estado_invitacion: 'pendiente',
+        url_invitacion: 'https://clerk.example/inv/abc',
       }),
     );
     fixture.detectChanges();
 
-    // El alta exitosa recarga la lista con una nueva ronda de GET.
-    httpMock
-      .expectOne(RUTA_USUARIOS)
-      .flush([
-        usuario({
-          usuario_id: 5,
-          nombre: 'Nuevo',
-          apellido: 'Solicitante',
-          correo: 'nuevo@example.com',
-          rol_id: 4,
-          sede_id: null,
-        }),
-      ]);
+    expect(texto()).toContain('invitación pendiente');
+    expect(texto()).toContain('https://clerk.example/inv/abc');
+    expect(texto()).toContain('Copiar enlace');
+
+    boton('copiar enlace')?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(portapapeles).toEqual(['https://clerk.example/inv/abc']);
+    expect(texto()).toContain('Enlace copiado');
+
+    httpMock.expectOne(RUTA_USUARIOS).flush([]);
     httpMock.expectOne(RUTA_ROLES).flush(ROLES);
     httpMock.expectOne(RUTA_DEPARTAMENTOS).flush(DEPARTAMENTOS);
     httpMock.expectOne(RUTA_SEDES).flush(SEDES);
     fixture.detectChanges();
-
-    expect(texto()).toContain('Nuevo Solicitante');
-    expect(texto()).toContain('creado');
   });
 
-  it('AC-8: un 422 de correo inexistente en Clerk se muestra y no recarga', () => {
-    montar();
+  it('AC-2: si Clerk ya tenía identidad, el alta informa «aceptada» y no trae enlace', () => {
+    montar([]);
     boton('nuevo usuario')?.click();
     fixture.detectChanges();
-
-    fixture.componentInstance.formularioCreacion.patchValue({
-      nombre: 'Sin',
-      apellido: 'Clerk',
-      correo: 'no.existe@example.com',
-      rol_id: 4,
-      departamento_id: 10,
-    });
-    fixture.detectChanges();
+    rellenarAlta();
 
     boton('crear usuario')?.click();
     fixture.detectChanges();
 
-    const peticion = httpMock.expectOne(`${URL_API}/usuarios/`);
-    peticion.flush(
-      { detail: 'El correo no existe como identidad verificada en Clerk' },
+    httpMock.expectOne(`${URL_API}/usuarios/`).flush(
+      invitacion({
+        usuario_id: 5,
+        nombre: 'Nuevo',
+        apellido: 'Solicitante',
+        estado_invitacion: 'aceptada',
+        url_invitacion: null,
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(texto()).toContain('invitación aceptada');
+    expect(texto()).not.toContain('Copiar enlace');
+
+    httpMock.expectOne(RUTA_USUARIOS).flush([]);
+    httpMock.expectOne(RUTA_ROLES).flush(ROLES);
+    httpMock.expectOne(RUTA_DEPARTAMENTOS).flush(DEPARTAMENTOS);
+    httpMock.expectOne(RUTA_SEDES).flush(SEDES);
+    fixture.detectChanges();
+  });
+
+  it('AC-10: un 422 de motivo/rol se muestra y no cierra el alta', () => {
+    montar();
+    boton('nuevo usuario')?.click();
+    fixture.detectChanges();
+    rellenarAlta({ correo: 'invalido@example.com' });
+
+    boton('crear usuario')?.click();
+    fixture.detectChanges();
+
+    httpMock.expectOne(`${URL_API}/usuarios/`).flush(
+      {
+        detail: [
+          {
+            type: 'value_error',
+            loc: ['body', 'motivo'],
+            msg: 'Value error, el motivo `otro` exige texto',
+          },
+        ],
+      },
       { status: 422, statusText: 'Unprocessable Entity' },
     );
     fixture.detectChanges();
@@ -366,24 +675,15 @@ describe('UsuariosComponent', () => {
     const alerta = (fixture.nativeElement as HTMLElement).querySelector(
       '[role="alert"]',
     );
-    expect(alerta?.textContent).toContain('no existe');
-    // El formulario sigue abierto para corregir el correo.
+    expect(alerta?.textContent).toContain('motivo');
     expect(boton('crear usuario')).toBeTruthy();
   });
 
-  it('AC-8: un 409 de correo ya vinculado se muestra con el motivo', () => {
+  it('AC-1: un 409 de correo ya vinculado se muestra con el motivo', () => {
     montar();
     boton('nuevo usuario')?.click();
     fixture.detectChanges();
-
-    fixture.componentInstance.formularioCreacion.patchValue({
-      nombre: 'Duplicado',
-      apellido: 'Local',
-      correo: 'ya.vinculado@example.com',
-      rol_id: 4,
-      departamento_id: 10,
-    });
-    fixture.detectChanges();
+    rellenarAlta({ correo: 'ya.vinculado@example.com' });
 
     boton('crear usuario')?.click();
     fixture.detectChanges();
@@ -400,36 +700,79 @@ describe('UsuariosComponent', () => {
     expect(alerta?.textContent).toContain('ya esta vinculado');
   });
 
-  it('AC-9: el alta de un Bodeguero con sede la asigna tras crear', () => {
+  it('AC-2: un 503 de la frontera Clerk es recuperable y no cierra el alta', () => {
     montar();
     boton('nuevo usuario')?.click();
     fixture.detectChanges();
-
-    fixture.componentInstance.formularioCreacion.patchValue({
-      nombre: 'Beto',
-      apellido: 'Bodega',
-      correo: 'beto@example.com',
-      rol_id: 3,
-      departamento_id: 10,
-      sede_id: 2,
-    });
-    fixture.detectChanges();
+    rellenarAlta();
 
     boton('crear usuario')?.click();
     fixture.detectChanges();
 
-    httpMock
-      .expectOne(`${URL_API}/usuarios/`)
-      .flush(
-        usuario({
-          usuario_id: 7,
-          nombre: 'Beto',
-          apellido: 'Bodega',
-          correo: 'beto@example.com',
-          rol_id: 3,
-          sede_id: null,
-        }),
-      );
+    httpMock.expectOne(`${URL_API}/usuarios/`).flush(
+      { detail: 'La frontera Clerk no esta disponible' },
+      { status: 503, statusText: 'Service Unavailable' },
+    );
+    fixture.detectChanges();
+
+    const alerta = (fixture.nativeElement as HTMLElement).querySelector(
+      '[role="alert"]',
+    );
+    expect(alerta?.textContent).toContain('no esta disponible');
+    expect(boton('crear usuario')).toBeTruthy();
+  });
+
+  it('AC-1: el alta no se envía dos veces mientras está en vuelo', () => {
+    montar([]);
+    boton('nuevo usuario')?.click();
+    fixture.detectChanges();
+    rellenarAlta();
+
+    expect(fixture.componentInstance.formularioCreacion.valid).withContext('formulario válido').toBe(true);
+    fixture.componentInstance.guardarCreacion();
+    fixture.componentInstance.guardarCreacion();
+    fixture.detectChanges();
+
+    const peticion = httpMock.expectOne(`${URL_API}/usuarios/`);
+    httpMock.expectNone(`${URL_API}/usuarios/`);
+    peticion.flush(
+      invitacion({ usuario_id: 5, estado_invitacion: 'pendiente', url_invitacion: null }),
+    );
+    fixture.detectChanges();
+    httpMock.expectOne(RUTA_USUARIOS).flush([]);
+    httpMock.expectOne(RUTA_ROLES).flush(ROLES);
+    httpMock.expectOne(RUTA_DEPARTAMENTOS).flush(DEPARTAMENTOS);
+    httpMock.expectOne(RUTA_SEDES).flush(SEDES);
+    fixture.detectChanges();
+  });
+
+  it('AC-9: el alta de un Bodeguero con sede la asigna tras crear', () => {
+    montar();
+    boton('nuevo usuario')?.click();
+    fixture.detectChanges();
+    rellenarAlta({
+      nombre: 'Beto',
+      apellido: 'Bodega',
+      correo: 'beto@example.com',
+      rol_id: 3,
+      sede_id: 2,
+    });
+
+    boton('crear usuario')?.click();
+    fixture.detectChanges();
+
+    httpMock.expectOne(`${URL_API}/usuarios/`).flush(
+      invitacion({
+        usuario_id: 7,
+        nombre: 'Beto',
+        apellido: 'Bodega',
+        correo: 'beto@example.com',
+        rol_id: 3,
+        sede_id: null,
+        estado_invitacion: 'pendiente',
+        url_invitacion: 'https://clerk.example/inv/beto',
+      }),
+    );
     fixture.detectChanges();
 
     const asignacion = httpMock.expectOne(
@@ -446,7 +789,8 @@ describe('UsuariosComponent', () => {
     httpMock.expectOne(RUTA_SEDES).flush(SEDES);
     fixture.detectChanges();
 
-    expect(texto()).toContain('con su sede');
+    expect(texto()).toContain('Sede asignada');
+    expect(texto()).toContain('https://clerk.example/inv/beto');
   });
 
   // --- Roles asignables según la identidad (ajuste post-cierre, D-6/AC-10) ---
@@ -487,10 +831,8 @@ describe('UsuariosComponent', () => {
     montar();
     boton('nuevo usuario')?.click();
     fixture.detectChanges();
-    // Administrador sobre el catálogo de prueba: Bodeguero y Solicitante.
     expect(opcionesRolAlta().length).toBe(2);
 
-    // Superadmin: todos los roles servidos (el catálogo no se recarga).
     identidadFalsa.set(identidad('Superadmin'));
     fixture.detectChanges();
     expect(opcionesRolAlta().length).toBe(3);
