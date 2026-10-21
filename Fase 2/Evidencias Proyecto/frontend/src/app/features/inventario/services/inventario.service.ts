@@ -4,11 +4,15 @@ import { Observable } from 'rxjs';
 
 import {
   Categoria,
+  GestionCatalogo,
+  HistorialTransicionCategoria,
+  HistorialTransicionProducto,
   MovimientoCrear,
   Producto,
   ProductoCrear,
   ProductoExistencia,
   RespuestaMovimiento,
+  TransicionCatalogo,
 } from '../../../shared/interfaces';
 import { URL_API } from '../../../shared/config/url-api';
 
@@ -49,5 +53,62 @@ export class InventarioService {
 
   registrarMovimiento(datos: MovimientoCrear): Observable<RespuestaMovimiento> {
     return this.http.post<RespuestaMovimiento>(`${URL_API}/inventario/movimientos`, datos);
+  }
+
+  // --- Ciclo de vida del catálogo (Feature 014, AC-11/AC-12/AC-15) ---
+
+  /**
+   * Listado de gestión: productos y categorías **con ambos estados** del tenant.
+   *
+   * Es la única fuente de la sección administrativa. Las consultas operativas
+   * (`obtenerExistencias`, `obtenerCategorias`) siguen filtradas para todos los
+   * roles, incluido el Administrador, así que no pueden sustituirlo.
+   */
+  obtenerGestionCatalogo(): Observable<GestionCatalogo> {
+    return this.http.get<GestionCatalogo>(`${URL_API}/inventario/gestion`);
+  }
+
+  /**
+   * Transición de estado de un producto. El servidor responde 200 con el
+   * recurso persistido, también cuando el destino ya era el estado actual
+   * (repetición idempotente sin motivo ni historial).
+   */
+  cambiarEstadoProducto(
+    productoId: number,
+    datos: TransicionCatalogo,
+  ): Observable<Producto> {
+    return this.http.patch<Producto>(
+      `${URL_API}/inventario/productos/${productoId}/estado`,
+      datos,
+    );
+  }
+
+  /** Transición de estado de una categoría (mismo contrato que el producto). */
+  cambiarEstadoCategoria(
+    categoriaId: number,
+    datos: TransicionCatalogo,
+  ): Observable<Categoria> {
+    return this.http.patch<Categoria>(
+      `${URL_API}/inventario/categorias/${categoriaId}/estado`,
+      datos,
+    );
+  }
+
+  /** Historial inmutable de un producto, más reciente primero. */
+  obtenerHistorialProducto(
+    productoId: number,
+  ): Observable<HistorialTransicionProducto[]> {
+    return this.http.get<HistorialTransicionProducto[]>(
+      `${URL_API}/inventario/productos/${productoId}/historial`,
+    );
+  }
+
+  /** Historial inmutable de una categoría, más reciente primero. */
+  obtenerHistorialCategoria(
+    categoriaId: number,
+  ): Observable<HistorialTransicionCategoria[]> {
+    return this.http.get<HistorialTransicionCategoria[]>(
+      `${URL_API}/inventario/categorias/${categoriaId}/historial`,
+    );
   }
 }

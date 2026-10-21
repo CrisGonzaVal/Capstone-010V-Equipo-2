@@ -149,6 +149,46 @@ def _columna_es_not_null(conexion, tabla: str, columna: str) -> bool:
     ) == "NO"
 
 
+def _columnas_de(conexion, tabla: str, esquema: str = "control") -> set[str]:
+    filas = _ejecutar(
+        conexion,
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = %s AND table_name = %s",
+        (esquema, tabla),
+    )
+    return {fila[0] for fila in filas}
+
+
+def _default_de(conexion, tabla: str, columna: str) -> str | None:
+    return _un_escalar(
+        conexion,
+        "SELECT column_default FROM information_schema.columns "
+        "WHERE table_schema = 'control' AND table_name = %s AND column_name = %s",
+        (tabla, columna),
+    )
+
+
+def _claves_foraneas(conexion, tabla: str, esquema: str = "control") -> set[tuple]:
+    """`(columna, tabla_referida)` de las FK reales declaradas por el DDL."""
+    filas = _ejecutar(
+        conexion,
+        """
+        SELECT kcu.column_name, ccu.table_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON kcu.constraint_name = tc.constraint_name
+         AND kcu.constraint_schema = tc.constraint_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name
+         AND ccu.constraint_schema = tc.constraint_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_schema = %s AND tc.table_name = %s
+        """,
+        (esquema, tabla),
+    )
+    return {(fila[0], fila[1]) for fila in filas}
+
+
 # ---------------------------------------------------------------------------
 # Sembrado sobre el esquema NUEVO (01_esquema.sql)
 # ---------------------------------------------------------------------------
@@ -183,22 +223,29 @@ def _sembrar_nuevo(conexion) -> dict:
         "VALUES ('U','B','ub@test.cl',%s,%s) RETURNING usuario_id",
         (dep_b, rol),
     )
+    # Feature 014: el mundo sembrado declara explicitamente el estado activo del
+    # catalogo (el DDL tambien lo deja por defecto, pero la regresion no debe
+    # depender de esa ausencia de valor).
     cat_a = _un_escalar(
         conexion,
-        "INSERT INTO categoria (nombre_cat, institucion_id) VALUES ('Cat A','A') RETURNING categoria_id",
+        "INSERT INTO categoria (nombre_cat, activo, institucion_id) "
+        "VALUES ('Cat A', TRUE, 'A') RETURNING categoria_id",
     )
     cat_b = _un_escalar(
         conexion,
-        "INSERT INTO categoria (nombre_cat, institucion_id) VALUES ('Cat B','B') RETURNING categoria_id",
+        "INSERT INTO categoria (nombre_cat, activo, institucion_id) "
+        "VALUES ('Cat B', TRUE, 'B') RETURNING categoria_id",
     )
     prod_a = _un_escalar(
         conexion,
-        "INSERT INTO producto (nombre, categoria_id, institucion_id) VALUES ('Prod A',%s,'A') RETURNING producto_id",
+        "INSERT INTO producto (nombre, activo, categoria_id, institucion_id) "
+        "VALUES ('Prod A', TRUE, %s, 'A') RETURNING producto_id",
         (cat_a,),
     )
     prod_b = _un_escalar(
         conexion,
-        "INSERT INTO producto (nombre, categoria_id, institucion_id) VALUES ('Prod B',%s,'B') RETURNING producto_id",
+        "INSERT INTO producto (nombre, activo, categoria_id, institucion_id) "
+        "VALUES ('Prod B', TRUE, %s, 'B') RETURNING producto_id",
         (cat_b,),
     )
     prioridad = _un_escalar(
@@ -322,6 +369,126 @@ def test_esquema_nuevo_exige_institucion_not_null():
             (ids["cat_a"],),
             psycopg2.errors.NotNullViolation,
         )
+
+
+# ---------------------------------------------------------------------------
+# Feature 014 / AC-14: estado reversible del catalogo e historiales en el DDL
+# ---------------------------------------------------------------------------
+
+
+def test_esquema_nuevo_declara_el_estado_del_catalogo_activo_por_defecto():
+    """`categoria.activo` y `producto.activo`: booleanas, NOT NULL y TRUE por defecto.
+
+    El estado inicial lo garantiza el DDL, no la aplicacion: una fila insertada
+    sin declarar vigencia nace activa y el motor rechaza dejarla nula.
+    """
+    with _base_temporal() as conexion:
+        _ejecutar_script(conexion, ESQUEMA_NUEVO)
+        ids = _sembrar_nuevo(conexion)
+
+        for tabla in ("categoria", "producto"):
+            assert _columna_es_not_null(conexion, tabla, "activo"), tabla
+            assert (_default_de(conexion, tabla, "activo") or "").lower() == "true", tabla
+
+        # Alta sin `activo`: el default del motor la deja activa.
+        categoria = _ejecutar(
+            conexion,
+            "INSERT INTO categoria (nombre_cat, institucion_id) VALUES ('Cat C','A') "
+            "RETURNING categoria_id, activo",
+        )[0]
+        assert categoria[1] is True, categoria
+        producto = _ejecutar(
+            conexion,
+            "INSERT INTO producto (nombre, categoria_id, institucion_id) "
+            "VALUES ('Prod C',%s,'A') RETURNING activo",
+            (categoria[0],),
+        )[0]
+        assert producto[0] is True, producto
+
+        # Null explicito: NotNullViolation, nunca una fila sin estado.
+        _esperar_violacion(
+            conexion,
+            "INSERT INTO categoria (nombre_cat, activo, institucion_id) VALUES ('Cat N',NULL,'A')",
+            (),
+            psycopg2.errors.NotNullViolation,
+        )
+        assert _un_escalar(conexion, "SELECT count(*) FROM categoria") == 3
+        assert ids["cat_a"] != categoria[0]
+
+
+def test_esquema_nuevo_crea_los_historiales_de_catalogo_con_fk_reales():
+    """Las dos tablas de historial existen, son NOT NULL en lo obligatorio y
+    rechazan referencias inexistentes al recurso o al actor (FK real).
+
+    La paridad control/tenant de su estructura se acredita en
+    `test_ciclo_vida_catalogo_postgres_014.py`; aqui se comprueba el DDL canonico.
+    """
+    with _base_temporal() as conexion:
+        _ejecutar_script(conexion, ESQUEMA_NUEVO)
+        ids = _sembrar_nuevo(conexion)
+        usuario = _un_escalar(conexion, "SELECT min(usuario_id) FROM usuario")
+
+        for tabla, pk, columna_recurso, recurso in (
+            ("historial_transicion_producto", "historial_producto_id", "producto_id", "producto"),
+            ("historial_transicion_categoria", "historial_categoria_id", "categoria_id", "categoria"),
+        ):
+            columnas = _columnas_de(conexion, tabla)
+            assert {
+                pk,
+                columna_recurso,
+                "usuario_id",
+                "fecha_transicion",
+                "activo_origen",
+                "activo_destino",
+                "motivo",
+            } <= columnas, (tabla, columnas)
+            for columna in (
+                columna_recurso,
+                "usuario_id",
+                "fecha_transicion",
+                "activo_origen",
+                "activo_destino",
+                "motivo",
+            ):
+                assert _columna_es_not_null(conexion, tabla, columna), (tabla, columna)
+
+            fks = _claves_foraneas(conexion, tabla)
+            assert (columna_recurso, recurso) in fks, (tabla, fks)
+            assert ("usuario_id", "usuario") in fks, (tabla, fks)
+
+            # Referencias inexistentes: el motor las rechaza.
+            _esperar_violacion(
+                conexion,
+                f"INSERT INTO {tabla} ({columna_recurso}, usuario_id, activo_origen, "
+                "activo_destino, motivo) VALUES (999999,%s,FALSE,TRUE,'x')",
+                (usuario,),
+                psycopg2.errors.ForeignKeyViolation,
+            )
+            _esperar_violacion(
+                conexion,
+                f"INSERT INTO {tabla} ({columna_recurso}, usuario_id, activo_origen, "
+                "activo_destino, motivo) VALUES (%s,999999,FALSE,TRUE,'x')",
+                (ids["prod_a"] if recurso == "producto" else ids["cat_a"],),
+                psycopg2.errors.ForeignKeyViolation,
+            )
+
+            # El motivo vacio tampoco es un estado valido (columna obligatoria).
+            _esperar_violacion(
+                conexion,
+                f"INSERT INTO {tabla} ({columna_recurso}, usuario_id, activo_origen, "
+                "activo_destino, motivo) VALUES (%s,%s,FALSE,TRUE,NULL)",
+                (ids["prod_a"] if recurso == "producto" else ids["cat_a"], usuario),
+                psycopg2.errors.NotNullViolation,
+            )
+
+            # Una transicion coherente si se persiste.
+            _ejecutar(
+                conexion,
+                f"INSERT INTO {tabla} ({columna_recurso}, usuario_id, activo_origen, "
+                "activo_destino, motivo) VALUES (%s,%s,TRUE,FALSE,'baja de prueba')",
+                (ids["prod_a"] if recurso == "producto" else ids["cat_a"], usuario),
+            )
+            assert _un_escalar(conexion, f"SELECT count(*) FROM {tabla}") == 1, tabla
 
 
 # ---------------------------------------------------------------------------

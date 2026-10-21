@@ -21,11 +21,11 @@ Todo lo que sigue es norma. Si el código actual no la cumple, la norma gana: se
 
 > **Nota de migración**: el código actual está en fase de migración a esta estructura, que es la normativa desde hoy (AGENTS.md describe la nueva estructura).
 
-> **Nota de vigencia — base consolidada (19/Oct/2026):** `database/` volvió a dos
-> scripts puros. `01_esquema.sql` crea `control` (20 tablas) y un esquema
-> `tenant_<slug>_<hash>` por institución (17 tablas de negocio) y siembra la
+> **Nota de vigencia — base consolidada (20/Oct/2026):** `database/` volvió a dos
+> scripts puros. `01_esquema.sql` crea `control` (22 tablas) y un esquema
+> `tenant_<slug>_<hash>` por institución (19 tablas de negocio) y siembra la
 > topología; `02_datos_semilla.sql` llena la semilla QA, la reparte a los tenants,
-> puebla `control.mapa_usuario_esquema` y fija la versión `013.1` con guardia
+> puebla `control.mapa_usuario_esquema` y fija la versión `014.1` con guardia
 > fail-closed. **No hay migraciones**: se retiraron `03_construir_tenants_011.sql`,
 > `98_`, `99_` y `database/migraciones/`. Los cambios de esquema se resuelven
 > recreando el volumen (`docker compose down -v` + `up -d`), nunca actualizando in
@@ -558,6 +558,16 @@ Estas dos estructuras viven **solo en `control`**: sus columnas y tabla no se co
 La instalación limpia debe materializar ambos cambios mediante `database/01_esquema.sql` y `database/02_datos_semilla.sql`, y las pruebas gated de esquema e instalación limpia deben verificar su estructura en control y su ausencia en los tenants. Conforme a AGENTS.md §8.8, la base se reconstruye recreando el volumen; no se crean migraciones.
 
 **Por qué:** el estado persistido de invitación evita consultas vivas a Clerk en listados y permite marcar la aceptación a partir de un login verificado. El registro auxiliar conserva evidencia e idempotencia para cambios que abarcan confirmaciones tenant y control sin una transacción distribuida, y permite localizar invitaciones huérfanas sin almacenar enlaces. Ambas estructuras apoyan el gobierno y el enrutamiento SaaS, pero no describen hechos del dominio de inventario, tickets u organización; mantenerlas en control evita añadir tablas o atributos de identidad a cada tenant y preserva intacto el modelo canónico.
+
+#### Ciclo de vida del catálogo: estados reversibles e historiales (Feature 014)
+
+La Feature 014 incorpora el atributo lógico `activo` a las entidades tenant `producto` y `categoria`. Ambos nacen activos en instalaciones limpias y las transiciones activo/inactivo son reversibles. La desactivación no elimina las entidades ni altera stock, movimientos o detalles de tickets; el catálogo operativo omite productos inactivos y productos cuya categoría está inactiva. El estado de categoría solo puede pasar a inactivo sin productos activos vinculados; un producto solo se puede desactivar con saldo cero en `stock_sede` (la tabla `inventario` es legado congelado y no participa en esa regla). La creación vigente de producto en categoría inactiva se rechaza y un producto activo no puede quedar bajo categoría inactiva.
+
+La feature crea dos tablas de historial de negocio tenant, una para transiciones de producto y otra para transiciones de categoría. Cada fila referencia directamente el recurso de su tipo, el actor persistido, instante, estado anterior/nuevo y motivo libre obligatorio de hasta 500 caracteres. Cada escritura de estado y su fila de historial se confirman o revierten juntas; la lectura es inmutable y exclusiva del Administrador Institucional de su tenant. Por paridad estructural del DDL canónico, las dos tablas existen también en `control`, que no recibe registros operativos de estas transiciones.
+
+**Son la 16.ª y 17.ª entidades de dominio** (historial de producto e historial de categoría), no auxiliares: cada una registra hechos de negocio con actor, tiempo, estados y motivo, mantiene relación verificable con el recurso correspondiente y se consulta por API. Separarlas evita una referencia polimórfica a dos tablas distintas que no podría verificarse con una FK ordinaria. El modelo canónico pasa de 15 a 17 entidades de dominio (más `departamento_encargado`, auxiliar). El DDL pasa de 20 a **22 tablas en control** y de 17 a **19 tablas por tenant**; la semilla de instalación limpia inicializa productos/categorías como activos y la versión objetivo sube de `013.1` a **`014.1`**. La aprobación de esta justificación precede a cambios de modelos y DDL conforme a AGENTS.md §7.
+
+**Por qué:** el estado explícito evita que artículos retirados permanezcan disponibles para nuevas solicitudes, mientras que los dos historiales preservan quién cambió la disponibilidad, cuándo y por qué sin romper referencias ni la auditoría de stock. La paridad de esquema garantiza que cada tenant enrutado puede ejecutar las operaciones con estructura compatible.
 
 ### 3. Estructura del Frontend (Angular 18 Standalone)
 En Angular moderno (sin NgModules), la clave es el agrupamiento por Características (Features). Esto facilita el Lazy Loading (carga perezosa) y hace que la aplicación escale sin que el código se enrede.

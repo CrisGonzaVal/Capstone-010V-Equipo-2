@@ -24,7 +24,12 @@ from app.models.control_canonico import (
 from app.models.institucion import Departamento, Institucion
 from app.models.inventario import Inventario, MovimientoInventario
 from app.models.organizacion import DepartamentoEncargado
-from app.models.producto import Categoria, Producto
+from app.models.producto import (
+    Categoria,
+    HistorialTransicionCategoria,
+    HistorialTransicionProducto,
+    Producto,
+)
 from app.models.rol import Rol
 from app.models.sede import Sede, StockSede
 from app.models.ticket import (
@@ -47,6 +52,8 @@ __all__ = [
     "ESTADOS_INVITACION",
     "EstadoTicket",
     "FuncionInstitucion",
+    "HistorialTransicionCategoria",
+    "HistorialTransicionProducto",
     "HistorialTransicionTicket",
     "Institucion",
     "InstitucionControl",

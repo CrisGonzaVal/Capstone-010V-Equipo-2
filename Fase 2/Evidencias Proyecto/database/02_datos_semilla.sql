@@ -13,6 +13,9 @@
 --     3. poblar `control.mapa_usuario_esquema` y `control.version_esquema`.
 --   `control.registro_motivo_constancia` (Feature 017) queda VACIA: es evidencia
 --   recuperable generada por las operaciones administrativas, no semilla.
+--   Los dos historiales del catalogo (Feature 014) tambien quedan VACIOS en
+--   control y en cada tenant: registrar una transicion ficticia inventaria
+--   trazabilidad. La semilla solo siembra producto/categoria en estado activo.
 --
 -- ORDEN DE EJECUCION (no lo cambies sin leer esto)
 --   PostgreSQL ejecuta los .sql de esta carpeta solo al crear el volumen, en
@@ -56,7 +59,7 @@
 --   secuencia lineal y solo se alcanza por anulacion o rechazo con motivo.
 --
 -- VERSION OBJETIVO DEL DDL
---   013.1 (`VERSION_ESQUEMA_OBJETIVO` en backend/app/core/config.py).
+--   014.1 (`VERSION_ESQUEMA_OBJETIVO` en backend/app/core/config.py).
 -- =====================================================
 
 BEGIN;
@@ -120,6 +123,7 @@ BEGIN
         'departamento_encargado', 'categoria', 'producto', 'inventario',
         'stock_sede', 'movimiento_inventario', 'prioridad', 'estado_ticket',
         'ticket', 'detalle_ticket', 'historial_transicion_ticket',
+        'historial_transicion_producto', 'historial_transicion_categoria',
         'mapa_usuario_esquema', 'version_esquema', 'registro_motivo_constancia'
     ] LOOP
         EXECUTE format('SELECT count(*) FROM control.%I', v_tabla) INTO v_conteo;
@@ -137,6 +141,7 @@ BEGIN
             'departamento_encargado', 'categoria', 'producto', 'inventario',
             'stock_sede', 'movimiento_inventario', 'prioridad', 'estado_ticket',
             'ticket', 'detalle_ticket', 'historial_transicion_ticket',
+            'historial_transicion_producto', 'historial_transicion_categoria',
             'version_esquema'
         ] LOOP
             IF to_regclass(format('%I.%I', v_esquema, v_tabla)) IS NULL THEN
@@ -290,18 +295,21 @@ INSERT INTO departamento_encargado (departamento_encargado_id, departamento_id, 
 -- HOMONIMOS DELIBERADOS: 'Papeleria' existe con id 1 (INST-001) y con id 7
 -- (INST-002); 'Toner y Cartuchos' con id 2 (INST-001) y 8 (INST-002);
 -- 'Organizacion' con id 4 (INST-001) y 10 (INST-002). Son filas independientes.
+-- Feature 014 (D-3/AC-13): todo el catalogo sembrado nace ACTIVO. Se declara
+-- explicitamente aunque el DDL tenga DEFAULT TRUE, para que la semilla no
+-- dependa de ese default y la verificacion gated lea el estado real.
 
-INSERT INTO categoria (categoria_id, nombre_cat, descripcion_cat, institucion_id) OVERRIDING SYSTEM VALUE VALUES
-(1,  'Papeleria',           'Hojas, resmas y sobres',                'INST-001'),
-(2,  'Toner y Cartuchos',   'Consumibles de impresion',              'INST-001'),
-(3,  'Escritura',           'Lapices, marcadores y rotuladores',     'INST-001'),
-(4,  'Organizacion',        'Folders, archivadores y separadores',   'INST-001'),
-(5,  'Oficina',             'Clip, fasteners y consumibles',         'INST-001'),
-(6,  'Limpieza',            'Productos de aseo y sanitizacion',      'INST-001'),
-(7,  'Papeleria',           'Hojas, resmas y sobres',                'INST-002'),
-(8,  'Toner y Cartuchos',   'Consumibles de impresion',              'INST-002'),
-(9,  'Insumos Clinicos',    'Guantes, gasas y material de atencion', 'INST-002'),
-(10, 'Organizacion',        'Folders, archivadores y separadores',   'INST-002');
+INSERT INTO categoria (categoria_id, nombre_cat, descripcion_cat, institucion_id, activo) OVERRIDING SYSTEM VALUE VALUES
+(1,  'Papeleria',           'Hojas, resmas y sobres',                'INST-001', TRUE),
+(2,  'Toner y Cartuchos',   'Consumibles de impresion',              'INST-001', TRUE),
+(3,  'Escritura',           'Lapices, marcadores y rotuladores',     'INST-001', TRUE),
+(4,  'Organizacion',        'Folders, archivadores y separadores',   'INST-001', TRUE),
+(5,  'Oficina',             'Clip, fasteners y consumibles',         'INST-001', TRUE),
+(6,  'Limpieza',            'Productos de aseo y sanitizacion',      'INST-001', TRUE),
+(7,  'Papeleria',           'Hojas, resmas y sobres',                'INST-002', TRUE),
+(8,  'Toner y Cartuchos',   'Consumibles de impresion',              'INST-002', TRUE),
+(9,  'Insumos Clinicos',    'Guantes, gasas y material de atencion', 'INST-002', TRUE),
+(10, 'Organizacion',        'Folders, archivadores y separadores',   'INST-002', TRUE);
 
 -- =====================================================
 -- 6. PRODUCTO  (14 filas)
@@ -319,22 +327,23 @@ INSERT INTO categoria (categoria_id, nombre_cat, descripcion_cat, institucion_id
 --   producto 7 (Toner Negro 26A Comp.) -> 3 < 10
 --   producto 8 (Grapadora Estandar)    -> 1 < 5
 --   producto 9 (Rotulador Marcador)    -> 6 < 12
+-- Feature 014 (D-3/AC-13): todos nacen ACTIVOS, explicitamente.
 
-INSERT INTO producto (producto_id, nombre, descripcion, unidad_medida, stock_minimo, categoria_id, institucion_id) OVERRIDING SYSTEM VALUE VALUES
-(1,  'Resma Carta 75g A4',      'Resma de 500 hojas tamano carta',          'RESMA',  20, 1,  'INST-001'),
-(2,  'Toner HP 26A Negro',      'Cartucho de toner negro original HP26A',   'UNIDAD', 10, 2,  'INST-001'),
-(3,  'Folder Manila Carta',     'Carpeta de cartulina tamano carta',        'UNIDAD', 25, 4,  'INST-001'),
-(4,  'Boligrafo Bic Cristal',   'Boligrafo punta fina color negro',         'UNIDAD', 30, 3,  'INST-001'),
-(5,  'Clip Metrico 33mm',       'Clip de metal de 33mm en caja x100',       'CAJA',   15, 5,  'INST-001'),
-(6,  'Cinta Adhesiva 48mm',     'Cinta transparente de 48mm x 100m',        'ROLLO',  12, 6,  'INST-001'),
-(7,  'Toner Negro 26A Comp.',   'Cartucho compatible negro para HP26A',     'UNIDAD', 10, 2,  'INST-001'),
-(8,  'Grapadora Estandar',      'Grapadora de escritorio con grapa 24/6',   'UNIDAD',  5, 5,  'INST-001'),
-(9,  'Rotulador Marcador',      'Rotulador permanente punta gruesa',        'UNIDAD', 12, 3,  'INST-001'),
-(10, 'Papel Premium A4',        'Papel de presentacion alto gramaje',       'RESMA',  10, 1,  'INST-001'),
-(11, 'Resma Carta 75g A4',      'Resma de 500 hojas tamano carta',          'RESMA',  20, 7,  'INST-002'),
-(12, 'Toner HP 26A Negro',      'Cartucho de toner negro original HP26A',   'UNIDAD', 10, 8,  'INST-002'),
-(13, 'Guantes de Latex M',      'Caja de guantes de latex talla M',         'CAJA',   40, 9,  'INST-002'),
-(14, 'Folder Manila Carta',     'Carpeta de cartulina tamano carta',        'UNIDAD', 25, 10, 'INST-002');
+INSERT INTO producto (producto_id, nombre, descripcion, unidad_medida, stock_minimo, categoria_id, institucion_id, activo) OVERRIDING SYSTEM VALUE VALUES
+(1,  'Resma Carta 75g A4',      'Resma de 500 hojas tamano carta',          'RESMA',  20, 1,  'INST-001', TRUE),
+(2,  'Toner HP 26A Negro',      'Cartucho de toner negro original HP26A',   'UNIDAD', 10, 2,  'INST-001', TRUE),
+(3,  'Folder Manila Carta',     'Carpeta de cartulina tamano carta',        'UNIDAD', 25, 4,  'INST-001', TRUE),
+(4,  'Boligrafo Bic Cristal',   'Boligrafo punta fina color negro',         'UNIDAD', 30, 3,  'INST-001', TRUE),
+(5,  'Clip Metrico 33mm',       'Clip de metal de 33mm en caja x100',       'CAJA',   15, 5,  'INST-001', TRUE),
+(6,  'Cinta Adhesiva 48mm',     'Cinta transparente de 48mm x 100m',        'ROLLO',  12, 6,  'INST-001', TRUE),
+(7,  'Toner Negro 26A Comp.',   'Cartucho compatible negro para HP26A',     'UNIDAD', 10, 2,  'INST-001', TRUE),
+(8,  'Grapadora Estandar',      'Grapadora de escritorio con grapa 24/6',   'UNIDAD',  5, 5,  'INST-001', TRUE),
+(9,  'Rotulador Marcador',      'Rotulador permanente punta gruesa',        'UNIDAD', 12, 3,  'INST-001', TRUE),
+(10, 'Papel Premium A4',        'Papel de presentacion alto gramaje',       'RESMA',  10, 1,  'INST-001', TRUE),
+(11, 'Resma Carta 75g A4',      'Resma de 500 hojas tamano carta',          'RESMA',  20, 7,  'INST-002', TRUE),
+(12, 'Toner HP 26A Negro',      'Cartucho de toner negro original HP26A',   'UNIDAD', 10, 8,  'INST-002', TRUE),
+(13, 'Guantes de Latex M',      'Caja de guantes de latex talla M',         'CAJA',   40, 9,  'INST-002', TRUE),
+(14, 'Folder Manila Carta',     'Carpeta de cartulina tamano carta',        'UNIDAD', 25, 10, 'INST-002', TRUE);
 
 -- =====================================================
 -- 7. INVENTARIO  (14 filas)
@@ -542,7 +551,9 @@ DECLARE
         'estado_ticket:estado_id',
         'ticket:ticket_id',
         'detalle_ticket:detalle_ticket_id',
-        'historial_transicion_ticket:historial_transicion_id'
+        'historial_transicion_ticket:historial_transicion_id',
+        'historial_transicion_producto:historial_producto_id',
+        'historial_transicion_categoria:historial_categoria_id'
     ];
     par text;
     v_tabla text;
@@ -567,7 +578,7 @@ $reset$;
 
 DO $construccion$
 DECLARE
-    v_version_objetivo constant text := '013.1';
+    v_version_objetivo constant text := '014.1';
     v_institucion_id text;
     v_esquema text;
     v_plantilla text;
@@ -820,6 +831,15 @@ BEGIN
     END IF;
     IF (SELECT count(*) FROM control.registro_motivo_constancia) <> 0 THEN
         RAISE EXCEPTION '02: control.registro_motivo_constancia debe quedar vacia.';
+    END IF;
+    -- Feature 014: la semilla no fabrica transiciones de catalogo.
+    IF (SELECT count(*) FROM control.historial_transicion_producto) <> 0
+       OR (SELECT count(*) FROM control.historial_transicion_categoria) <> 0 THEN
+        RAISE EXCEPTION '02: los historiales del catalogo deben quedar vacios.';
+    END IF;
+    IF EXISTS (SELECT 1 FROM control.categoria WHERE activo IS NOT TRUE)
+       OR EXISTS (SELECT 1 FROM control.producto WHERE activo IS NOT TRUE) THEN
+        RAISE EXCEPTION '02: el catalogo sembrado debe nacer activo.';
     END IF;
 END;
 $construccion$;

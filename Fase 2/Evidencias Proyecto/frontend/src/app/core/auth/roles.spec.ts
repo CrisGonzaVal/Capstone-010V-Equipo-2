@@ -4,6 +4,7 @@ import {
   ROLES_ASIGNABLES_ADMINISTRADOR,
   ROLES_DASHBOARD,
   ROLES_EDICION_TICKETS,
+  ROLES_GESTION_CATALOGO,
   ROLES_INVENTARIO,
   ROLES_NEGOCIO,
   ROLES_OPERATIVOS_TICKETS,
@@ -14,6 +15,7 @@ import {
   puedeAnularTicket,
   puedeAsignarRol,
   puedeEditarTicket,
+  puedeGestionarCatalogo,
   puedeOperarTickets,
   puedeRechazarTicket,
   puedeVerDashboard,
@@ -184,5 +186,17 @@ describe('roles', () => {
     expect(puedeEditarTicket('Superadmin')).toBe(false);
     expect(puedeEditarTicket('Admin')).toBe(false);
     expect(puedeEditarTicket(null)).toBe(false);
+  });
+
+  // --- Ciclo de vida del catálogo (Feature 014, AC-11/AC-15) ---
+
+  it('la gestión del catálogo es exclusiva del Administrador', () => {
+    expect(ROLES_GESTION_CATALOGO).toEqual(['Administrador']);
+    expect(puedeGestionarCatalogo('Administrador')).toBe(true);
+    for (const rol of ['Superadmin', 'Bodeguero', 'Solicitante', 'Admin', null]) {
+      expect(puedeGestionarCatalogo(rol))
+        .withContext(String(rol))
+        .toBe(false);
+    }
   });
 });

@@ -7,9 +7,9 @@ historial solo se acredita contra PostgreSQL 16 real:
   * **Instalacion limpia** (`01_` + `02_`): `Anulado` presente en control y en
     cada tenant, `historial_transicion_ticket` creada en control y en cada
     tenant, sin filas de historial fabricadas (AC-12) y version objetivo
-    `013.1` en todos los esquemas.
+    instalada igual a la fase `013.1` o posterior.
   * **Token de version**: un tenant en `012.1` deniega en cerrado con el objetivo
-    `013.1`; solo se enrutan tenants exactamente en la version objetivo (AC-21).
+    vigente; solo se enrutan tenants exactamente en la version objetivo (AC-21).
 
 COMO ACTIVARLAS
     docker compose -f docker-compose.yml up -d db
@@ -53,6 +53,9 @@ SEMILLA_SQL = RAIZ / "database" / "02_datos_semilla.sql"
 
 #: Version anterior de una instalacion existente (la que fija la 012).
 VERSION_ANTERIOR = "012.1"
+#: Version que introdujo la Feature 013 (fase de la cadena). El token vigente
+#: puede ser posterior (014.1 en adelante) pero nunca inferior.
+VERSION_013 = "013.1"
 #: Estado nuevo del catalogo y tabla nueva del historial (spec D-1/D-10).
 ESTADO_ANULADO = "Anulado"
 TABLA_HISTORIAL = "historial_transicion_ticket"
@@ -158,9 +161,20 @@ def _version_de_control(conexion) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_el_codigo_apunta_a_la_version_013_1():
-    """AC-20/AC-21: `VERSION_ESQUEMA_OBJETIVO` es `013.1`."""
-    assert VERSION_ESQUEMA_OBJETIVO == "013.1", VERSION_ESQUEMA_OBJETIVO
+def _tupla_version(version: str) -> tuple[int, ...]:
+    return tuple(int(parte) for parte in version.split("."))
+
+
+def test_el_codigo_conserva_al_menos_la_version_013_1():
+    """AC-20/AC-21: el token vigente conserva la fase `013.1` de la cadena.
+
+    El literal historico de la 013 se conserva, pero se compara como cota
+    inferior: las features posteriores suben el objetivo (014 lo lleva a 014.1)
+    sin que esta regresion se convierta en un falso fallo.
+    """
+    assert _tupla_version(VERSION_ESQUEMA_OBJETIVO) >= _tupla_version(VERSION_013), (
+        VERSION_ESQUEMA_OBJETIVO
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +257,7 @@ def _sesion_control(conexion):
         motor.dispose()
 
 
-def test_tenant_en_012_1_deniega_con_el_objetivo_013_1():
+def test_tenant_en_012_1_deniega_con_el_objetivo_vigente():
     """AC-21: un tenant desactualizado no se enruta con el objetivo `013.1`."""
     from app.db.database import crear_sesion_esquema
     from app.services import tenant_service

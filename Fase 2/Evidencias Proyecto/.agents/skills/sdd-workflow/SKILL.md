@@ -29,7 +29,7 @@ El ciclo completo puede dirigirse con el agente `@coordinator` (delega en `@plan
 3. **Ciclo de ejecucion en orden:** `spec.md` (que + criterios de aceptacion) → `plan.md` (como tecnicamente) → `tasks.md` (checklist) → codigo verificado con pruebas.
 4. **Si una tarea de `tasks.md` esta incompleta, no asumas la solucion - pregunta.** Si la certeza de una decision es menor al 80%, preguntar es el comportamiento correcto, no una falla (`AGENTS.md` §8.4).
 5. **Cuando generes el codigo, actualiza las casillas `[ ]` a `[x]`** en el `tasks.md` correspondiente, en el momento. No al final de la sesion, no "despues".
-6. **No alteres el modelo de datos canónico** (15 entidades de dominio + `departamento_encargado` auxiliar; las estructuras auxiliares de `control` — p. ej. las columnas de invitación y la tabla de motivos/constancias de la 017 — se rigen por `docs/spec/stack.md`) sin justificacion aprobada en `docs/spec/stack.md`.
+6. **No alteres el modelo de datos canónico** (17 entidades de dominio + `departamento_encargado` auxiliar; las estructuras auxiliares de `control` — p. ej. las columnas de invitación y la tabla de motivos/constancias de la 017 — se rigen por `docs/spec/stack.md`) sin justificacion aprobada en `docs/spec/stack.md`.
 7. **Clerk es la unica autoridad de autenticacion** (Feature 006). No reintroduzcas JWT local HS256 ni un login simulado; no cambies el esquema de autenticacion sin spec. La autorizacion por rol (guards de rol, matriz central de permisos) se implemento en la Feature 007.
 8. **No agregues paquetes** a `requirements.txt` ni `package.json` sin analisis previo.
 9. **No subas secretos ni `.env`.**

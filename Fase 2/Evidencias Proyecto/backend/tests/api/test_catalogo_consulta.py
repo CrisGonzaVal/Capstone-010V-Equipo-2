@@ -334,6 +334,13 @@ def test_listados_existentes_conservan_su_json_con_orden_determinista(cliente, d
     Feature 011 (B1): `stock` deja de exponer el inventario departamental legado y
     pasa a la serie de saldo por sede (`stock_sede`); `categorias` y `productos`
     conservan su contrato salvo el orden, que deja de ser indefinido.
+
+    Feature 014 (T6): `categoria` y `producto` ganan el estado de vigencia `activo`
+    en su respuesta de recurso (`CategoriaRespuesta`/`ProductoRespuesta`), porque la
+    transicion de ciclo de vida responde con el recurso y su estado persistido y el
+    alta de producto debe exponer el estado inicial (AC-13). El contrato se sigue
+    fijando por igualdad exacta de claves: la 014 solo agrega ese campo, y los
+    listados operativos siguen filtrados (AC-4).
     """
     categorias = cliente.get(RUTA_CATEGORIAS).json()
     assert set(categorias[0]) == {
@@ -341,6 +348,7 @@ def test_listados_existentes_conservan_su_json_con_orden_determinista(cliente, d
         "nombre_cat",
         "descripcion_cat",
         "institucion_id",
+        "activo",
     }
     assert [c["nombre_cat"] for c in categorias] == sorted(c["nombre_cat"] for c in categorias)
 
@@ -354,6 +362,7 @@ def test_listados_existentes_conservan_su_json_con_orden_determinista(cliente, d
         "categoria_id",
         "categoria",
         "institucion_id",
+        "activo",
     }
     assert [p["nombre"] for p in productos] == sorted(p["nombre"] for p in productos)
 

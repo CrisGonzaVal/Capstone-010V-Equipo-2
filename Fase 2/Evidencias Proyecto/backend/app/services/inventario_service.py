@@ -8,25 +8,42 @@ from app.core import permisos
 from app.models import (
     Categoria,
     Departamento,
+    HistorialTransicionCategoria,
+    HistorialTransicionProducto,
     Inventario,
     MovimientoInventario,
     Producto,
     Sede,
     StockSede,
+    Usuario,
 )
 from app.schemas.inventario_schema import (
+    GestionCatalogoRespuesta,
+    HistorialTransicionCategoriaRespuesta,
+    HistorialTransicionProductoRespuesta,
     MovimientoCrear,
     MovimientoInventarioRespuesta,
     ProductoExistenciaRespuesta,
     SedeExistenciaRespuesta,
     StockSedeRespuesta,
 )
-from app.schemas.producto_schema import ProductoCrear
+from app.schemas.producto_schema import (
+    CategoriaGestionRespuesta,
+    ProductoCrear,
+    ProductoGestionRespuesta,
+    TransicionCatalogo,
+)
 from app.services import ambito_service
 from app.services.auth_service import IdentidadAutenticada
 
 TIPO_ENTRADA = "ENTRADA"
 TIPO_SALIDA = "SALIDA"
+
+#: Longitud maxima del motivo libre de una transicion del catalogo (spec D-8).
+LONGITUD_MAXIMA_MOTIVO = 500
+
+_DETALLE_PRODUCTO_NO_ENCONTRADO = "Producto no encontrado"
+_DETALLE_CATEGORIA_NO_ENCONTRADA = "Categoria no encontrada"
 
 _SOLICITANTE = permisos.RolConocido.SOLICITANTE.value
 _BODEGUERO = permisos.RolConocido.BODEGUERO.value
@@ -50,9 +67,13 @@ def listar_categorias(
 
     El catalogo deja de ser global: un rol limitado solo ve las categorias de su
     institucion; Superadmin (alcance global) las ve todas con su `institucion_id`.
+
+    Feature 014 (AC-4): esta lectura es **operativa** y excluye las categorias
+    retiradas para todos los roles, incluido el Administrador. El listado
+    administrativo con ambos estados es `listar_gestion` (AC-15).
     """
     institucion_id = ambito_service.alcance_institucional(db, identidad)
-    consulta = db.query(Categoria)
+    consulta = db.query(Categoria).filter(Categoria.activo.is_(True))
     consulta = ambito_service.filtrar_por_institucion(
         consulta, Categoria.institucion_id, institucion_id
     )
@@ -66,9 +87,18 @@ def listar_productos(
 
     `selectinload` evita el N+1: sin el, cada producto dispara su propia consulta
     a `categoria` al serializar la respuesta.
+
+    Feature 014 (AC-4): lectura **operativa**, filtrada por el predicado conjunto
+    `producto.activo AND categoria.activo` para todos los roles. Un producto
+    cuya categoria fue retirada tampoco se ofrece.
     """
     institucion_id = ambito_service.alcance_institucional(db, identidad)
-    consulta = db.query(Producto).options(selectinload(Producto.categoria))
+    consulta = (
+        db.query(Producto)
+        .options(selectinload(Producto.categoria))
+        .join(Categoria, Producto.categoria_id == Categoria.categoria_id)
+        .filter(Producto.activo.is_(True), Categoria.activo.is_(True))
+    )
     consulta = ambito_service.filtrar_por_institucion(
         consulta, Producto.institucion_id, institucion_id
     )
@@ -126,10 +156,21 @@ def crear_producto(
     esa misma institucion: una categoria ajena se oculta con **404** (D-4/AC-9),
     sin dejar fila. Sin institucion resoluble, el rol limitado responde 403
     (`alcance_institucional`); Superadmin no escribe catalogo (matriz 008).
+
+    Feature 014 (AC-13): el alta solo procede en una **categoria activa**; una
+    categoria retirada responde **409** sin escritura. El bloqueo de la categoria
+    se toma antes de insertar el producto para serializar el alta frente a la
+    baja concurrente de esa categoria (AC-16, orden categoria -> producto ->
+    stock). El producto creado nace `activo`.
     """
     institucion_id = ambito_service.alcance_institucional(db, identidad)
 
-    categoria = db.get(Categoria, datos.categoria_id)
+    categoria = (
+        db.query(Categoria)
+        .filter(Categoria.categoria_id == datos.categoria_id)
+        .with_for_update()
+        .first()
+    )
     if categoria is None:
         raise HTTPException(status_code=404, detail="No existe la categoria indicada")
     # Una categoria de otra institucion no habilita el alta (AC-9/AC-10).
@@ -138,6 +179,11 @@ def crear_producto(
         institucion_id,
         detalle="No existe la categoria indicada",
     )
+    if not categoria.activo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede crear un producto en una categoria inactiva",
+        )
 
     # La institucion del producto es la del usuario; solo si el ambito fuera
     # global (Superadmin, que la matriz 008 no autoriza a escribir) cae a la de
@@ -146,7 +192,7 @@ def crear_producto(
         institucion_id if institucion_id is not None else categoria.institucion_id
     )
     nuevo_producto = Producto(
-        **datos.model_dump(), institucion_id=institucion_producto
+        **datos.model_dump(), institucion_id=institucion_producto, activo=True
     )
     db.add(nuevo_producto)
     db.commit()
@@ -200,6 +246,15 @@ def listar_stock_sede(
         StockSede.stock_actual,
         StockSede.institucion_id,
     ).join(Sede, StockSede.sede_id == Sede.sede_id)
+    consulta = consulta.join(
+        Producto, StockSede.producto_id == Producto.producto_id
+    ).join(Categoria, Producto.categoria_id == Categoria.categoria_id)
+    # Feature 014 (AC-4): serie operativa; no expone productos retirados ni
+    # productos de una categoria retirada (predicado conjunto, mismo que las
+    # existencias y los catalogos).
+    consulta = consulta.where(
+        Producto.activo.is_(True), Categoria.activo.is_(True)
+    )
     if institucion_id is not None:
         consulta = consulta.where(StockSede.institucion_id == institucion_id)
     if sede_rol is not None:
@@ -344,6 +399,13 @@ def listar_existencias(
         # El catalogo ya es institucional (D-1/AC-5): un rol limitado solo ve los
         # productos de su institucion, no uno ajeno con `sedes` vacio.
         consulta = consulta.where(Producto.institucion_id == institucion_id)
+
+    # Feature 014 (AC-4): disponibilidad operativa = producto activo **y**
+    # categoria activa, para todos los roles. Es el mismo predicado de
+    # `listar_productos`, `listar_stock_sede` y los catalogos de ticket.
+    consulta = consulta.where(
+        Producto.activo.is_(True), Categoria.activo.is_(True)
+    )
 
     if q:
         patron = f"%{q.strip()}%"
@@ -534,6 +596,453 @@ def listar_movimientos(
     ]
 
 
+# ---------------------------------------------------------------------------
+# Ciclo de vida del catalogo (Feature 014, spec D-4..D-9 y plan §2.4)
+# ---------------------------------------------------------------------------
+#
+# Orden unico de bloqueo en todos los caminos que pueden solaparse:
+#
+#     categoria -> producto -> stock_sede
+#
+# * transicion de producto: lee el resumen (sin bloqueo) para ubicar la
+#   categoria, bloquea la categoria si va a reactivar (precondicion de
+#   vigencia), bloquea el producto y, en la baja, bloquea las filas de
+#   `stock_sede` en orden de PK.
+# * transicion de categoria: bloquea la categoria y, en la baja, cuenta los
+#   productos activos dentro de la misma transaccion.
+# * alta de producto: bloquea la categoria y comprueba su vigencia antes de
+#   insertar.
+# * movimiento por sede: bloquea el producto antes que la fila de stock.
+#
+# Asi la baja de categoria, el alta/reactivacion de producto y el movimiento
+# no pueden intercalarse para dejar una categoria inactiva con producto activo
+# ni un producto inactivo con saldo positivo (AC-6/AC-16). SQLite ignora
+# `FOR UPDATE`; la serializacion real se acredita en PostgreSQL (T10).
+
+
+def _actor_id(identidad: IdentidadAutenticada | None) -> int:
+    """Id del usuario autenticado que firma la transicion, o 401 sin sesion."""
+    usuario = getattr(identidad, "usuario", None) if identidad is not None else None
+    if usuario is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Se requiere una sesion autenticada",
+        )
+    return usuario.usuario_id
+
+
+def _validar_motivo(motivo: Optional[str]) -> str:
+    """Valida el motivo de una transicion **real** (spec D-8/AC-7).
+
+    Se ejecuta en el servicio, nunca en el schema: el 422 debe llegar despues
+    del 404 de existencia/pertenencia y despues de la respuesta idempotente
+    (spec D-9/AC-3). El motivo se persiste literal, sin recortar.
+    """
+    if motivo is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El motivo es obligatorio para cambiar el estado del catalogo",
+        )
+    if not motivo.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El motivo no puede estar vacio ni contener solo espacios",
+        )
+    if len(motivo) > LONGITUD_MAXIMA_MOTIVO:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "El motivo no puede superar los "
+                f"{LONGITUD_MAXIMA_MOTIVO} caracteres"
+            ),
+        )
+    return motivo
+
+
+def _resumen_producto(db: Session, producto_id: int):
+    """Fila minima del producto (id, categoria e institucion) sin bloqueo.
+
+    Sirve para conocer la categoria antes de adquirir bloqueos en el orden
+    acordado y para ocultar con 404 un recurso inexistente o ajeno antes de
+    tocar filas de otro tenant.
+    """
+    return db.execute(
+        select(
+            Producto.producto_id,
+            Producto.categoria_id,
+            Producto.institucion_id,
+        ).where(Producto.producto_id == producto_id)
+    ).first()
+
+
+def _bloquear_producto(db: Session, producto_id: int) -> Producto:
+    """Producto bloqueado para mutar su vigencia, o 404 si no existe."""
+    producto = (
+        db.query(Producto)
+        .filter(Producto.producto_id == producto_id)
+        .with_for_update()
+        .first()
+    )
+    if producto is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_DETALLE_PRODUCTO_NO_ENCONTRADO,
+        )
+    return producto
+
+
+def _bloquear_categoria(db: Session, categoria_id: int) -> Categoria:
+    """Categoria bloqueada para mutar su vigencia, o 404 si no existe."""
+    categoria = (
+        db.query(Categoria)
+        .filter(Categoria.categoria_id == categoria_id)
+        .with_for_update()
+        .first()
+    )
+    if categoria is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_DETALLE_CATEGORIA_NO_ENCONTRADA,
+        )
+    return categoria
+
+
+def _exigir_stock_cero(db: Session, producto_id: int) -> None:
+    """Precondicion de baja de producto: saldo cero en **todas** las sedes (D-6).
+
+    Solo cuenta `stock_sede`; las filas legadas de `inventario` no son saldo
+    operativo. Las filas se bloquean en orden de PK y se leen en la misma
+    transaccion que la transicion, de modo que un movimiento concurrente no
+    puede crear saldo entre la comprobacion y el cambio de estado.
+    """
+    filas = (
+        db.query(StockSede)
+        .filter(StockSede.producto_id == producto_id)
+        .order_by(StockSede.stock_sede_id)
+        .with_for_update()
+        .all()
+    )
+    if any(fila.stock_actual != 0 for fila in filas):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No se puede desactivar un producto con saldo distinto de cero "
+                "en stock por sede"
+            ),
+        )
+
+
+def _exigir_categoria_sin_productos_activos(db: Session, categoria_id: int) -> None:
+    """Precondicion de baja de categoria: ningun producto activo (D-5).
+
+    La comprobacion corre dentro de la misma transaccion que la baja y con la
+    categoria ya bloqueada; el alta/reactivacion de producto bloquea esa misma
+    categoria antes de escribir (AC-16).
+    """
+    activo = (
+        db.query(Producto)
+        .filter(
+            Producto.categoria_id == categoria_id,
+            Producto.activo.is_(True),
+        )
+        .first()
+    )
+    if activo is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No se puede desactivar una categoria con productos activos"
+            ),
+        )
+
+
+def transicionar_producto(
+    db: Session,
+    producto_id: int,
+    datos: TransicionCatalogo,
+    identidad: IdentidadAutenticada | None = None,
+) -> Producto:
+    """Cambia la vigencia de un producto existente (Feature 014, D-4..D-9).
+
+    Precedencia de la parte de negocio (el 401/403 de autenticacion, matriz y
+    capacidad los resuelve el endpoint en T9):
+
+    1. existencia y pertenencia al tenant -> **404** identico;
+    2. si el destino ya es el estado persistido -> **200 idempotente**, sin
+       motivo, precondiciones ni historial;
+    3. motivo invalido -> **422**;
+    4. precondiciones de negocio -> **409** (baja: saldo cero en `stock_sede`;
+       reactivacion: categoria activa).
+
+    En una transicion efectiva, el estado y **exactamente una** fila de
+    `historial_transicion_producto` se confirman en la misma transaccion.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+
+    resumen = _resumen_producto(db, producto_id)
+    if resumen is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_DETALLE_PRODUCTO_NO_ENCONTRADO,
+        )
+    ambito_service.exigir_pertenencia(
+        resumen.institucion_id,
+        institucion_id,
+        detalle=_DETALLE_PRODUCTO_NO_ENCONTRADO,
+    )
+
+    # Orden de bloqueo: categoria (solo en reactivacion) -> producto -> stock.
+    categoria = None
+    if datos.activo:
+        categoria = _bloquear_categoria(db, resumen.categoria_id)
+    producto = _bloquear_producto(db, producto_id)
+
+    if producto.activo == datos.activo:
+        # Repeticion idempotente: no exige motivo ni evalua precondiciones y no
+        # escribe historial (AC-8). Se devuelve el estado persistido.
+        return producto
+
+    motivo = _validar_motivo(datos.motivo)
+
+    if datos.activo:
+        if categoria is None or not categoria.activo:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "No se puede reactivar un producto cuya categoria esta inactiva"
+                ),
+            )
+    else:
+        _exigir_stock_cero(db, producto.producto_id)
+
+    origen = producto.activo
+    producto.activo = datos.activo
+    db.add(
+        HistorialTransicionProducto(
+            producto_id=producto.producto_id,
+            usuario_id=_actor_id(identidad),
+            activo_origen=origen,
+            activo_destino=datos.activo,
+            motivo=motivo,
+        )
+    )
+    db.commit()
+    db.refresh(producto)
+    return producto
+
+
+def transicionar_categoria(
+    db: Session,
+    categoria_id: int,
+    datos: TransicionCatalogo,
+    identidad: IdentidadAutenticada | None = None,
+) -> Categoria:
+    """Cambia la vigencia de una categoria existente (Feature 014, D-4/D-5/D-9).
+
+    Una categoria solo puede desactivarse cuando no tiene productos activos;
+    reactivarla **no** reactiva sus productos (no hay cascada). Estado e
+    historial se confirman juntos, o no se confirman.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+
+    categoria = _bloquear_categoria(db, categoria_id)
+    ambito_service.exigir_pertenencia(
+        categoria.institucion_id,
+        institucion_id,
+        detalle=_DETALLE_CATEGORIA_NO_ENCONTRADA,
+    )
+
+    if categoria.activo == datos.activo:
+        return categoria
+
+    motivo = _validar_motivo(datos.motivo)
+
+    if not datos.activo:
+        _exigir_categoria_sin_productos_activos(db, categoria.categoria_id)
+
+    origen = categoria.activo
+    categoria.activo = datos.activo
+    db.add(
+        HistorialTransicionCategoria(
+            categoria_id=categoria.categoria_id,
+            usuario_id=_actor_id(identidad),
+            activo_origen=origen,
+            activo_destino=datos.activo,
+            motivo=motivo,
+        )
+    )
+    db.commit()
+    db.refresh(categoria)
+    return categoria
+
+
+def listar_gestion(
+    db: Session, identidad: IdentidadAutenticada | None = None
+) -> GestionCatalogoRespuesta:
+    """Listado administrativo del catalogo: ambos estados, acotado al tenant.
+
+    Es la unica lectura que devuelve productos/categorias **activos e
+    inactivos** (spec AC-15); los listados operativos siguen filtrados para
+    todos los roles. Solo el Administrador llega aqui (la autorizacion HTTP se
+    cablea en T9); el tenant se deriva en servidor, nunca del cliente.
+
+    El producto viaja con `categoria_nombre` y `categoria_activa` resueltos por
+    el join, porque la vista administrativa necesita saber que acciones son
+    viables sin cruzar listados operativos.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+
+    consulta_productos = (
+        select(
+            Producto.producto_id,
+            Producto.nombre,
+            Producto.descripcion,
+            Producto.unidad_medida,
+            Producto.stock_minimo,
+            Producto.categoria_id,
+            Categoria.nombre_cat.label("categoria_nombre"),
+            Categoria.activo.label("categoria_activa"),
+            Producto.institucion_id,
+            Producto.activo,
+        )
+        .join(Categoria, Producto.categoria_id == Categoria.categoria_id)
+        .order_by(Producto.nombre, Producto.producto_id)
+    )
+    consulta_productos = ambito_service.filtrar_por_institucion(
+        consulta_productos, Producto.institucion_id, institucion_id
+    )
+    productos = [
+        ProductoGestionRespuesta(**fila)
+        for fila in db.execute(consulta_productos).mappings()
+    ]
+
+    consulta_categorias = db.query(Categoria)
+    consulta_categorias = ambito_service.filtrar_por_institucion(
+        consulta_categorias, Categoria.institucion_id, institucion_id
+    )
+    categorias = [
+        CategoriaGestionRespuesta.model_validate(categoria)
+        for categoria in consulta_categorias.order_by(
+            Categoria.nombre_cat, Categoria.categoria_id
+        ).all()
+    ]
+
+    return GestionCatalogoRespuesta(productos=productos, categorias=categorias)
+
+
+def _resolver_recurso_historial(
+    db: Session,
+    entidad,
+    id_columna,
+    recurso_id: int,
+    institucion_id: str | None,
+    detalle: str,
+):
+    """Recurso del historial existente y del tenant, o 404 oculto (AC-12)."""
+    recurso = db.query(entidad).filter(id_columna == recurso_id).first()
+    if recurso is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detalle)
+    ambito_service.exigir_pertenencia(
+        ambito_service.institucion_de_recurso(recurso),
+        institucion_id,
+        detalle=detalle,
+    )
+    return recurso
+
+
+def listar_historial_producto(
+    db: Session,
+    producto_id: int,
+    identidad: IdentidadAutenticada | None = None,
+) -> List[HistorialTransicionProductoRespuesta]:
+    """Transiciones de un producto, mas reciente primero (spec §7, AC-12).
+
+    El historial es inmutable y de solo lectura: no existe alta, edicion ni
+    borrado por API. Un recurso inexistente o de otro tenant responde 404
+    identico; el 403 por rol se resuelve antes de esta llamada (T9).
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    _resolver_recurso_historial(
+        db,
+        Producto,
+        Producto.producto_id,
+        producto_id,
+        institucion_id,
+        _DETALLE_PRODUCTO_NO_ENCONTRADO,
+    )
+
+    consulta = (
+        select(
+            HistorialTransicionProducto.historial_producto_id,
+            HistorialTransicionProducto.producto_id,
+            HistorialTransicionProducto.usuario_id,
+            HistorialTransicionProducto.fecha_transicion,
+            HistorialTransicionProducto.activo_origen,
+            HistorialTransicionProducto.activo_destino,
+            HistorialTransicionProducto.motivo,
+            Usuario.nombre.label("usuario_nombre"),
+            Usuario.apellido.label("usuario_apellido"),
+        )
+        .join(
+            Usuario,
+            HistorialTransicionProducto.usuario_id == Usuario.usuario_id,
+        )
+        .where(HistorialTransicionProducto.producto_id == producto_id)
+        .order_by(
+            HistorialTransicionProducto.fecha_transicion.desc(),
+            HistorialTransicionProducto.historial_producto_id.desc(),
+        )
+    )
+    return [
+        HistorialTransicionProductoRespuesta(**fila)
+        for fila in db.execute(consulta).mappings()
+    ]
+
+
+def listar_historial_categoria(
+    db: Session,
+    categoria_id: int,
+    identidad: IdentidadAutenticada | None = None,
+) -> List[HistorialTransicionCategoriaRespuesta]:
+    """Transiciones de una categoria, mas reciente primero (spec §7, AC-12)."""
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    _resolver_recurso_historial(
+        db,
+        Categoria,
+        Categoria.categoria_id,
+        categoria_id,
+        institucion_id,
+        _DETALLE_CATEGORIA_NO_ENCONTRADA,
+    )
+
+    consulta = (
+        select(
+            HistorialTransicionCategoria.historial_categoria_id,
+            HistorialTransicionCategoria.categoria_id,
+            HistorialTransicionCategoria.usuario_id,
+            HistorialTransicionCategoria.fecha_transicion,
+            HistorialTransicionCategoria.activo_origen,
+            HistorialTransicionCategoria.activo_destino,
+            HistorialTransicionCategoria.motivo,
+            Usuario.nombre.label("usuario_nombre"),
+            Usuario.apellido.label("usuario_apellido"),
+        )
+        .join(
+            Usuario,
+            HistorialTransicionCategoria.usuario_id == Usuario.usuario_id,
+        )
+        .where(HistorialTransicionCategoria.categoria_id == categoria_id)
+        .order_by(
+            HistorialTransicionCategoria.fecha_transicion.desc(),
+            HistorialTransicionCategoria.historial_categoria_id.desc(),
+        )
+    )
+    return [
+        HistorialTransicionCategoriaRespuesta(**fila)
+        for fila in db.execute(consulta).mappings()
+    ]
+
+
 def registrar_movimiento(
     db: Session,
     movimiento: MovimientoCrear,
@@ -577,6 +1086,16 @@ def registrar_movimiento(
             db, inventario.departamento_id, institucion_id
         )
 
+    # Feature 014 (AC-9): el camino legado de auditoria sigue disponible para sus
+    # filas historicas, pero tampoco admite movimientos nuevos sobre un producto
+    # retirado.
+    producto_legado = db.get(Producto, inventario.producto_id)
+    if producto_legado is not None and not producto_legado.activo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede registrar un movimiento sobre un producto inactivo",
+        )
+
     tipo = movimiento.tipo_movimiento.upper()
     if tipo == TIPO_ENTRADA:
         inventario.stock_actual += movimiento.cantidad
@@ -611,19 +1130,49 @@ def _registrar_movimiento_por_sede(
     * Un Bodeguero solo opera su `usuario.sede_id`: otra sede -propia o ajena-
       responde **404** sin mutar; sin sede asignada, **409** (AC-7).
     * `SALIDA` por encima del saldo responde **409** y no deja auditoria (AC-7).
+
+    Feature 014 (AC-6): el movimiento adquiere el bloqueo del **producto antes
+    que la fila de stock**, el mismo orden que la transicion del catalogo
+    (categoria -> producto -> stock). Asi la entrada de stock y la baja de
+    producto se serializan y nunca queda un producto inactivo con saldo
+    positivo. La comprobacion de que el producto sigue activo se agrega en T8.
     """
-    fila = db.get(StockSede, movimiento.stock_sede_id)
+    referencia = db.get(StockSede, movimiento.stock_sede_id)
     detalle = "Stock por sede no encontrado"
-    if fila is None:
+    if referencia is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detalle)
     ambito_service.exigir_pertenencia(
-        fila.institucion_id, institucion_id, detalle=detalle
+        referencia.institucion_id, institucion_id, detalle=detalle
     )
 
     if permisos.nombre_rol_de(identidad) == _BODEGUERO:
         sede_rol = sede_del_alcance_por_rol(db, identidad)
-        if fila.sede_id != sede_rol:
+        if referencia.sede_id != sede_rol:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detalle)
+
+    # Orden de bloqueo: producto antes que stock_sede (AC-6/AC-16). El estado se
+    # comprueba con el producto ya bloqueado, de modo que una baja concurrente no
+    # pueda intercalarse entre la verificacion y la mutacion del saldo.
+    producto = (
+        db.query(Producto)
+        .filter(Producto.producto_id == referencia.producto_id)
+        .with_for_update()
+        .first()
+    )
+    if producto is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detalle)
+    if not producto.activo:
+        # Feature 014 (AC-9): un producto retirado no admite movimientos nuevos.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede registrar un movimiento sobre un producto inactivo",
+        )
+    fila = (
+        db.query(StockSede)
+        .filter(StockSede.stock_sede_id == referencia.stock_sede_id)
+        .with_for_update()
+        .one()
+    )
 
     tipo = movimiento.tipo_movimiento.upper()
     if tipo == TIPO_ENTRADA:

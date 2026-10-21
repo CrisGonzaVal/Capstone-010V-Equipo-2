@@ -4,7 +4,7 @@ export const ticketsRoutes: Routes = [
   {
     path: '',
     loadComponent: () => import('./tickets.component').then((m) => m.TicketsComponent),
-    title: 'Tickets y Kanban | CompuStock',
+    title: 'Tickets | CompuStock',
   },
   {
     // Detalle del ticket (Feature 013, D-13/AC-24): todas las mutaciones del

@@ -386,34 +386,42 @@
 
           <div formArrayName="detalles" class="space-y-2">
             @for (fila of detallesEdicion.controls; track $index; let i = $index) {
-              <div class="flex items-start gap-2" [formGroupName]="i">
-                <select
-                  formControlName="producto_id"
-                  class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
-                >
-                  <option [ngValue]="null">Selecciona un producto</option>
-                  @for (producto of productos(); track producto.producto_id) {
-                    <option [ngValue]="producto.producto_id">
-                      {{ producto.nombre }} &middot; {{ producto.categoria_nombre }}
-                    </option>
-                  }
-                </select>
-                <input
-                  type="number"
-                  formControlName="cantidad_solicitada"
-                  min="1"
-                  aria-label="Cantidad"
-                  class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-                <button
-                  type="button"
-                  (click)="quitarDetalleEdicion(i)"
-                  [disabled]="!puedeQuitarDetalleEdicion()"
-                  aria-label="Quitar ítem"
-                  class="text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:hover:text-slate-400 px-2 py-2"
-                >
-                  &times;
-                </button>
+              <div class="space-y-1" [formGroupName]="i">
+                <div class="flex items-start gap-2">
+                  <select
+                    formControlName="producto_id"
+                    class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                  >
+                    <option [ngValue]="null">Selecciona un producto</option>
+                    <!-- AC-9: los inactivos no se ofrecen para líneas nuevas; el
+                         producto retirado de esta misma fila sí, para conservarlo. -->
+                    @for (opcion of opcionesProductoEdicion(i); track opcion.producto_id) {
+                      <option [ngValue]="opcion.producto_id">{{ opcion.etiqueta }}</option>
+                    }
+                  </select>
+                  <input
+                    type="number"
+                    formControlName="cantidad_solicitada"
+                    min="1"
+                    aria-label="Cantidad"
+                    class="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    (click)="quitarDetalleEdicion(i)"
+                    [disabled]="!puedeQuitarDetalleEdicion()"
+                    aria-label="Quitar ítem"
+                    class="text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:hover:text-slate-400 px-2 py-2"
+                  >
+                    &times;
+                  </button>
+                </div>
+                @if (esProductoInactivoEdicion(i)) {
+                  <p class="text-[11px] text-amber-700">
+                    Producto inactivo: puedes conservar el ítem y ajustar su cantidad, pero no
+                    añadirlo como línea nueva.
+                  </p>
+                }
               </div>
             }
           </div>

@@ -10,8 +10,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #: que el objetivo subio de `011.1` a `012.1`; la Feature 013 agrega el estado
 #: `Anulado` al catalogo replicado y la tabla `historial_transicion_ticket` en
 #: control y en cada tenant, de modo que el objetivo sube de `012.1` a `013.1`
-#: (spec 013, AC-20/AC-21).
-VERSION_ESQUEMA_OBJETIVO = "013.1"
+#: (spec 013, AC-20/AC-21). La Feature 014 agrega el estado reversible
+#: `producto.activo`/`categoria.activo` y los dos historiales de transicion del
+#: catalogo (`historial_transicion_producto`/`historial_transicion_categoria`)
+#: en control y en cada tenant, de modo que el objetivo sube de `013.1` a
+#: `014.1` (spec 014, AC-13/AC-14).
+VERSION_ESQUEMA_OBJETIVO = "014.1"
 
 
 class Settings(BaseSettings):

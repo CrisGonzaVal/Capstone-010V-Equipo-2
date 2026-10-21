@@ -164,9 +164,13 @@ def test_los_roles_de_negocio_conservan_su_lectura_ac_15(clave):
     )
 
 
-def test_la_matriz_central_es_aditiva_y_sigue_con_55_operaciones_ac_17():
-    """AC-17: la matriz vigente suma el reenvio ordinario de la 017 (55 filas)."""
-    assert len(permisos.MATRIZ_PERMISOS) == 55
+def test_la_matriz_central_es_aditiva_y_no_baja_de_55_operaciones_ac_17():
+    """AC-17: la matriz vigente conserva el reenvio ordinario y la base de la 017.
+
+    Las features posteriores (014 en adelante) solo agregan filas: el criterio es
+    que no se pierda ninguna de las 55 vigentes, no que el total congele 55.
+    """
+    assert len(permisos.MATRIZ_PERMISOS) >= 55
 
 
 def test_comparacion_automatizada_ac_15_deniega_toda_operacion_retirada_ac_17():

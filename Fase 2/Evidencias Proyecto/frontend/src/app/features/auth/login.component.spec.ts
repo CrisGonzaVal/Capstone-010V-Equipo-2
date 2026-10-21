@@ -102,7 +102,7 @@ describe('LoginComponent', () => {
     const raiz = fixture.nativeElement as HTMLElement;
 
     const titulo = raiz.querySelector('h1');
-    expect(titulo?.textContent).toContain('CompuStock ERP');
+    expect(titulo?.textContent).toContain('CompuStock');
     expect((raiz.textContent ?? '').toLowerCase()).toContain('inicia sesión');
   });
 

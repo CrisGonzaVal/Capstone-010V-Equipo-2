@@ -114,7 +114,7 @@ describe('CapacidadesComponent', () => {
       'Catálogo',
       'Inventario',
       'Tickets',
-      'Kanban',
+      'Tablero',
       'Dashboard',
       'Gestión organizacional',
     ];

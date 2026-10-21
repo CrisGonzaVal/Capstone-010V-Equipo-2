@@ -6,8 +6,8 @@
 --
 -- PROPOSITO
 --   Crear TODA la estructura de una instalacion limpia:
---     * el esquema global `control` (20 tablas);
---     * un esquema `tenant_<slug>_<hash>` por institucion, con las 17 tablas
+--     * el esquema global `control` (22 tablas);
+--     * un esquema `tenant_<slug>_<hash>` por institucion, con las 19 tablas
 --       de negocio replicadas.
 --   Los datos de negocio los siembra `02_datos_semilla.sql`, que corre despues.
 --
@@ -24,17 +24,18 @@
 --   en `02_datos_semilla.sql`.
 --
 -- MODELO
---   Es el modelo canonico de 15 entidades de dominio (institucion, sede,
+--   Es el modelo canonico de 17 entidades de dominio (institucion, sede,
 --   departamento, rol, usuario, categoria, producto, inventario, stock_sede,
 --   movimiento_inventario, prioridad, estado_ticket, ticket, detalle_ticket,
---   historial_transicion_ticket) + `departamento_encargado` auxiliar, mas las
+--   historial_transicion_ticket, historial_transicion_producto,
+--   historial_transicion_categoria) + `departamento_encargado` auxiliar, mas las
 --   tablas de control (`funcion_institucion`, `mapa_usuario_esquema`,
 --   `registro_motivo_constancia`, `version_esquema`). Las justificaciones de las
---   Features 008/010/011/012/013/017 viven en docs/spec/stack.md; aqui solo esta
---   el DDL vigente.
+--   Features 008/010/011/012/013/014/017 viven en docs/spec/stack.md; aqui solo
+--   esta el DDL vigente.
 --
 -- VERSION OBJETIVO DEL DDL
---   013.1 (`VERSION_ESQUEMA_OBJETIVO` en backend/app/core/config.py).
+--   014.1 (`VERSION_ESQUEMA_OBJETIVO` en backend/app/core/config.py).
 -- =====================================================
 
 -- =====================================================
@@ -239,6 +240,9 @@ CREATE TABLE control.categoria (
     descripcion_cat VARCHAR(200),
     -- Feature 008 (D-1): cada categoria pertenece a una sola institucion.
     institucion_id VARCHAR(20) NOT NULL,
+    -- Feature 014 (D-3): estado de ciclo de vida reversible. Nace activa; no se
+    -- borra fisicamente ni se alteran sus referencias al desactivarla.
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
 
     CONSTRAINT categoria_institucion_fk
         FOREIGN KEY (institucion_id)
@@ -262,6 +266,9 @@ CREATE TABLE control.producto (
     categoria_id INTEGER NOT NULL,
     -- Feature 008 (D-1): cada producto pertenece a una sola institucion.
     institucion_id VARCHAR(20) NOT NULL,
+    -- Feature 014 (D-3): estado de ciclo de vida reversible. Solo puede pasar a
+    -- inactivo con saldo cero en `stock_sede` (regla del servicio, AC-6).
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
 
     CONSTRAINT producto_institucion_fk
         FOREIGN KEY (institucion_id)
@@ -527,6 +534,68 @@ CREATE TABLE control.historial_transicion_ticket (
 );
 
 -- =====================================================
+-- 12c. HISTORIAL_TRANSICION_PRODUCTO  (Feature 014)
+-- =====================================================
+-- Una fila por cambio REAL de vigencia de un producto (spec D-8, AC-7): estado
+-- anterior/nuevo, actor, instante y motivo libre obligatorio de hasta 500
+-- caracteres. Es la 16.ª entidad de dominio (stack.md §2, apartado 014). Se
+-- escribe en la MISMA transaccion que el cambio de estado; la repeticion
+-- idempotente no genera fila (AC-8). Inmutable y de solo lectura por API. Tabla
+-- de negocio por esquema tenant; aqui se crea en `control` por paridad
+-- estructural del DDL canonico, igual que `historial_transicion_ticket`. Sin
+-- `institucion_id`: su aislamiento es el de su esquema.
+
+CREATE TABLE control.historial_transicion_producto (
+    historial_producto_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    producto_id INTEGER NOT NULL,
+    -- Actor autenticado de la transicion.
+    usuario_id INTEGER NOT NULL,
+    fecha_transicion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Estado de vigencia antes y despues del cambio (AC-7).
+    activo_origen BOOLEAN NOT NULL,
+    activo_destino BOOLEAN NOT NULL,
+    -- Motivo libre obligatorio (spec D-8). El servicio valida contenido y
+    -- longitud (500) para respetar el orden de errores (AC-3).
+    motivo VARCHAR(500) NOT NULL,
+
+    CONSTRAINT historial_transicion_producto_producto_fk
+        FOREIGN KEY (producto_id)
+        REFERENCES producto(producto_id),
+
+    CONSTRAINT historial_transicion_producto_usuario_fk
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(usuario_id)
+);
+
+-- =====================================================
+-- 12d. HISTORIAL_TRANSICION_CATEGORIA  (Feature 014)
+-- =====================================================
+-- Tabla hermana de `historial_transicion_producto`, con FK real a `categoria`.
+-- Es la 17.ª entidad de dominio y comparte reglas de inmutabilidad, atomicidad
+-- y paridad control/tenant.
+
+CREATE TABLE control.historial_transicion_categoria (
+    historial_categoria_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    categoria_id INTEGER NOT NULL,
+    -- Actor autenticado de la transicion.
+    usuario_id INTEGER NOT NULL,
+    fecha_transicion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Estado de vigencia antes y despues del cambio (AC-7).
+    activo_origen BOOLEAN NOT NULL,
+    activo_destino BOOLEAN NOT NULL,
+    -- Motivo libre obligatorio (spec D-8).
+    motivo VARCHAR(500) NOT NULL,
+
+    CONSTRAINT historial_transicion_categoria_categoria_fk
+        FOREIGN KEY (categoria_id)
+        REFERENCES categoria(categoria_id),
+
+    CONSTRAINT historial_transicion_categoria_usuario_fk
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(usuario_id)
+);
+
+-- =====================================================
 -- FEATURE 010: CONTEXTO DE CONTROL Y VERSIONADO POR TENANT
 -- =====================================================
 --
@@ -686,7 +755,7 @@ AS $nombre$
 $nombre$;
 
 -- Crea un esquema tenant por cada institucion de la topologia. Las plantillas
--- son identicas al DDL de `control` de las 17 tablas de negocio, con las FKs
+-- son identicas al DDL de `control` de las 19 tablas de negocio, con las FKs
 -- calificadas al mismo esquema (sin referencias cross-schema). El espejo
 -- `institucion` se limita a dos columnas (`institucion_id`, `nombre`): `rut`,
 -- `direccion`, `activo` y `funcion_institucion` viven SOLO en control.
@@ -759,6 +828,7 @@ BEGIN
         'nombre_cat VARCHAR(100) NOT NULL, '
         'descripcion_cat VARCHAR(200), '
         'institucion_id VARCHAR(20) NOT NULL, '
+        'activo BOOLEAN NOT NULL DEFAULT TRUE, '
         'CONSTRAINT categoria_institucion_fk FOREIGN KEY (institucion_id) '
         'REFERENCES %1$I.institucion(institucion_id), '
         'CONSTRAINT categoria_institucion_uk UNIQUE (institucion_id, categoria_id))',
@@ -771,6 +841,7 @@ BEGIN
         'stock_minimo INTEGER NOT NULL DEFAULT 0, '
         'categoria_id INTEGER NOT NULL, '
         'institucion_id VARCHAR(20) NOT NULL, '
+        'activo BOOLEAN NOT NULL DEFAULT TRUE, '
         'CONSTRAINT producto_institucion_fk FOREIGN KEY (institucion_id) '
         'REFERENCES %1$I.institucion(institucion_id), '
         'CONSTRAINT producto_categoria_institucion_fk FOREIGN KEY (institucion_id, categoria_id) '
@@ -885,6 +956,32 @@ BEGIN
         'CONSTRAINT historial_transicion_ticket_usuario_fk '
         'FOREIGN KEY (usuario_id) REFERENCES %1$I.usuario(usuario_id))',
 
+        'CREATE TABLE %1$I.historial_transicion_producto ('
+        'historial_producto_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, '
+        'producto_id INTEGER NOT NULL, '
+        'usuario_id INTEGER NOT NULL, '
+        'fecha_transicion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, '
+        'activo_origen BOOLEAN NOT NULL, '
+        'activo_destino BOOLEAN NOT NULL, '
+        'motivo VARCHAR(500) NOT NULL, '
+        'CONSTRAINT historial_transicion_producto_producto_fk '
+        'FOREIGN KEY (producto_id) REFERENCES %1$I.producto(producto_id), '
+        'CONSTRAINT historial_transicion_producto_usuario_fk '
+        'FOREIGN KEY (usuario_id) REFERENCES %1$I.usuario(usuario_id))',
+
+        'CREATE TABLE %1$I.historial_transicion_categoria ('
+        'historial_categoria_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, '
+        'categoria_id INTEGER NOT NULL, '
+        'usuario_id INTEGER NOT NULL, '
+        'fecha_transicion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, '
+        'activo_origen BOOLEAN NOT NULL, '
+        'activo_destino BOOLEAN NOT NULL, '
+        'motivo VARCHAR(500) NOT NULL, '
+        'CONSTRAINT historial_transicion_categoria_categoria_fk '
+        'FOREIGN KEY (categoria_id) REFERENCES %1$I.categoria(categoria_id), '
+        'CONSTRAINT historial_transicion_categoria_usuario_fk '
+        'FOREIGN KEY (usuario_id) REFERENCES %1$I.usuario(usuario_id))',
+
         'CREATE TABLE %1$I.version_esquema ('
         'version_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, '
         'version VARCHAR(20) NOT NULL, '
@@ -899,17 +996,17 @@ BEGIN
             EXECUTE format(v_plantilla, v_esquema);
         END LOOP;
 
-        -- Fail-closed: el tenant debe tener exactamente las 17 tablas de negocio.
+        -- Fail-closed: el tenant debe tener exactamente las 19 tablas de negocio.
         SELECT count(*) INTO v_conteo
         FROM information_schema.tables
         WHERE table_schema = v_esquema
           AND table_type = 'BASE TABLE';
-        IF v_conteo <> 17 THEN
+        IF v_conteo <> 19 THEN
             RAISE EXCEPTION
-                '01: el tenant % tiene % tabla(s) (esperadas 17).',
+                '01: el tenant % tiene % tabla(s) (esperadas 19).',
                 v_esquema, v_conteo;
         END IF;
-        RAISE NOTICE '01: tenant % creado con 17 tablas.', v_esquema;
+        RAISE NOTICE '01: tenant % creado con 19 tablas.', v_esquema;
     END LOOP;
 END;
 $tenants$;

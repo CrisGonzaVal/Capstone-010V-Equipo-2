@@ -5,6 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.api import dependencies
 from app.schemas.inventario_schema import (
+    GestionCatalogoRespuesta,
+    HistorialTransicionCategoriaRespuesta,
+    HistorialTransicionProductoRespuesta,
     MovimientoCrear,
     MovimientoInventarioRespuesta,
     ProductoExistenciaRespuesta,
@@ -14,6 +17,7 @@ from app.schemas.producto_schema import (
     CategoriaRespuesta,
     ProductoCrear,
     ProductoRespuesta,
+    TransicionCatalogo,
 )
 from app.services import inventario_service
 from app.services import global_service
@@ -338,3 +342,282 @@ def registrar_movimiento(
         "message": "Movimiento registrado exitosamente",
         "nuevo_stock": inventario.stock_actual,
     }
+
+
+# ---------------------------------------------------------------------------
+# Ciclo de vida del catalogo (Feature 014, plan §2.6)
+#
+# Las cinco operaciones son aditivas y exclusivas del Administrador
+# Institucional (AC-2/AC-12/AC-15) y quedan gated bajo la capacidad `catalogo`.
+# El orden de validacion D-9 lo resuelve la cadena de dependencias y el
+# servicio: 401 (sesion) -> 403 (matriz) -> 403 (capacidad) -> 404 (existencia y
+# pertenencia) -> 200 idempotente -> 422 (motivo) -> 409 (precondicion). El
+# endpoint no duplica ninguna de esas comprobaciones.
+# ---------------------------------------------------------------------------
+
+
+@router.patch(
+    "/productos/{producto_id}/estado",
+    response_model=ProductoRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Cambiar la vigencia de un producto",
+    description=(
+        "Da de baja (`activo: false`) o reactiva (`activo: true`) un producto "
+        "existente del tenant (Feature 014, D-4).\n\n"
+        "El cuerpo lleva **solo** el estado destino y el `motivo` libre de la "
+        "transicion real: ausente, vacio, solo espacios o de mas de 500 "
+        "caracteres responde **422**; hasta 500 caracteres se persiste literal en "
+        "el historial (AC-7).\n\n"
+        "El orden es `404` de existencia/pertenencia -> **200 idempotente** si el "
+        "destino ya es el estado vigente (no exige motivo ni evalua "
+        "precondiciones, y no escribe historial) -> **422** de motivo -> **409** "
+        "de precondicion (D-9/AC-3/AC-8): la baja exige saldo cero en todas las "
+        "filas de `stock_sede` (el `inventario` legado no participa) y la "
+        "reactivacion exige que su categoria este activa (AC-5/AC-6). Un recurso "
+        "ajeno se oculta con **404**, indistinguible de uno inexistente.\n\n"
+        "Una transicion efectiva confirma en la misma operacion el estado y "
+        "exactamente una fila de `historial_transicion_producto` (AC-7). La baja "
+        "nunca borra el producto ni altera stock, movimientos o tickets (AC-1), y "
+        "no existe borrado fisico (D-3)."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+        **dependencies.respuesta_conflicto(),
+    },
+    dependencies=[
+        Depends(
+            dependencies.requiere_operacion(
+                "PATCH", "/api/v1/inventario/productos/{producto_id}/estado"
+            )
+        ),
+        Depends(
+            dependencies.requiere_capacidad(
+                "PATCH", "/api/v1/inventario/productos/{producto_id}/estado"
+            )
+        ),
+    ],
+)
+def transicionar_producto(
+    producto_id: int,
+    datos: TransicionCatalogo,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion(
+            "PATCH", "/api/v1/inventario/productos/{producto_id}/estado"
+        )
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+):
+    return inventario_service.transicionar_producto(
+        db, producto_id, datos, identidad
+    )
+
+
+@router.patch(
+    "/categorias/{categoria_id}/estado",
+    response_model=CategoriaRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Cambiar la vigencia de una categoria",
+    description=(
+        "Da de baja (`activo: false`) o reactiva (`activo: true`) una categoria "
+        "existente del tenant (Feature 014, D-4/D-5).\n\n"
+        "Misma precedencia que la transicion de producto (D-9/AC-3): `404` -> "
+        "**200 idempotente** -> **422** de motivo -> **409** de precondicion. El "
+        "motivo es obligatorio solo en un cambio real y se persiste literal con "
+        "hasta 500 caracteres (AC-7); la repeticion idempotente no lo exige ni "
+        "agrega historial (AC-8).\n\n"
+        "Una categoria con al menos un producto activo responde **409** "
+        "(AC-5): primero deben retirarse sus productos. Reactivarla **no** "
+        "reactiva sus productos en cascada. Las referencias de los productos "
+        "inactivos se conservan (AC-1). Una transicion efectiva confirma estado y "
+        "exactamente una fila de `historial_transicion_categoria` en la misma "
+        "operacion."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+        **dependencies.respuesta_conflicto(),
+    },
+    dependencies=[
+        Depends(
+            dependencies.requiere_operacion(
+                "PATCH", "/api/v1/inventario/categorias/{categoria_id}/estado"
+            )
+        ),
+        Depends(
+            dependencies.requiere_capacidad(
+                "PATCH", "/api/v1/inventario/categorias/{categoria_id}/estado"
+            )
+        ),
+    ],
+)
+def transicionar_categoria(
+    categoria_id: int,
+    datos: TransicionCatalogo,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion(
+            "PATCH", "/api/v1/inventario/categorias/{categoria_id}/estado"
+        )
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+):
+    return inventario_service.transicionar_categoria(
+        db, categoria_id, datos, identidad
+    )
+
+
+@router.get(
+    "/productos/{producto_id}/historial",
+    response_model=List[HistorialTransicionProductoRespuesta],
+    status_code=status.HTTP_200_OK,
+    summary="Historial de transiciones de un producto",
+    description=(
+        "Devuelve las transiciones de vigencia de un producto del tenant, "
+        "**mas reciente primero** y con orden determinista (Feature 014, "
+        "D-8/AC-12): `fecha_transicion` descendente y, ante empates, "
+        "`historial_producto_id` descendente. Cada fila expone recurso, actor, "
+        "instante, estado origen/destino y motivo. Un producto sin transiciones "
+        "devuelve una lista vacia.\n\n"
+        "Es una lectura **inmutable y de solo lectura**: no se publica alta, "
+        "edicion ni borrado del historial (AC-12). Solo el Administrador "
+        "Institucional la consume; un recurso ajeno o inexistente responde "
+        "**404** identico (ocultamiento D-4). Los errores aplicables son "
+        "**401/403/404** y el **422** de identificador de ruta invalido; la "
+        "operacion no muta estado ni evalua precondiciones, por lo que no "
+        "produce un **409** de conflicto (clase documentada por el contrato "
+        "uniforme de AC-14)."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+        status.HTTP_409_CONFLICT: {
+            "description": (
+                "Clase documentada por el contrato uniforme de AC-14: la lectura "
+                "de historial no muta estado ni evalua precondiciones, asi que no "
+                "produce un conflicto real."
+            )
+        },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "description": "Identificador de ruta con forma invalida (no entero)."
+        },
+    },
+    dependencies=[
+        Depends(
+            dependencies.requiere_operacion(
+                "GET", "/api/v1/inventario/productos/{producto_id}/historial"
+            )
+        ),
+        Depends(
+            dependencies.requiere_capacidad(
+                "GET", "/api/v1/inventario/productos/{producto_id}/historial"
+            )
+        ),
+    ],
+)
+def listar_historial_producto(
+    producto_id: int,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion(
+            "GET", "/api/v1/inventario/productos/{producto_id}/historial"
+        )
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+):
+    return inventario_service.listar_historial_producto(
+        db, producto_id, identidad
+    )
+
+
+@router.get(
+    "/categorias/{categoria_id}/historial",
+    response_model=List[HistorialTransicionCategoriaRespuesta],
+    status_code=status.HTTP_200_OK,
+    summary="Historial de transiciones de una categoria",
+    description=(
+        "Tabla hermana del historial de producto: transiciones de vigencia de "
+        "una categoria del tenant, **mas reciente primero** y con orden "
+        "determinista (Feature 014, D-8/AC-12). Cada fila expone recurso, actor, "
+        "instante, estado origen/destino y motivo, y referencia exclusivamente su "
+        "categoria. Una categoria sin transiciones devuelve una lista vacia.\n\n"
+        "Lectura **inmutable y de solo lectura** (AC-12). Solo el Administrador "
+        "Institucional la consume; un recurso ajeno o inexistente responde "
+        "**404** identico. Los errores aplicables son **401/403/404** y el "
+        "**422** de identificador de ruta invalido; la operacion no muta estado "
+        "ni evalua precondiciones, por lo que no produce un **409** de conflicto "
+        "(clase documentada por el contrato uniforme de AC-14)."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+        status.HTTP_409_CONFLICT: {
+            "description": (
+                "Clase documentada por el contrato uniforme de AC-14: la lectura "
+                "de historial no muta estado ni evalua precondiciones, asi que no "
+                "produce un conflicto real."
+            )
+        },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "description": "Identificador de ruta con forma invalida (no entero)."
+        },
+    },
+    dependencies=[
+        Depends(
+            dependencies.requiere_operacion(
+                "GET", "/api/v1/inventario/categorias/{categoria_id}/historial"
+            )
+        ),
+        Depends(
+            dependencies.requiere_capacidad(
+                "GET", "/api/v1/inventario/categorias/{categoria_id}/historial"
+            )
+        ),
+    ],
+)
+def listar_historial_categoria(
+    categoria_id: int,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion(
+            "GET", "/api/v1/inventario/categorias/{categoria_id}/historial"
+        )
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+):
+    return inventario_service.listar_historial_categoria(
+        db, categoria_id, identidad
+    )
+
+
+@router.get(
+    "/gestion",
+    response_model=GestionCatalogoRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Listado de gestion del catalogo con ambos estados",
+    description=(
+        "Devuelve `{productos, categorias}` del tenant, **activos e inactivos**, "
+        "con el estado vigente en cada recurso (Feature 014, AC-15). Es la unica "
+        "lectura con esa propiedad y alimenta exclusivamente la seccion "
+        "administrativa de la vista de inventario; los listados operativos "
+        "existentes siguen filtrados para todos los roles, incluido el "
+        "Administrador.\n\n"
+        "Solo el Administrador Institucional la consume: Bodeguero, Solicitante y "
+        "Superadmin reciben **403** y el ambito tenant se deriva siempre en "
+        "servidor, nunca de una entrada del cliente. Los errores relevantes son "
+        "**401** y **403**; el listado no muta estado."
+    ),
+    responses=dependencies.respuestas_de_autorizacion(),
+    dependencies=[
+        Depends(
+            dependencies.requiere_operacion("GET", "/api/v1/inventario/gestion")
+        ),
+        Depends(
+            dependencies.requiere_capacidad("GET", "/api/v1/inventario/gestion")
+        ),
+    ],
+)
+def listar_gestion(
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("GET", "/api/v1/inventario/gestion")
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+):
+    return inventario_service.listar_gestion(db, identidad)

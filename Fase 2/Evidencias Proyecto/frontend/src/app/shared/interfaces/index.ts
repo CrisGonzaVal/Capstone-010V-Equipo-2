@@ -15,6 +15,12 @@ export interface Categoria {
   categoria_id: number;
   nombre_cat: string;
   descripcion_cat: string | null;
+  /**
+   * Estado vigente del catálogo (Feature 014, AC-15). El listado operativo de
+   * `GET /inventario/categorias` solo devuelve activas, pero la transición de
+   * estado responde con el recurso completo y este campo persistido.
+   */
+  activo: boolean;
 }
 
 export interface Producto {
@@ -24,6 +30,8 @@ export interface Producto {
   unidad_medida: string | null;
   stock_minimo: number;
   categoria_id: number;
+  /** Estado vigente (Feature 014, AC-13/AC-15), igual que en `Categoria`. */
+  activo: boolean;
   categoria: Categoria | null;
 }
 
@@ -78,6 +86,94 @@ export interface ProductoExistencia {
   stock_total: number;
   es_critico: boolean;
   sedes: SedeExistencia[];
+}
+
+// --- Ciclo de vida del catálogo (Feature 014) ---
+
+/**
+ * Payload de `PATCH /inventario/productos/{id}/estado` y `.../categorias/{id}/estado`
+ * (`TransicionCatalogo` del backend, T6).
+ *
+ * El servidor valida el motivo (no vacío, no solo espacios, ≤ 500) en el
+ * servicio, no en el schema, para respetar el orden 404 → idempotencia → 422.
+ * Un `motivo` ausente solo es válido cuando el destino ya es el estado
+ * persistido (repetición idempotente, 200 sin historial).
+ */
+export interface TransicionCatalogo {
+  activo: boolean;
+  motivo?: string | null;
+}
+
+/**
+ * Fila de categoría de `GET /inventario/gestion` (`CategoriaGestionRespuesta`).
+ *
+ * El listado de gestión devuelve **ambos** estados, a diferencia del listado
+ * operativo, que sigue filtrado para todos los roles (AC-15).
+ */
+export interface CategoriaGestion {
+  categoria_id: number;
+  nombre_cat: string;
+  descripcion_cat: string | null;
+  institucion_id?: string | null;
+  activo: boolean;
+}
+
+/**
+ * Fila de producto de `GET /inventario/gestion` (`ProductoGestionRespuesta`).
+ *
+ * `categoria_nombre` y `categoria_activa` llegan resueltos porque el estado de
+ * la categoría condiciona qué acciones son viables: un producto no puede
+ * reactivarse bajo una categoría inactiva (AC-5).
+ */
+export interface ProductoGestion {
+  producto_id: number;
+  nombre: string;
+  descripcion: string | null;
+  unidad_medida: string | null;
+  stock_minimo: number;
+  categoria_id: number;
+  categoria_nombre: string;
+  categoria_activa: boolean;
+  institucion_id?: string | null;
+  activo: boolean;
+}
+
+/** Read model de `GET /inventario/gestion` (`GestionCatalogoRespuesta`). */
+export interface GestionCatalogo {
+  productos: ProductoGestion[];
+  categorias: CategoriaGestion[];
+}
+
+/**
+ * Fila de `GET /inventario/productos/{id}/historial`
+ * (`HistorialTransicionProductoRespuesta`).
+ *
+ * Solo lectura e inmutable. `usuario_nombre`/`usuario_apellido` son los campos
+ * de presentación que resuelve el servicio; la vista degrada si faltan.
+ */
+export interface HistorialTransicionProducto {
+  historial_producto_id: number;
+  producto_id: number;
+  usuario_id: number;
+  fecha_transicion: string;
+  activo_origen: boolean;
+  activo_destino: boolean;
+  motivo: string;
+  usuario_nombre?: string | null;
+  usuario_apellido?: string | null;
+}
+
+/** Fila de `GET /inventario/categorias/{id}/historial` (hermana de la de producto). */
+export interface HistorialTransicionCategoria {
+  historial_categoria_id: number;
+  categoria_id: number;
+  usuario_id: number;
+  fecha_transicion: string;
+  activo_origen: boolean;
+  activo_destino: boolean;
+  motivo: string;
+  usuario_nombre?: string | null;
+  usuario_apellido?: string | null;
 }
 
 // --- Tickets ---
@@ -140,6 +236,15 @@ export interface ProductoCatalogo {
   categoria_nombre: string;
   stock_total: number;
   es_critico: boolean;
+  /**
+   * Estado del producto (Feature 014, AC-4/AC-9).
+   *
+   * `GET /tickets/catalogos` ya excluye en servidor los productos inactivos y
+   * los de categoría inactiva, así que hoy este campo no viaja. Se declara
+   * opcional como salvaguarda: si una regresión lo enviara con `false`, la UI
+   * no debe ofrecerlo para líneas nuevas. Ausente equivale a disponible.
+   */
+  activo?: boolean;
 }
 
 export interface Solicitante {

@@ -20,7 +20,7 @@ export class AppComponent {
   readonly autenticacion = inject(AutenticacionService);
   private readonly router = inject(Router);
 
-  readonly titulo = 'CompuStock ERP';
+  readonly titulo = 'CompuStock';
 
   /** `sidebarAbierto` es un signal, no un booleano mutable: el toggle re-renderiza solo. */
   readonly sidebarAbierto = signal(true);

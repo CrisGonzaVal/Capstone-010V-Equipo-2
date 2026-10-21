@@ -30,6 +30,14 @@ MAPA_OPERACION_CAPACIDAD: dict[tuple[str, str], str] = {
     ("GET", "/api/v1/inventario/productos"): "catalogo",
     ("GET", "/api/v1/inventario/productos/{producto_id}"): "catalogo",
     ("POST", "/api/v1/inventario/productos"): "catalogo",
+    # Feature 014 (plan §2.6): el ciclo de vida completo del catalogo —transiciones,
+    # historiales y listado de gestion— pertenece a la capacidad `catalogo`. Son
+    # cinco asociaciones nuevas; el conjunto cerrado de la 012 no se amplia.
+    ("PATCH", "/api/v1/inventario/productos/{producto_id}/estado"): "catalogo",
+    ("PATCH", "/api/v1/inventario/categorias/{categoria_id}/estado"): "catalogo",
+    ("GET", "/api/v1/inventario/productos/{producto_id}/historial"): "catalogo",
+    ("GET", "/api/v1/inventario/categorias/{categoria_id}/historial"): "catalogo",
+    ("GET", "/api/v1/inventario/gestion"): "catalogo",
     # --- inventario: existencias y movimientos ---
     ("GET", "/api/v1/inventario/existencias"): "inventario",
     ("GET", "/api/v1/inventario/stock"): "inventario",

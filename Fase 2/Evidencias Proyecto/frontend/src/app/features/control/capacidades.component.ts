@@ -19,7 +19,7 @@ const ETIQUETAS_CAPACIDAD: Record<string, string> = {
   catalogo: 'Catálogo',
   inventario: 'Inventario',
   tickets: 'Tickets',
-  kanban: 'Kanban',
+  kanban: 'Tablero',
   dashboard: 'Dashboard',
   gestion_organizacional: 'Gestión organizacional',
 };

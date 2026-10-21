@@ -76,6 +76,14 @@ _ESCRITURA_TICKETS: frozenset[str] = frozenset(
 # Administrador en esta feature (la lectura operativa de existencias llega en T8).
 _ORGANIZACION: frozenset[str] = frozenset({_ADMINISTRADOR})
 
+# --- Feature 014 (spec D-8/D-9, AC-2/AC-12/AC-15) ---------------------------
+# Ciclo de vida del catalogo: transiciones, historiales y listado de gestion. Las
+# cinco operaciones son exclusivas del Administrador Institucional; Superadmin no
+# opera catalogo de un tenant desde la 008 y los roles operativos no gestionan el
+# ciclo de vida. El gating de capacidad `catalogo` se aplica aparte.
+_CICLO_VIDA_CATALOGO: frozenset[str] = frozenset({_ADMINISTRADOR})
+
+
 #: Matriz explicita operacion -> roles permitidos (D-3, AC-9).
 #:
 #: La clave es (metodo HTTP en mayusculas, ruta completa tal como la publica el
@@ -233,6 +241,29 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
         "POST",
         "/api/v1/control/instituciones/{institucion_id}/usuarios/{usuario_id}/invitacion/reenvio",
     ): frozenset({_SUPERADMIN}),
+    # Feature 014 (spec D-8/D-9, AC-2/AC-12/AC-15): ciclo de vida del catalogo.
+    # Las cinco operaciones son nuevas y **aditivas** (matriz 55 -> 60): ninguna
+    # entrada previa se modifica ni se retira. Transiciones, historiales y listado
+    # de gestion quedan reservados al Administrador Institucional de su tenant;
+    # Bodeguero, Solicitante y Superadmin reciben 403. El gating de la capacidad
+    # `catalogo` (Feature 012) se evalua despues de esta matriz y antes del recurso.
+    (
+        "PATCH",
+        "/api/v1/inventario/productos/{producto_id}/estado",
+    ): _CICLO_VIDA_CATALOGO,
+    (
+        "PATCH",
+        "/api/v1/inventario/categorias/{categoria_id}/estado",
+    ): _CICLO_VIDA_CATALOGO,
+    (
+        "GET",
+        "/api/v1/inventario/productos/{producto_id}/historial",
+    ): _CICLO_VIDA_CATALOGO,
+    (
+        "GET",
+        "/api/v1/inventario/categorias/{categoria_id}/historial",
+    ): _CICLO_VIDA_CATALOGO,
+    ("GET", "/api/v1/inventario/gestion"): _CICLO_VIDA_CATALOGO,
 }
 
 

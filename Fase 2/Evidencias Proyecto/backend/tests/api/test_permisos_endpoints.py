@@ -742,10 +742,13 @@ def datos_autorizacion(motor, datos_base):
 
 
 def test_inventario_de_rutas_igual_a_la_matriz_d3():
-    """El `app` publica exactamente las 49 operaciones de negocio de la matriz.
+    """El `app` publica las operaciones de negocio de la matriz, sin huérfanas.
 
-    Falla si una ruta de negocio queda sin autorizacion declarada o si la matriz
-    inventa una operacion que el contrato no expone.
+    `MATRIZ_D3` es la transcripcion de la fase 007/013/017: sus operaciones deben
+    seguir existiendo y autorizadas. El contrato vivo y la matriz viva se siguen
+    comparando por igualdad, de modo que ninguna ruta quede sin autorizacion
+    declarada ni la matriz invente una operacion que el contrato no expone. Las
+    features posteriores solo agregan (la 014 suma cinco operaciones).
     """
     esquema = app.openapi()
     operaciones_reales = {
@@ -755,8 +758,9 @@ def test_inventario_de_rutas_igual_a_la_matriz_d3():
         for metodo in item
         if metodo in _METODOS_HTTP
     }
-    assert operaciones_reales == set(MATRIZ_D3)
-    assert set(permisos.MATRIZ_PERMISOS) == set(MATRIZ_D3)
+    assert set(MATRIZ_D3) <= operaciones_reales
+    assert set(MATRIZ_D3) <= set(permisos.MATRIZ_PERMISOS)
+    assert operaciones_reales == set(permisos.MATRIZ_PERMISOS)
 
 
 def test_operacion_dashboard_declarada_solo_para_los_roles_institucionales():

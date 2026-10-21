@@ -189,12 +189,17 @@ def test_matriz_conserva_las_44_operaciones_previas_intactas_ac_17():
             assert set(actual) == roles, clave
 
 
-def test_matriz_tiene_exactamente_55_operaciones_tras_017():
-    """AC-17/plan §2: 44 previas + 5 nuevas de la 013 + 6 de la 017."""
+def test_matriz_no_baja_de_las_55_operaciones_tras_017():
+    """AC-17/plan §2: 44 previas + 5 nuevas de la 013 + 6 de la 017.
+
+    La 014 y las features posteriores solo agregan filas: el criterio que la 013
+    protege es que la matriz no pierda ninguna de las 55 vigentes, no que el
+    total congele ese numero.
+    """
     totales = len(permisos.MATRIZ_PERMISOS)
-    assert totales == 55, (
-        f"la matriz debe tener 55 operaciones (49 de la 013 + 5 de control 017 + "
-        f"el reenvio ordinario de la 017); tiene {totales}"
+    assert totales >= 55, (
+        "la matriz no puede bajar de las 55 operaciones vigentes tras la 017 "
+        f"(49 de la 013 + 5 de control 017 + el reenvio ordinario); tiene {totales}"
     )
 
 
@@ -228,8 +233,12 @@ def test_openapi_publica_las_cinco_operaciones_ac_17(cliente):
             )
 
 
-def test_openapi_tiene_55_operaciones_tras_017(cliente):
-    """AC-17: el contrato v1 publica las 55 operaciones de la matriz vigente."""
+def test_openapi_no_baja_de_las_55_operaciones_tras_017(cliente):
+    """AC-17: el contrato v1 publica al menos las 55 operaciones de la 017.
+
+    Las features posteriores agregan operaciones de forma aditiva (la 014 suma
+    cinco); el contrato no puede quedarse por debajo de la fase de la 013/017.
+    """
     contrato = cliente.get("/openapi.json").json()
     total = sum(
         1
@@ -238,8 +247,9 @@ def test_openapi_tiene_55_operaciones_tras_017(cliente):
         for metodo in operaciones
         if metodo in _METODOS_OPENAPI
     )
-    assert total == 55, (
-        f"/openapi.json debe publicar 55 operaciones del contrato v1; publica {total}"
+    assert total >= 55, (
+        "/openapi.json no puede publicar menos de las 55 operaciones del contrato "
+        f"v1 vigentes tras la 017; publica {total}"
     )
 
 

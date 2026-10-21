@@ -78,7 +78,22 @@ const PRODUCTO_DETALLE = {
   unidad_medida: 'UNIDAD',
   stock_minimo: 5,
   categoria_id: 1,
+  // Feature 014: el estado viaja en el recurso; el fixture solo lo declara.
+  activo: true,
   categoria: null,
+};
+
+/**
+ * Producto retirado del catálogo (Feature 014): el backend ya no lo devuelve en
+ * `GET /tickets/catalogos`, pero sigue resolviéndose en el detalle histórico del
+ * ticket, que es justo lo que permite conservar el ítem (AC-9).
+ */
+const PRODUCTO_INACTIVO_DETALLE = { ...PRODUCTO_DETALLE, activo: false };
+
+/** Catálogo operativo sin el producto 1: el servidor filtra al inactivo. */
+const CATALOGOS_SIN_PRODUCTO_1: CatalogosTicket = {
+  ...CATALOGOS_013,
+  productos: CATALOGOS_013.productos.filter((producto) => producto.producto_id !== 1),
 };
 
 /** Detalle base: `Pendiente`, del Solicitante dueño (usuario 5), con un ítem. */
@@ -105,6 +120,13 @@ function crearDetalle(estado_id = 1, usuario_id = 5): TicketDetalle {
     ],
     estado_nombre: CATALOGOS_013.estados[estado_id - 1].nombre,
   };
+}
+
+/** Detalle con su único ítem apuntando a un producto ya retirado (AC-9). */
+function crearDetalleConProductoInactivo(): TicketDetalle {
+  const detalle = crearDetalle(1);
+  detalle.detalles[0].producto = PRODUCTO_INACTIVO_DETALLE;
+  return detalle;
 }
 
 /** Historial base: creación (origen nulo) + transición a `EnRevision` con motivo. */
@@ -164,6 +186,7 @@ describe('TicketDetalleComponent', () => {
   function responderCarga(
     detalle: TicketDetalle | null = crearDetalle(),
     historial: HistorialTransicion[] = crearHistorial(),
+    catalogos: CatalogosTicket = CATALOGOS_013,
   ) {
     if (detalle === null) {
       // `forkJoin` cancela las otras dos peticiones al fallar el detalle; se
@@ -178,7 +201,7 @@ describe('TicketDetalleComponent', () => {
     }
     httpMock.expectOne(RUTA_DETALLE).flush(detalle);
     httpMock.expectOne(RUTA_HISTORIAL).flush(historial);
-    httpMock.expectOne(RUTA_CATALOGOS).flush(CATALOGOS_013);
+    httpMock.expectOne(RUTA_CATALOGOS).flush(catalogos);
     fixture.detectChanges();
   }
 
@@ -648,6 +671,110 @@ describe('TicketDetalleComponent', () => {
 
       httpMock.expectNone(RUTA_DETALLE);
       expect(componente.editando()).toBe(true);
+    });
+
+    // -------------------------------------------------------------------------
+    // Feature 014, AC-9: productos inactivos en la edición
+    // -------------------------------------------------------------------------
+
+    it('conserva un producto inactivo ya cargado y permite cambiar su cantidad', () => {
+      responderCarga(
+        crearDetalleConProductoInactivo(),
+        crearHistorial(),
+        CATALOGOS_SIN_PRODUCTO_1,
+      );
+
+      boton('Editar')!.click();
+      fixture.detectChanges();
+
+      // La opción no viene del catálogo (el servidor ya la excluye): se añade
+      // desde los detalles actuales del propio ticket, marcada como inactiva.
+      const opciones = componente.opcionesProductoEdicion(0);
+      const conservada = opciones.find((opcion) => opcion.producto_id === 1);
+      expect(conservada?.inactivo).toBe(true);
+      expect(conservada?.etiqueta).toContain('inactivo');
+      expect(componente.esProductoInactivoEdicion(0)).toBe(true);
+
+      const select = raiz.querySelectorAll('dialog')[1].querySelectorAll('select')[1];
+      const textos = Array.from(select.querySelectorAll('option')).map((opcion) =>
+        (opcion.textContent ?? '').trim(),
+      );
+      expect(textos).toContain('Cuaderno rayado — inactivo (solo se conserva)');
+
+      componente.detallesEdicion.at(0).controls.cantidad_solicitada.setValue(5);
+      raiz
+        .querySelectorAll('dialog')[1]
+        .querySelector<HTMLButtonElement>('button[type="submit"]')!
+        .click();
+
+      const peticion = httpMock.expectOne(RUTA_DETALLE);
+      expect(peticion.request.method).toBe('PUT');
+      expect(peticion.request.body.detalles).toEqual([
+        { producto_id: 1, cantidad_solicitada: 5 },
+      ]);
+
+      const editado = crearDetalleConProductoInactivo();
+      editado.detalles[0].cantidad_solicitada = 5;
+      peticion.flush(editado);
+      responderReconsulta(editado);
+
+      expect(textoRaiz()).toContain('Ticket editado.');
+    });
+
+    it('no ofrece el producto inactivo para una línea nueva', () => {
+      responderCarga(
+        crearDetalleConProductoInactivo(),
+        crearHistorial(),
+        CATALOGOS_SIN_PRODUCTO_1,
+      );
+
+      boton('Editar')!.click();
+      fixture.detectChanges();
+      componente.agregarDetalleEdicion();
+      fixture.detectChanges();
+
+      // La fila nueva no tiene producto actual: solo ve el catálogo activo.
+      const opcionesNuevas = componente.opcionesProductoEdicion(1);
+      expect(opcionesNuevas.map((opcion) => opcion.producto_id)).toEqual([2]);
+      expect(opcionesNuevas.some((opcion) => opcion.inactivo)).toBe(false);
+
+      const segundoSelect = raiz
+        .querySelectorAll('dialog')[1]
+        .querySelectorAll('select')[2];
+      const textos = Array.from(segundoSelect.querySelectorAll('option')).map((opcion) =>
+        (opcion.textContent ?? '').trim(),
+      );
+      expect(textos).not.toContain('Cuaderno rayado — inactivo (solo se conserva)');
+      expect(textos.join(' ')).not.toContain('Cuaderno rayado');
+    });
+
+    it('muestra el 409 del servidor al intentar añadir un producto inactivo no presente', () => {
+      responderCarga(crearDetalle(1));
+
+      boton('Editar')!.click();
+      fixture.detectChanges();
+      componente.agregarDetalleEdicion();
+      componente.detallesEdicion.at(1).controls.producto_id.setValue(2);
+      fixture.detectChanges();
+
+      raiz
+        .querySelectorAll('dialog')[1]
+        .querySelector<HTMLButtonElement>('button[type="submit"]')!
+        .click();
+
+      httpMock
+        .expectOne(RUTA_DETALLE)
+        .flush(
+          { detail: 'El producto 2 esta inactivo y no figura en el ticket' },
+          { status: 409, statusText: 'Conflict' },
+        );
+      responderReconsulta();
+
+      expect(alertas().length).toBeGreaterThan(0);
+      expect(alertas()[0]).toContain('El producto 2 esta inactivo y no figura en el ticket');
+      // El modal sigue abierto para corregir la línea o cancelar.
+      expect(componente.editando()).toBe(true);
+      expect(componente.enOperacion()).toBe(false);
     });
   });
 });

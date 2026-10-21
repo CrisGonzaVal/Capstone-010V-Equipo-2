@@ -3,6 +3,11 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.producto_schema import (
+    CategoriaGestionRespuesta,
+    ProductoGestionRespuesta,
+)
+
 
 class StockSedeRespuesta(BaseModel):
     """Read model de `GET /inventario/stock` (Feature 011, T8/B1).
@@ -120,3 +125,67 @@ class ProductoExistenciaRespuesta(BaseModel):
     # lecturas globales del Superadmin.
     institucion_id: Optional[str] = None
     sedes: List[SedeExistenciaRespuesta]
+
+
+# ---------------------------------------------------------------------------
+# Ciclo de vida del catalogo (Feature 014, plan §2.3 y §2.7)
+# ---------------------------------------------------------------------------
+
+
+class HistorialTransicionProductoRespuesta(BaseModel):
+    """Fila de `GET /inventario/productos/{id}/historial` (Feature 014).
+
+    Read model de `historial_transicion_producto` (spec D-8/AC-7/AC-12): los siete
+    campos del contrato fijado por T2 —recurso, actor, instante, estado
+    origen/destino y motivo— mas los dos campos de presentacion del actor, que el
+    servicio resuelve igual que la 013 hace con el historial del ticket. La tabla
+    es inmutable y solo de lectura por API: no se publica alta, edicion ni borrado.
+    La consulta ordena de forma determinista (spec §7): mas reciente primero.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    historial_producto_id: int
+    producto_id: int
+    usuario_id: int
+    fecha_transicion: datetime
+    activo_origen: bool
+    activo_destino: bool
+    motivo: str
+    usuario_nombre: Optional[str] = None
+    usuario_apellido: Optional[str] = None
+
+
+class HistorialTransicionCategoriaRespuesta(BaseModel):
+    """Fila de `GET /inventario/categorias/{id}/historial` (Feature 014).
+
+    Tabla hermana de `HistorialTransicionProductoRespuesta`: mismas reglas de
+    inmutabilidad, orden y campos, referenciando exclusivamente su categoria.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    historial_categoria_id: int
+    categoria_id: int
+    usuario_id: int
+    fecha_transicion: datetime
+    activo_origen: bool
+    activo_destino: bool
+    motivo: str
+    usuario_nombre: Optional[str] = None
+    usuario_apellido: Optional[str] = None
+
+
+class GestionCatalogoRespuesta(BaseModel):
+    """Read model de `GET /inventario/gestion` (Feature 014, AC-15).
+
+    Las dos colecciones salen siempre, aunque esten vacias. Devuelve **ambos**
+    estados del catalogo del tenant; es el unico listado con esa propiedad, porque
+    los listados operativos existentes siguen filtrados para todos los roles,
+    incluido el Administrador (spec §7). Solo lo consume la seccion administrativa
+    de la vista de inventario.
+    """
+
+    productos: List[ProductoGestionRespuesta]
+    categorias: List[CategoriaGestionRespuesta]
+

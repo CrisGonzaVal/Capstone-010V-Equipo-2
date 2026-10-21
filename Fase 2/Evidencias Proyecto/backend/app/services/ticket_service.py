@@ -262,6 +262,12 @@ def obtener_catalogos(
         consulta_productos = consulta_productos.where(
             Producto.institucion_id == institucion_id
         )
+    # Feature 014 (AC-4): el selector de alta solo ofrece disponibilidad
+    # operativa (`producto.activo AND categoria.activo`), igual que existencias y
+    # listados de catalogo.
+    consulta_productos = consulta_productos.where(
+        Producto.activo.is_(True), Categoria.activo.is_(True)
+    )
 
     consulta_solicitantes = (
         select(
@@ -368,7 +374,11 @@ def _verificar_referencia(db: Session, modelo, valor: int, etiqueta: str) -> Non
 
 
 def _verificar_productos(
-    db: Session, detalles, institucion_id: str | None
+    db: Session,
+    detalles,
+    institucion_id: str | None,
+    *,
+    permitidos_inactivos: set[int] | None = None,
 ) -> None:
     """Valida todos los `producto_id` del payload antes de escribir nada.
 
@@ -380,8 +390,17 @@ def _verificar_productos(
     404**, con el mismo mensaje que uno inexistente, de modo que un id ajeno no
     revele su existencia. Con alcance global (`institucion_id is None`) no se
     restringe por institucion.
+
+    Feature 014 (AC-4/AC-9): la disponibilidad es el predicado conjunto
+    `producto.activo AND categoria.activo`. Un producto no disponible responde
+    **409** (existe, pero no se puede pedir). `permitidos_inactivos` es el
+    conjunto de ids que la edicion de un ticket `Pendiente` conserva porque ya
+    figuran en sus detalles actuales; el alta no lo usa (siempre vacio). Las dos
+    pasadas (existencia/pertenencia y luego disponibilidad) garantizan que el
+    conjunto completo se valide **antes** de tocar los detalles.
     """
     ids_requeridos = {detalle.producto_id for detalle in detalles}
+    productos: dict[int, Producto] = {}
     for producto_id in sorted(ids_requeridos):
         producto = db.get(Producto, producto_id)
         if producto is None:
@@ -393,6 +412,22 @@ def _verificar_productos(
             ambito_service.institucion_de_recurso(producto),
             institucion_id,
             detalle=f"No existe producto indicado: {producto_id}",
+        )
+        productos[producto_id] = producto
+
+    conservados = permitidos_inactivos or set()
+    for producto_id in sorted(ids_requeridos):
+        producto = productos[producto_id]
+        categoria_activa = (
+            producto.categoria is not None and producto.categoria.activo
+        )
+        if producto.activo and categoria_activa:
+            continue
+        if producto_id in conservados:
+            continue
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"El producto indicado no esta disponible: {producto_id}",
         )
 
 
@@ -1225,6 +1260,12 @@ def editar_ticket(
        vacios) la valida `TicketEditar` en Pydantic con 422 antes del
        servicio (AC-15).
 
+    Feature 014 (AC-9): antes de validar se capturan los `producto_id` de los
+    detalles **actuales**. Un producto no disponible (inactivo o de categoria
+    inactiva) se acepta solo si su id ya figura en ese conjunto: se conserva el
+    item y se puede cambiar su cantidad. Un id no presente en los detalles
+    actuales responde **409** antes de borrar o reemplazar nada.
+
     La escritura es atomica (AC-15, plan decision 7): la cabecera se
     actualiza, los detalles previos se **borran** y los nuevos se insertan en
     la MISMA transaccion; cualquier fallo revierte cabecera y detalles sin
@@ -1253,7 +1294,24 @@ def editar_ticket(
 
     institucion_ticket = _institucion_de_ticket(db, ticket)
     _verificar_referencia(db, Prioridad, datos.prioridad_id, "prioridad")
-    _verificar_productos(db, datos.detalles, institucion_ticket)
+
+    # Feature 014 (AC-9): el reemplazo es completo, asi que los ids inactivos
+    # que se conservan se deciden contra los detalles **actuales** del ticket,
+    # capturados antes de validar y de borrar nada. El alta no tiene esta
+    # excepcion: todo producto no disponible responde 409.
+    ids_actuales = set(
+        db.execute(
+            select(DetalleTicket.producto_id).where(
+                DetalleTicket.ticket_id == ticket.ticket_id
+            )
+        ).scalars().all()
+    )
+    _verificar_productos(
+        db,
+        datos.detalles,
+        institucion_ticket,
+        permitidos_inactivos=ids_actuales,
+    )
 
     try:
         ticket.asunto = datos.asunto

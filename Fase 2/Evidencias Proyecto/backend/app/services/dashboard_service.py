@@ -47,6 +47,7 @@ from fastapi import HTTPException, status
 
 from app.core import permisos
 from app.models import (
+    Categoria,
     Departamento,
     EstadoTicket,
     Institucion,
@@ -164,6 +165,10 @@ def _listar_alertas(
     **por sede**, no por inventario departamental. El predicado `es_stock_critico`
     decide por **fila** en Python, para que KPI y listado compartan exactamente la
     misma regla; la proyeccion ya trae `stock_minimo` de cada producto.
+
+    Feature 014 (AC-10): quedan fuera del log -y por tanto de `total_alertas`,
+    que es `len(alertas)`- los productos retirados y los productos cuya
+    categoria esta retirada. El resto de KPI conserva su formula.
     """
     consulta = (
         select(
@@ -177,10 +182,12 @@ def _listar_alertas(
             Institucion.nombre.label("institucion_nombre"),
         )
         .join(Producto, StockSede.producto_id == Producto.producto_id)
+        .join(Categoria, Producto.categoria_id == Categoria.categoria_id)
         .join(Sede, StockSede.sede_id == Sede.sede_id)
         .outerjoin(
             Institucion, StockSede.institucion_id == Institucion.institucion_id
         )
+        .where(Producto.activo.is_(True), Categoria.activo.is_(True))
         .order_by(StockSede.stock_sede_id)
     )
     consulta = ambito_service.filtrar_por_institucion(

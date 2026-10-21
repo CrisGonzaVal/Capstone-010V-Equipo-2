@@ -80,12 +80,14 @@ describe('AppComponent', () => {
 
   it('debe exponer el titulo del sistema', () => {
     const fixture = TestBed.createComponent(AppComponent);
-    expect(fixture.componentInstance.titulo).toEqual('CompuStock ERP');
+    expect(fixture.componentInstance.titulo).toEqual('CompuStock');
   });
 
   it('debe renderizar el encabezado principal', () => {
     const compilado = crearYRenderizar();
-    expect(compilado.querySelector('h1')?.textContent).toContain('Sistema ERP');
+    expect(compilado.querySelector('h1')?.textContent).toContain(
+      'Sistema de Gestión de Insumos',
+    );
   });
 
   it('debe alternar el menu lateral', () => {

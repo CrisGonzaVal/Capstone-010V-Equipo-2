@@ -104,6 +104,16 @@ export const ROLES_RECHAZO_TICKETS = ['Administrador', 'Bodeguero'] as const;
  */
 export const ROLES_EDICION_TICKETS = ['Administrador', 'Solicitante'] as const;
 
+/**
+ * Roles que ven la sección de ciclo de vida del catálogo en inventario
+ * (Feature 014, AC-11/AC-15: Administrador).
+ *
+ * Es presentación pura: la matriz del backend concede las cinco operaciones a
+ * `Administrador` y responde 403 a cualquier otro rol (D-2). Ocultar la sección
+ * evita ofrecer botones que la API rechazaría, pero no autoriza nada.
+ */
+export const ROLES_GESTION_CATALOGO = ['Administrador'] as const;
+
 function contiene(roles: readonly string[], rol: string | null): boolean {
   return rol !== null && roles.includes(rol);
 }
@@ -183,4 +193,14 @@ export function puedeEditarTicket(rol: string | null): boolean {
 /** `true` si el rol puede acceder al área administrativa. */
 export function puedeAdministrar(rol: string | null): boolean {
   return contiene(ROLES_ADMINISTRATIVOS, rol);
+}
+
+/**
+ * `true` si el rol ve la sección de gestión del catálogo (Feature 014, AC-11).
+ *
+ * Espejo de la matriz: solo Administrador. Presentación pura; la API sigue
+ * siendo la frontera y responde 403 al resto.
+ */
+export function puedeGestionarCatalogo(rol: string | null): boolean {
+  return contiene(ROLES_GESTION_CATALOGO, rol);
 }

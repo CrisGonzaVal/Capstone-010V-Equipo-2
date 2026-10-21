@@ -23,9 +23,11 @@ import {
 import { AutenticacionService } from '../../core/services/auth.service';
 import {
   CatalogosTicket,
+  DetalleTicket,
   DetalleTicketCrear,
   EstadoTicket,
   HistorialTransicion,
+  ProductoCatalogo,
   TicketDetalle,
   TicketEditar,
 } from '../../shared/interfaces';
@@ -48,6 +50,19 @@ interface AccionesDetalle {
   editar: boolean;
   anular: boolean;
   rechazar: boolean;
+}
+
+/**
+ * Opción de un selector de producto de la edición (Feature 014, AC-9).
+ *
+ * `inactivo` distingue el producto que ya figura en los detalles actuales del
+ * ticket y ya no está disponible: se ofrece **solo en su propia fila** para
+ * conservarlo, nunca en una línea nueva.
+ */
+interface OpcionProductoEdicion {
+  producto_id: number;
+  etiqueta: string;
+  inactivo: boolean;
 }
 
 /** Badge de prioridad por su nombre real; sin correspondencia, clase neutra. */
@@ -150,7 +165,13 @@ export class TicketDetalleComponent {
 
   readonly estados = computed<EstadoTicket[]>(() => this.catalogos()?.estados ?? []);
   readonly prioridades = computed(() => this.catalogos()?.prioridades ?? []);
-  readonly productos = computed(() => this.catalogos()?.productos ?? []);
+  /**
+   * Productos disponibles del catálogo. El servidor ya excluye inactivos y los
+   * de categoría inactiva; el filtro es la salvaguarda de UI (AC-4/AC-9).
+   */
+  readonly productos = computed<ProductoCatalogo[]>(() =>
+    (this.catalogos()?.productos ?? []).filter((producto) => producto.activo !== false)
+  );
   readonly solicitantes = computed(() => this.catalogos()?.solicitantes ?? []);
 
   // --- Derivación del estado actual ---
@@ -439,6 +460,68 @@ export class TicketDetalleComponent {
       producto_id,
       cantidad_solicitada,
     }));
+  }
+
+  /**
+   * Opciones del selector de producto de una fila de edición (Feature 014, AC-9).
+   *
+   * Ofrece los productos **activos** del catálogo y, además, el producto de esa
+   * misma fila cuando ya figura en los detalles actuales del ticket y dejó de
+   * estar disponible. Así un ítem cuyo producto se retiró se puede conservar y
+   * su cantidad modificar, pero no se puede elegir ese producto en una línea
+   * nueva: una fila nueva arranca sin producto y solo recibe opciones activas.
+   *
+   * El servidor aplica la misma delimitación por `producto_id` (D-7): un
+   * inactivo que no figure en los detalles actuales responde 409.
+   */
+  opcionesProductoEdicion(indice: number): OpcionProductoEdicion[] {
+    const activos = this.productos().map((producto) => ({
+      producto_id: producto.producto_id,
+      etiqueta: `${producto.nombre} · ${producto.categoria_nombre}`,
+      inactivo: false,
+    }));
+
+    const productoId = this.detallesEdicion.at(indice)?.controls.producto_id.value ?? null;
+    if (productoId === null || activos.some((opcion) => opcion.producto_id === productoId)) {
+      return activos;
+    }
+
+    const detalle = this.detalleActual(productoId);
+    return [
+      ...activos,
+      {
+        producto_id: productoId,
+        etiqueta:
+          detalle === null
+            ? `Producto #${productoId} — no disponible (solo se conserva)`
+            : this.etiquetaProductoConservado(detalle),
+        inactivo: true,
+      },
+    ];
+  }
+
+  /** `true` si la fila conserva un producto que ya no está disponible. */
+  esProductoInactivoEdicion(indice: number): boolean {
+    const productoId = this.detallesEdicion.at(indice)?.controls.producto_id.value ?? null;
+    return this.opcionesProductoEdicion(indice).some(
+      (opcion) => opcion.inactivo && opcion.producto_id === productoId,
+    );
+  }
+
+  /** Fila de los detalles **actuales** del ticket para un producto, si existe. */
+  private detalleActual(productoId: number): DetalleTicket | null {
+    return this.ticket()?.detalles.find((detalle) => detalle.producto_id === productoId) ?? null;
+  }
+
+  /**
+   * Etiqueta de un producto conservado: nombre y categoría resueltos para que
+   * la fila sea legible aunque el producto ya no viaje en el catálogo.
+   */
+  private etiquetaProductoConservado(detalle: DetalleTicket): string {
+    const nombre = detalle.producto?.nombre ?? `Producto #${detalle.producto_id}`;
+    const categoria = detalle.producto?.categoria?.nombre_cat;
+    const base = categoria ? `${nombre} · ${categoria}` : nombre;
+    return `${base} — inactivo (solo se conserva)`;
   }
 
   // --- Diálogos ---

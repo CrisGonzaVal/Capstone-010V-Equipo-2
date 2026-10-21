@@ -295,7 +295,17 @@ export class TicketsComponent {
 
   readonly prioridades = computed<Prioridad[]>(() => this.catalogos()?.prioridades ?? []);
   readonly estados = computed(() => this.catalogos()?.estados ?? []);
-  readonly productos = computed<ProductoCatalogo[]>(() => this.catalogos()?.productos ?? []);
+  /**
+   * Productos que el alta puede ofrecer en sus selectores.
+   *
+   * `GET /tickets/catalogos` ya excluye inactivos y productos de categoría
+   * inactiva (Feature 014, D-7/AC-4), así que normalmente esto es el catálogo
+   * tal cual. El filtro por `activo` es la salvaguarda de UI: si una regresión
+   * llegara a incluirlos, no se ofrecen para una línea nueva (AC-9).
+   */
+  readonly productos = computed<ProductoCatalogo[]>(() =>
+    (this.catalogos()?.productos ?? []).filter((producto) => producto.activo !== false)
+  );
   readonly solicitantes = computed<Solicitante[]>(() => this.catalogos()?.solicitantes ?? []);
 
   /** Etiqueta de un producto en el desplegable: nombre, unidad y categoria. */

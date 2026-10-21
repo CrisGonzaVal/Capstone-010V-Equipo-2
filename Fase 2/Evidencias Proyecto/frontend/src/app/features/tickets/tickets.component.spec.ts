@@ -946,6 +946,57 @@ describe('TicketsComponent', () => {
     });
   });
 
+  /**
+   * Feature 014, D-7/AC-4/AC-9: los selectores de alta no ofrecen productos
+   * inactivos. `GET /tickets/catalogos` ya los excluye en servidor; el filtro
+   * del componente es la salvaguarda de UI y aquí se hace explícita con un
+   * catálogo degenerado que sí los incluyera.
+   */
+  describe('alta sin productos inactivos (AC-4, AC-9)', () => {
+    const CATALOGOS_CON_INACTIVO: CatalogosTicket = {
+      ...CATALOGOS_013,
+      productos: [
+        ...CATALOGOS_013.productos,
+        {
+          producto_id: 3,
+          nombre: 'Guillotina retirada',
+          unidad_medida: 'UNIDAD',
+          categoria_nombre: 'Papelería',
+          stock_total: 0,
+          es_critico: false,
+          activo: false,
+        },
+      ],
+    };
+
+    it('excluye los productos inactivos del catálogo que consume el alta', () => {
+      abrirConCatalogos(CATALOGOS_CON_INACTIVO);
+
+      expect(componente.productos().map((producto) => producto.producto_id)).toEqual([1, 2]);
+    });
+
+    it('el selector de producto del modal no ofrece el inactivo', () => {
+      abrirConCatalogos(CATALOGOS_CON_INACTIVO);
+
+      const opciones = Array.from(
+        fixture.nativeElement.querySelectorAll(
+          'dialog select[formcontrolname="producto_id"] option',
+        ) as NodeListOf<HTMLOptionElement>,
+      );
+      // Marcador "Selecciona un producto" + los dos activos.
+      expect(opciones.length).toBe(3);
+      const textos = opciones.map((opcion) => (opcion.textContent ?? '').trim());
+      expect(textos.some((texto) => texto.includes('Guillotina retirada'))).toBe(false);
+    });
+
+    it('conserva los productos activos cuando el catálogo no declara el estado', () => {
+      // El contrato vigente no envía `activo`: ausente equivale a disponible.
+      abrirConCatalogos(CATALOGOS_013);
+
+      expect(componente.productos().length).toBe(CATALOGOS_013.productos.length);
+    });
+  });
+
   describe('filtros del tablero', () => {
     /** Todos los tickets que el tablero pinta, aplanando las columnas. */
     function tarjetasVisibles() {

@@ -242,19 +242,31 @@ def test_cuatro_roles_exactos_sin_alias_admin():
 
 
 # ---------------------------------------------------------------------------
-# AC-9: la matriz central es exactamente la de D-3 (49 operaciones vigentes
-# tras las Features 008, 009, 010, 011, 012 y 013: las 18 de 007 mas los dos GET
-# por objeto de catalogo de la 008, el GET consolidado del dashboard de la 009,
-# el alta de institucion de la 010, las seis asignaciones organizacionales de la
-# 011, las dieciseis de la 012 y las cinco de ciclo de vida de la 013)
+# AC-9: la matriz central conserva la transcripcion de D-3 (55 operaciones
+# vigentes tras las Features 008, 009, 010, 011, 012, 013 y 017: las 18 de 007
+# mas los dos GET por objeto de catalogo de la 008, el GET consolidado del
+# dashboard de la 009, el alta de institucion de la 010, las seis asignaciones
+# organizacionales de la 011, las dieciseis de la 012, las cinco de ciclo de vida
+# de la 013 y las once de gobierno de la 017). La 014 agrega cinco operaciones
+# mas sin tocar estas filas.
 # ---------------------------------------------------------------------------
 
 
-def test_matriz_cubre_exactamente_las_operaciones_de_d3():
+def test_matriz_conserva_las_operaciones_de_d3_y_solo_agrega():
+    """La matriz conserva las 55 filas transcritas y solo admite adiciones.
+
+    La transcripcion es una fase de la cadena: cada una de sus filas debe seguir
+    con los mismos roles y la matriz viva no puede retirar ninguna. Las features
+    posteriores (014 en adelante) agregan operaciones nuevas sin tocar las
+    existentes, por eso el total se compara como cota inferior.
+    """
     assert len(MATRIZ_ESPERADA) == 55
-    assert {
+    vigente = {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
-    } == MATRIZ_ESPERADA
+    }
+    for clave, roles in MATRIZ_ESPERADA.items():
+        assert vigente.get(clave) == roles, clave
+    assert set(vigente) >= set(MATRIZ_ESPERADA)
 
 
 def test_permiso_por_rol_respeta_la_matriz():

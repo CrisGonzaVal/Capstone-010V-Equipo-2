@@ -227,6 +227,10 @@ def datos_base(motor):
             descripcion_cat="Insumos de papeleria",
             institucion_id=institucion.institucion_id,
         )
+        # Feature 014 (AC-13): el fixture declara explicitamente la vigencia del
+        # catalogo para no depender de que la columna falte. Antes de T4 `activo`
+        # aun no es columna mapeada y la asignacion es un atributo suelto.
+        categoria.activo = True
         db.add(categoria)
         db.flush()
 
@@ -238,6 +242,7 @@ def datos_base(motor):
             categoria_id=categoria.categoria_id,
             institucion_id=institucion.institucion_id,
         )
+        producto.activo = True  # Feature 014: nace activo (AC-13).
         db.add(producto)
         db.flush()
 
@@ -355,6 +360,7 @@ def dos_instituciones(motor, datos_base):
             descripcion_cat="Homonimo de INST02",
             institucion_id="INST02",
         )
+        categoria_homonima.activo = True  # Feature 014: homonimo vigente (AC-13).
         db.add(categoria_homonima)
         db.flush()
 
@@ -366,6 +372,7 @@ def dos_instituciones(motor, datos_base):
             categoria_id=categoria_homonima.categoria_id,
             institucion_id="INST02",
         )
+        producto_homonimo.activo = True  # Feature 014: homonimo vigente (AC-13).
         db.add(producto_homonimo)
         db.flush()
 

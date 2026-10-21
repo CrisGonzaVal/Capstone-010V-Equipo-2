@@ -166,7 +166,9 @@ def test_registro_es_solo_de_control_y_no_viaja_a_la_metadata_tenant():
     nombres = {tabla.name for tabla in tablas_metadata_tenant()}
     assert "registro_motivo_constancia" not in nombres
     assert "mapa_usuario_esquema" not in nombres
-    assert len(nombres) == 17, sorted(nombres)
+    # Feature 014: el tenant replica 19 tablas de negocio (las 17 previas mas los
+    # dos historiales de transicion del catalogo, entidades 16.ª y 17.ª).
+    assert len(nombres) == 19, sorted(nombres)
 
 
 def test_registro_persiste_una_constancia_de_compensacion(sesion):
