@@ -416,7 +416,7 @@
                   formControlName="rol_id"
                   class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
-                  @for (rol of roles(); track rol.rol_id) {
+                  @for (rol of rolesEdicion(); track rol.rol_id) {
                     <option [value]="rol.rol_id">{{ rol.nombre_rol }}</option>
                   }
                 </select>

@@ -18,6 +18,8 @@ from app.models import (
     Usuario,
 )
 from app.schemas.inventario_schema import (
+    AmbitoInventarioRespuesta,
+    DepartamentoFiltroRespuesta,
     GestionCatalogoRespuesta,
     HistorialTransicionCategoriaRespuesta,
     HistorialTransicionProductoRespuesta,
@@ -25,6 +27,7 @@ from app.schemas.inventario_schema import (
     MovimientoInventarioRespuesta,
     ProductoExistenciaRespuesta,
     SedeExistenciaRespuesta,
+    SedeFiltroRespuesta,
     StockSedeRespuesta,
 )
 from app.schemas.producto_schema import (
@@ -306,6 +309,81 @@ def sede_del_alcance_por_rol(
     return None
 
 
+def obtener_ambito_inventario(
+    db: Session, identidad: IdentidadAutenticada | None = None
+) -> AmbitoInventarioRespuesta:
+    """Opciones minimas de sede y departamento para filtrar existencias (018).
+
+    Feature 018 (spec D-6/AC-4, plan §1.2 y §1.3): lectura **aditiva** que solo
+    abastece los selectores de la pestana de existencias. No sustituye la
+    autorizacion de `GET /inventario/existencias` y no expone usuarios, tickets,
+    productos, stock ni agregados.
+
+    Ambito:
+
+    * **Administrador**: las sedes activas de su institucion y los departamentos
+      activos asociados a una sede activa de esa institucion.
+    * **Bodeguero**: solo su sede asignada, y solo si sigue activa, con sus
+      departamentos activos. Sin sede asignada responde **409** por
+      `sede_del_alcance_por_rol`, sin fallback ni ambito sustituto. Si su sede
+      esta desactivada, ambas listas salen vacias: nunca se ofrece otra sede.
+    * Cualquier otro rol queda fuera antes de esta llamada (matriz 018).
+
+    Las opciones son solo filas **vigentes** (spec D-5): una sede inactiva no es
+    opcion y un departamento sin sede no se puede resolver a una ubicacion
+    fisica, por lo que tampoco aparece. El orden es determinista: sedes por
+    `(nombre, sede_id)` y departamentos por `(nombre_dep, departamento_id)`.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    sede_rol = sede_del_alcance_por_rol(db, identidad)
+
+    consulta_sedes = select(
+        Sede.sede_id, Sede.nombre.label("sede_nombre")
+    ).where(Sede.activo.is_(True))
+    consulta_sedes = ambito_service.filtrar_por_institucion(
+        consulta_sedes, Sede.institucion_id, institucion_id
+    )
+    if sede_rol is not None:
+        consulta_sedes = consulta_sedes.where(Sede.sede_id == sede_rol)
+    consulta_sedes = consulta_sedes.order_by(Sede.nombre, Sede.sede_id)
+
+    sedes = [
+        SedeFiltroRespuesta(**fila)
+        for fila in db.execute(consulta_sedes).mappings()
+    ]
+
+    # El join a `sede` no es decorativo: acota los departamentos a sedes de la
+    # institucion del actor y descarta los de una sede desactivada, que tampoco
+    # se ofrece como opcion (D-5).
+    consulta_departamentos = (
+        select(
+            Departamento.departamento_id,
+            Departamento.nombre_dep.label("departamento_nombre"),
+            Departamento.sede_id,
+        )
+        .join(Sede, Departamento.sede_id == Sede.sede_id)
+        .where(Departamento.activo.is_(True), Sede.activo.is_(True))
+    )
+    if institucion_id is not None:
+        consulta_departamentos = consulta_departamentos.where(
+            Sede.institucion_id == institucion_id
+        )
+    if sede_rol is not None:
+        consulta_departamentos = consulta_departamentos.where(
+            Departamento.sede_id == sede_rol
+        )
+    consulta_departamentos = consulta_departamentos.order_by(
+        Departamento.nombre_dep, Departamento.departamento_id
+    )
+
+    departamentos = [
+        DepartamentoFiltroRespuesta(**fila)
+        for fila in db.execute(consulta_departamentos).mappings()
+    ]
+
+    return AmbitoInventarioRespuesta(sedes=sedes, departamentos=departamentos)
+
+
 def _es_producto_critico(
     sedes: List[SedeExistenciaRespuesta], stock_minimo: int
 ) -> bool:
@@ -327,6 +405,7 @@ def listar_existencias(
     q: Optional[str] = None,
     categoria_id: Optional[int] = None,
     departamento_id: Optional[int] = None,
+    sede_id: Optional[int] = None,
     solo_criticos: bool = False,
     identidad: IdentidadAutenticada | None = None,
 ) -> List[ProductoExistenciaRespuesta]:
@@ -349,6 +428,14 @@ def listar_existencias(
     Bodeguero; el Administrador ve todas las de su institucion y Superadmin, la
     lectura global atribuida por `institucion_id`. Un `departamento_id` explicito
     de otra institucion responde 403; un departamento sin sede no expone existencias.
+
+    Feature 018 (spec D-7/AC-1/AC-3/AC-6): `sede_id` es un **filtro de lista**,
+    no un recurso. Se incorpora a `condicion_stock` antes del `outerjoin`, de modo
+    que el saldo que se agrega es el de esa sede, y con cualquier filtro
+    organizacional (`sede_id` o `departamento_id`) se exige una fila de stock
+    real, degradando el `outerjoin` a INNER. Por eso nunca se hace un lookup
+    previo de la sede: un id inexistente o de otro tenant responde **200 con
+    lista vacia**, igual que una sede distinta de la del rol operativo.
     """
     institucion_id = ambito_service.alcance_institucional(db, identidad)
     sede_rol = sede_del_alcance_por_rol(db, identidad)
@@ -371,6 +458,11 @@ def listar_existencias(
         )
     if sede_rol is not None:
         condicion_stock = and_(condicion_stock, StockSede.sede_id == sede_rol)
+    if sede_id is not None:
+        # Feature 018 (AC-1/AC-3): la sede pedida restringe el join de stock. Un
+        # id ausente del esquema del actor no encuentra fila y la lista sale
+        # vacia; no se distingue de uno inexistente (nunca hay lookup previo).
+        condicion_stock = and_(condicion_stock, StockSede.sede_id == sede_id)
     if sede_de_departamento is not None:
         condicion_stock = and_(
             condicion_stock, StockSede.sede_id == sede_de_departamento
@@ -414,9 +506,10 @@ def listar_existencias(
         )
     if categoria_id is not None:
         consulta = consulta.where(Categoria.categoria_id == categoria_id)
-    if departamento_id is not None:
+    if departamento_id is not None or sede_id is not None:
         # Degrada el `outerjoin` a INNER: solo interesan los productos con
-        # existencias en la sede del departamento pedido.
+        # existencias en la sede pedida o en la del departamento pedido
+        # (Feature 018, AC-6).
         consulta = consulta.where(StockSede.stock_sede_id.is_not(None))
 
     consulta = consulta.order_by(

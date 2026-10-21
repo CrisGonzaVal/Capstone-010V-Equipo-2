@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api import dependencies
 from app.schemas.inventario_schema import (
+    AmbitoInventarioRespuesta,
     GestionCatalogoRespuesta,
     HistorialTransicionCategoriaRespuesta,
     HistorialTransicionProductoRespuesta,
@@ -201,9 +202,24 @@ def crear_producto(
         "vacio y `stock_total` en 0, en vez de desaparecer. `solo_criticos` se "
         "evalua sobre el total: un producto con `stock_total <= stock_minimo` "
         "queda marcado como critico. Feature 017 (D-9/AC-15): el **Superadmin no "
-        "tiene esta lectura** y recibe **403** sin datos."
+        "tiene esta lectura** y recibe **403** sin datos.\n\n"
+        "Feature 018 (D-7/AC-1/AC-3/AC-6): `sede_id` es un **filtro de lista** "
+        "opcional. Con el presente, `stock_total`, `sedes[]` y `es_critico` "
+        "describen solo el saldo de esa sede y los productos sin fila de stock en "
+        "ella desaparecen de la respuesta. Un id que no existe en el esquema del "
+        "actor -incluido uno de otro tenant- responde **200 con lista vacia**, no "
+        "**404**: no se hace un lookup previo de la sede. Esto no altera el 404 de "
+        "`GET /inventario/stock?sede_id=...` (Feature 011, AC-3), que consulta un "
+        "recurso. Combinado con `departamento_id`: si ambos apuntan a sedes "
+        "distintas la respuesta es **200 con lista vacia**; sin ninguno de los dos, "
+        "los productos sin saldo siguen visibles en cero. Un `departamento_id` de "
+        "otra institucion sigue respondiendo **403** y un rol de sede operativa "
+        "sin asignacion, **409**."
     ),
-    responses=dependencies.respuestas_de_autorizacion(),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_conflicto(),
+    },
     dependencies=[
         Depends(dependencies.requiere_capacidad("GET", "/api/v1/inventario/existencias"))
     ],
@@ -215,7 +231,14 @@ def listar_existencias(
     ),
     categoria_id: Optional[int] = Query(default=None, description="Filtra por categoria."),
     departamento_id: Optional[int] = Query(
-        default=None, description="Acota el stock y las sedes a un departamento.",
+        default=None, description="Acota el stock y las sedes a un departamento."
+    ),
+    sede_id: Optional[int] = Query(
+        default=None,
+        description=(
+            "Acota el stock, las sedes, el total y la criticidad a una sede. Un id "
+            "ausente del ambito del actor devuelve una lista vacia (200)."
+        ),
     ),
     solo_criticos: bool = Query(
         default=False, description="Deja solo los productos con stock igual o bajo el minimo."
@@ -233,10 +256,50 @@ def listar_existencias(
             q=q,
             categoria_id=categoria_id,
             departamento_id=departamento_id,
+            sede_id=sede_id,
             solo_criticos=solo_criticos,
             identidad=identidad,
         ),
     )
+
+
+@router.get(
+    "/ambito",
+    response_model=AmbitoInventarioRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Opciones de sede y departamento para filtrar existencias",
+    description=(
+        "Feature 018 (D-6/AC-4): lectura **aditiva** y minima que solo abastece "
+        "los selectores de la pestana de existencias. Devuelve "
+        "`{sedes: [{sede_id, sede_nombre}], departamentos: [{departamento_id, "
+        "departamento_nombre, sede_id}]}` con **unicamente** filas vigentes: sedes "
+        "activas y departamentos activos con sede asignada. No expone usuarios, "
+        "tickets, productos, stock ni agregados, y no sustituye la autorizacion de "
+        "`GET /inventario/existencias`.\n\n"
+        "El **Administrador** recibe las opciones de su institucion; el "
+        "**Bodeguero**, solo su sede asignada y los departamentos de esa sede, sin "
+        "selector de sede. Un Bodeguero **sin sede asignada** responde **409** sin "
+        "ambito alternativo ni sede por defecto, y si su sede esta desactivada "
+        "recibe ambas listas vacias. Solicitante y Superadmin reciben **403** por "
+        "matriz; con la capacidad institucional `inventario` apagada, **403** "
+        "tambien para los dos roles autorizados. El orden es determinista: sedes "
+        "por nombre e id, departamentos por nombre e id."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_conflicto(),
+    },
+    dependencies=[
+        Depends(dependencies.requiere_capacidad("GET", "/api/v1/inventario/ambito"))
+    ],
+)
+def obtener_ambito_inventario(
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion("GET", "/api/v1/inventario/ambito")
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+):
+    return inventario_service.obtener_ambito_inventario(db, identidad)
 
 
 @router.get(

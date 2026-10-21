@@ -88,6 +88,58 @@ export interface ProductoExistencia {
   sedes: SedeExistencia[];
 }
 
+/**
+ * Opción de sede de `GET /inventario/ambito` (`SedeFiltroRespuesta`, Feature
+ * 018, AC-4).
+ *
+ * Contrato mínimo del selector: id y nombre, sin institución, estado ni saldo.
+ * La lectura solo devuelve sedes activas del alcance del actor.
+ */
+export interface SedeFiltro {
+  sede_id: number;
+  sede_nombre: string;
+}
+
+/**
+ * Opción de departamento de `GET /inventario/ambito`
+ * (`DepartamentoFiltroRespuesta`, Feature 018, AC-4).
+ *
+ * `sede_id` es la asociación obligatoria que permite acotar los departamentos a
+ * la sede elegida sin consultar `/organizacion/departamentos` (el Bodeguero
+ * recibiría 403). Un departamento sin sede no es opción, por eso no es nulo.
+ */
+export interface DepartamentoFiltro {
+  departamento_id: number;
+  departamento_nombre: string;
+  sede_id: number;
+}
+
+/**
+ * Read model de `GET /inventario/ambito` (`AmbitoInventarioRespuesta`, Feature
+ * 018, D-6/AC-4).
+ *
+ * Ambas colecciones llegan siempre, aunque estén vacías: un Bodeguero con sede
+ * inactiva recibe listas vacías y uno sin sede recibe 409 desde el servidor,
+ * nunca un ámbito sustituto. No incluye usuarios, tickets, productos ni stock.
+ */
+export interface AmbitoInventario {
+  sedes: SedeFiltro[];
+  departamentos: DepartamentoFiltro[];
+}
+
+/**
+ * Filtros organizacionales opcionales de `GET /inventario/existencias`
+ * (Feature 018, AC-3/AC-5).
+ *
+ * Solo `sede_id` y `departamento_id` viajan al servidor: el texto, la categoría
+ * y los críticos siguen resolviéndose en cliente sobre el conjunto ya cargado.
+ * Un valor `null`/`undefined` no agrega el parámetro de query.
+ */
+export interface FiltrosExistencias {
+  sede_id?: number | null;
+  departamento_id?: number | null;
+}
+
 // --- Ciclo de vida del catálogo (Feature 014) ---
 
 /**

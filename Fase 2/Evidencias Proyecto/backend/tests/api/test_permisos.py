@@ -167,6 +167,16 @@ MATRIZ_ESPERADA: dict[tuple[str, str], set[str]] = {
     ): _ORGANIZACION,
 }
 
+#: Feature 018 (spec D-6/AC-8, plan §1.4): la **unica** operacion que la 018
+#: agrega a la matriz central. Se declara como referencia aditiva independiente
+#: para no tocar la transcripcion historica de 55 filas ni su `len == 55`
+#: (patron de `test_permisos_012.py`): la base 014 queda intacta y la suma se
+#: verifica aparte.
+_AMBITO_INVENTARIO = {"Administrador", "Bodeguero"}
+MATRIZ_018_ADITIVA: dict[tuple[str, str], set[str]] = {
+    ("GET", "/api/v1/inventario/ambito"): _AMBITO_INVENTARIO,
+}
+
 _ROLES = ("Superadmin", "Administrador", "Bodeguero", "Solicitante")
 
 
@@ -267,6 +277,27 @@ def test_matriz_conserva_las_operaciones_de_d3_y_solo_agrega():
     for clave, roles in MATRIZ_ESPERADA.items():
         assert vigente.get(clave) == roles, clave
     assert set(vigente) >= set(MATRIZ_ESPERADA)
+
+
+def test_permisos_018_solo_agrega_la_operacion_de_ambito():
+    """AC-8: la 018 suma una fila de ambito y no toca la transcripcion de 55.
+
+    El baseline historico `MATRIZ_ESPERADA` (55 filas) y su `len == 55` quedan
+    inmutables; la operacion nueva se comprueba aqui como suma independiente.
+    """
+    assert len(MATRIZ_ESPERADA) == 55
+    for clave, roles in MATRIZ_018_ADITIVA.items():
+        vigente = permisos.MATRIZ_PERMISOS.get(clave)
+        assert vigente is not None, f"la Feature 018 debe declarar {clave}"
+        assert set(vigente) == roles, clave
+        for rol in _ROLES:
+            assert permisos.rol_autorizado(rol, vigente) is (rol in roles), (
+                clave,
+                rol,
+            )
+    assert set(permisos.MATRIZ_PERMISOS) - set(MATRIZ_018_ADITIVA) >= set(
+        MATRIZ_ESPERADA
+    ), "la 018 no puede retirar ninguna de las 55 operaciones historicas"
 
 
 def test_permiso_por_rol_respeta_la_matriz():

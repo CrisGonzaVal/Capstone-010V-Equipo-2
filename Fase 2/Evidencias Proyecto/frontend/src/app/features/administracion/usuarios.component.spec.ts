@@ -163,6 +163,14 @@ describe('UsuariosComponent', () => {
     ).map((o) => o.textContent?.trim() ?? '');
   }
 
+  function opcionesRolEdicion(): string[] {
+    return Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll(
+        '#editar-usuario-rol option',
+      ),
+    ).map((o) => o.textContent?.trim() ?? '');
+  }
+
   function rellenarAlta(sobrescribir: Record<string, unknown> = {}): void {
     fixture.componentInstance.formularioCreacion.patchValue({
       nombre: 'Nuevo',
@@ -836,5 +844,41 @@ describe('UsuariosComponent', () => {
     identidadFalsa.set(identidad('Superadmin'));
     fixture.detectChanges();
     expect(opcionesRolAlta().length).toBe(3);
+  });
+
+  it('AC-8/AC-10: el combo de rol de la edición no ofrece Superadmin a un Administrador', () => {
+    montar([usuario()], ROLES_CUATRO);
+    boton('editar')?.click();
+    fixture.detectChanges();
+
+    expect(opcionesRolEdicion()).toEqual(['Bodeguero', 'Solicitante']);
+  });
+
+  it('AC-8/AC-10: al editar un Administrador se conserva visible su rol actual, sin Superadmin', () => {
+    montar([usuario({ rol_id: 2, nombre: 'Camila' })], ROLES_CUATRO);
+    boton('editar')?.click();
+    fixture.detectChanges();
+
+    expect(opcionesRolEdicion()).toEqual([
+      'Administrador',
+      'Bodeguero',
+      'Solicitante',
+    ]);
+    expect(
+      fixture.componentInstance.formularioEdicion.controls.rol_id.value,
+    ).toBe(2);
+  });
+
+  it('AC-8/AC-10: la edición institucional nunca ofrece Superadmin, ni con identidad Superadmin', () => {
+    identidadFalsa.set(identidad('Superadmin'));
+    montar([usuario()], ROLES_CUATRO);
+    boton('editar')?.click();
+    fixture.detectChanges();
+
+    expect(opcionesRolEdicion()).toEqual([
+      'Administrador',
+      'Bodeguero',
+      'Solicitante',
+    ]);
   });
 });

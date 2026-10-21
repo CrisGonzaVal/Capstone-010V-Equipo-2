@@ -3,16 +3,31 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { forkJoin } from 'rxjs';
 
-import { puedeGestionarCatalogo } from '../../core/auth/roles';
+import { puedeGestionarCatalogo, puedeVerFiltrosInventario } from '../../core/auth/roles';
 import { AutenticacionService } from '../../core/services/auth.service';
 import {
+  AmbitoInventario,
   Categoria,
+  DepartamentoFiltro,
+  FiltrosExistencias,
   GestionCatalogo,
   HistorialTransicionCategoria,
   HistorialTransicionProducto,
   ProductoExistencia,
+  SedeFiltro,
 } from '../../shared/interfaces';
 import { InventarioService } from './services/inventario.service';
+
+/**
+ * Nota literal de la decisión D-3 de la Feature 018.
+ *
+ * La selección departamental no particiona el saldo: solo acota la lista a los
+ * productos con fila de stock en la sede del departamento. Se muestra
+ * **únicamente** al Bodeguero, junto a su selector de departamento (AC-2). El
+ * texto es contractual: no se parafrasea.
+ */
+export const NOTA_STOCK_COMPARTIDO =
+  'El stock es compartido por la sede. Elegir un departamento no divide ni cambia el saldo; solo muestra productos con stock en esta sede.';
 
 /** Los dos recursos con ciclo de vida propio (Feature 014, AC-11). */
 type TipoRecursoCatalogo = 'producto' | 'categoria';
@@ -227,9 +242,14 @@ export class InventarioComponent implements OnInit {
 
 /**
  * Los tres numeros de la franja de indicadores. Miden el catalogo CARGADO, no el
- * filtrado: la franja es el resumen de lo que hay, y los filtros ya tienen su
- * propio lugar (el panel de categorias y la tabla). Por eso no se mueven mientras
- * se escribe en el buscador.
+ * filtrado: la franja es el resumen de lo que hay, y los filtros de cliente ya
+ * tienen su propio lugar (el panel de categorias y la tabla). Por eso no se mueven
+ * mientras se escribe en el buscador.
+ *
+ * Feature 018 (AC-1/AC-7): como `sede_id`/`departamento_id` los resuelve el
+ * servidor, la respuesta cargada ya viene acotada y la franja se recalcula sola
+ * al cambiar de sede o departamento, y vuelve al agregado permitido por rol al
+ * limpiar los filtros organizacionales.
  */
 readonly totalCatalogo = computed(() => this.insumos().length);
 
@@ -238,14 +258,79 @@ readonly totalConStock = computed(() => this.insumos().filter((insumo) => insumo
 readonly totalCriticos = computed(() => this.insumos().filter((insumo) => insumo.es_critico).length);
 
   readonly hayFiltros = computed(
-    () => this.consulta().trim().length > 0 || this.categoriaSeleccionada() !== null || this.soloCriticos(),
+    () =>
+      this.consulta().trim().length > 0 ||
+      this.categoriaSeleccionada() !== null ||
+      this.soloCriticos() ||
+      this.filtrosOrganizacionalesActivos(),
   );
 
   readonly categoriaActual = computed(
     () => this.categorias().find((categoria) => categoria.categoria_id === this.categoriaSeleccionada())?.nombre_cat ?? null,
   );
 
+  // --- Filtros organizacionales (Feature 018) ---
+
+  /**
+   * Opciones de los selectores, tal como las devuelve `GET /inventario/ambito`
+   * (D-6): solo sedes y departamentos activos del alcance del rol. `null`
+   * mientras no haya respuesta, para distinguir «sin cargar» de «ámbito vacío».
+   */
+  readonly ambito = signal<AmbitoInventario | null>(null);
+
+  readonly cargandoAmbito = signal(false);
+
+  /** Fallo de la lectura de ámbito (incluido el 409 de Bodeguero sin sede). */
+  readonly errorAmbito = signal<string | null>(null);
+
+  readonly sedeSeleccionada = signal<number | null>(null);
+  readonly departamentoSeleccionado = signal<number | null>(null);
+
+  /** Solo Administrador y Bodeguero ven filtros; el resto no consulta el ámbito (D-8). */
+  readonly filtrosVisibles = computed(() => puedeVerFiltrosInventario(this.rolActual()));
+
+  /**
+   * El Bodeguero nunca elige sede: su ámbito ya está acotado a la suya (D-3).
+   * El resto de roles con filtros —el Administrador— sí la elige.
+   */
+  readonly sedeVisible = computed(() => this.rolActual() === 'Administrador');
+
+  /** La nota de saldo compartido es exclusiva del selector departamental del Bodeguero. */
+  readonly notaStockCompartido = computed(() => this.rolActual() === 'Bodeguero');
+
+  /** Texto literal de D-3; la plantilla no lo reescribe. */
+  readonly textoNotaStockCompartido = NOTA_STOCK_COMPARTIDO;
+
+  readonly sedesDisponibles = computed<SedeFiltro[]>(() => this.ambito()?.sedes ?? []);
+
+  /**
+   * Departamentos elegibles: con sede elegida, solo los asociados a ella (D-4);
+   * sin sede, todos los del ámbito. La asociación viene del propio ámbito, así
+   * que no se consulta `/organizacion/*` (el Bodeguero recibiría 403).
+   */
+  readonly departamentosDisponibles = computed<DepartamentoFiltro[]>(() => {
+    const departamentos = this.ambito()?.departamentos ?? [];
+    const sedeId = this.sedeSeleccionada();
+    if (sedeId === null) {
+      return departamentos;
+    }
+    return departamentos.filter((departamento) => departamento.sede_id === sedeId);
+  });
+
+  /** Los dos filtros que resuelve el servidor; `null` no agrega query param. */
+  readonly filtrosOrganizacionales = computed<FiltrosExistencias>(() => ({
+    sede_id: this.sedeSeleccionada(),
+    departamento_id: this.departamentoSeleccionado(),
+  }));
+
+  readonly filtrosOrganizacionalesActivos = computed(
+    () => this.sedeSeleccionada() !== null || this.departamentoSeleccionado() !== null,
+  );
+
   ngOnInit(): void {
+    if (this.filtrosVisibles()) {
+      this.cargarAmbito();
+    }
     this.cargarCatalogo();
     if (this.gestionVisible()) {
       this.cargarGestion();
@@ -261,9 +346,61 @@ readonly totalCriticos = computed(() => this.insumos().filter((insumo) => insumo
   }
 
   limpiarFiltros(): void {
+    const organizacionalActivo = this.filtrosOrganizacionalesActivos();
+
     this.consulta.set('');
     this.categoriaSeleccionada.set(null);
     this.soloCriticos.set(false);
+    this.sedeSeleccionada.set(null);
+    this.departamentoSeleccionado.set(null);
+
+    // AC-7: si el ámbito lo resolvía el servidor, hay que volver a pedir el
+    // agregado permitido por rol. Sin filtros organizacionales el listado
+    // cargado ya es ese agregado y no se gasta una lectura extra.
+    if (organizacionalActivo) {
+      this.cargarExistenciasFiltradas();
+    }
+  }
+
+  // --- Filtros organizacionales (Feature 018) ---
+
+  /**
+   * Cambio de sede (solo Administrador). Acota las opciones departamentales y
+   * limpia una selección incompatible antes de consultar (D-4): la UI nunca
+   * envía una pareja sede/departamento que el servidor respondería vacía.
+   */
+  alCambiarSede(evento: Event): void {
+    const valor = (evento.target as HTMLSelectElement).value;
+    const sedeId = valor === '' ? null : Number(valor);
+    if (sedeId === this.sedeSeleccionada()) {
+      return;
+    }
+
+    this.sedeSeleccionada.set(sedeId);
+
+    const departamento = this.departamentoSeleccionado();
+    if (
+      departamento !== null &&
+      !this.departamentosDisponibles().some(
+        (opcion) => opcion.departamento_id === departamento,
+      )
+    ) {
+      this.departamentoSeleccionado.set(null);
+    }
+
+    this.cargarExistenciasFiltradas();
+  }
+
+  /** Cambio de departamento: el servidor resuelve su sede y acota el saldo. */
+  alCambiarDepartamento(evento: Event): void {
+    const valor = (evento.target as HTMLSelectElement).value;
+    const departamentoId = valor === '' ? null : Number(valor);
+    if (departamentoId === this.departamentoSeleccionado()) {
+      return;
+    }
+
+    this.departamentoSeleccionado.set(departamentoId);
+    this.cargarExistenciasFiltradas();
   }
 
   // --- Pestañas (enmienda de AC-11) ---
@@ -421,6 +558,9 @@ readonly totalCriticos = computed(() => this.insumos().filter((insumo) => insumo
   /**
    * Una sola carga para categorias e insumos: dos observables sueltos darían dos
    * estados de carga y dos de error, y la vista solo puede mostrar uno de cada.
+   *
+   * Las existencias se piden con los filtros organizacionales vigentes: tras una
+   * transición del catálogo la vista conserva la sede/departamento elegidos.
    */
   private cargarCatalogo(): void {
     this.cargando.set(true);
@@ -428,7 +568,7 @@ readonly totalCriticos = computed(() => this.insumos().filter((insumo) => insumo
 
     forkJoin({
       categorias: this.inventarioService.obtenerCategorias(),
-      insumos: this.inventarioService.obtenerExistencias(),
+      insumos: this.inventarioService.obtenerExistencias(this.filtrosOrganizacionales()),
     }).subscribe({
       next: ({ categorias, insumos }) => {
         this.categorias.set(categorias);
@@ -445,6 +585,71 @@ readonly totalCriticos = computed(() => this.insumos().filter((insumo) => insumo
         );
       },
     });
+  }
+
+  /**
+   * Opciones de los selectores (Feature 018, D-6). Es una lectura propia, no un
+   * `forkJoin` con el catálogo: un 409 de Bodeguero sin sede debe dejar un aviso
+   * sin tumbar el listado operativo (AC-4).
+   */
+  private cargarAmbito(): void {
+    this.cargandoAmbito.set(true);
+    this.errorAmbito.set(null);
+
+    this.inventarioService.obtenerAmbitoInventario().subscribe({
+      next: (ambito) => {
+        this.ambito.set(ambito);
+        this.cargandoAmbito.set(false);
+      },
+      error: (fallo: HttpErrorResponse) => {
+        this.ambito.set(null);
+        this.cargandoAmbito.set(false);
+        this.errorAmbito.set(this.mensajeDeAmbito(fallo));
+      },
+    });
+  }
+
+  /** Recarga solo las existencias, con el ámbito que resolvió el servidor. */
+  private cargarExistenciasFiltradas(): void {
+    this.cargando.set(true);
+    this.mensajeError.set(null);
+
+    this.inventarioService.obtenerExistencias(this.filtrosOrganizacionales()).subscribe({
+      next: (insumos) => {
+        this.insumos.set(insumos);
+        this.cargando.set(false);
+      },
+      error: (fallo: HttpErrorResponse) => {
+        this.insumos.set([]);
+        this.cargando.set(false);
+        this.mensajeError.set(
+          `No se pudieron cargar las existencias (${fallo.status ?? 'sin respuesta'}).`,
+        );
+      },
+    });
+  }
+
+  /**
+   * Mensaje de la lectura de ámbito. Prefiere el `detail` del backend —el 409 de
+   * sede no asignada lo trae— y recurre al código de estado si no hay texto.
+   */
+  private mensajeDeAmbito(fallo: HttpErrorResponse): string {
+    const detalle = (fallo.error as { detail?: unknown } | null)?.detail;
+    if (typeof detalle === 'string' && detalle.trim() !== '') {
+      return detalle;
+    }
+    switch (fallo.status) {
+      case 401:
+        return 'Tu sesión no es válida. Vuelve a iniciar sesión.';
+      case 403:
+        return 'Tu rol no tiene acceso a los filtros de inventario.';
+      case 409:
+        return 'Tu usuario no tiene una sede asignada.';
+      case 0:
+        return 'No se pudo contactar al servidor. Verifica la conexión e inténtalo de nuevo.';
+      default:
+        return `No se pudieron cargar los filtros de inventario (HTTP ${fallo.status}).`;
+    }
   }
 
   private cargarGestion(): void {

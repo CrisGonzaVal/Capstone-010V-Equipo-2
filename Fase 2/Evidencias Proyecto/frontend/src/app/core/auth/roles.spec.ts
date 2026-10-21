@@ -19,6 +19,7 @@ import {
   puedeOperarTickets,
   puedeRechazarTicket,
   puedeVerDashboard,
+  puedeVerFiltrosInventario,
   puedeVerInventario,
   puedeVerTickets,
 } from './roles';
@@ -198,5 +199,39 @@ describe('roles', () => {
         .withContext(String(rol))
         .toBe(false);
     }
+  });
+
+  // --- Filtros de inventario por sede y departamento (Feature 018, T6/T7) ---
+
+  /**
+   * AC-5/AC-8: los filtros organizacionales son visibles solo para
+   * Administrador y Bodeguero. Es presentación: la API sigue autorizando.
+   */
+  it('puedeVerFiltrosInventario concede solo a Administrador y Bodeguero (AC-5/AC-8)', () => {
+    expect(puedeVerFiltrosInventario('Administrador')).toBe(true);
+    expect(puedeVerFiltrosInventario('Bodeguero')).toBe(true);
+    expect(puedeVerFiltrosInventario('Solicitante')).toBe(false);
+    expect(puedeVerFiltrosInventario('Superadmin')).toBe(false);
+  });
+
+  it('puedeVerFiltrosInventario no concede a alias, desconocido ni ausente (AC-5)', () => {
+    for (const rol of ['Admin', 'Desconocido', null]) {
+      expect(puedeVerFiltrosInventario(rol)).withContext(String(rol)).toBe(false);
+    }
+  });
+
+  /**
+   * AC-7: el Solicitante conserva la vista de inventario tal como está; lo que
+   * no recibe son los filtros organizacionales (que exigen lectura de ámbito).
+   */
+  it('el Solicitante conserva la vista de inventario pero no sus filtros (AC-7)', () => {
+    expect(puedeVerInventario('Solicitante')).toBe(true);
+    expect(puedeVerFiltrosInventario('Solicitante')).toBe(false);
+  });
+
+  /** AC-8: el Superadmin sigue sin acceso a inventario ni a sus filtros. */
+  it('el Superadmin sigue denegado en inventario y en sus filtros (AC-8)', () => {
+    expect(puedeVerInventario('Superadmin')).toBe(false);
+    expect(puedeVerFiltrosInventario('Superadmin')).toBe(false);
   });
 });

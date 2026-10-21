@@ -1,5 +1,5 @@
 import { provideHttpClient } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { WritableSignal, signal } from '@angular/core';
 
@@ -18,6 +18,7 @@ import { InventarioComponent } from './inventario.component';
 const RUTA_EXISTENCIAS = `${URL_API}/inventario/existencias`;
 const RUTA_CATEGORIAS = `${URL_API}/inventario/categorias`;
 const RUTA_GESTION = `${URL_API}/inventario/gestion`;
+const RUTA_AMBITO = `${URL_API}/inventario/ambito`;
 
 function rutaEstadoProducto(productoId: number): string {
   return `${URL_API}/inventario/productos/${productoId}/estado`;
@@ -101,6 +102,95 @@ const INSUMOS: ProductoExistencia[] = [
     sedes: [
       crearSede({ sede_id: 4, sede_nombre: 'Sede Norte', stock_actual: 3 }),
     ],
+  }),
+];
+
+// --- Feature 018: filtros de sede y departamento (T6) ---
+
+/**
+ * Forma pactada de `GET /inventario/ambito` (plan 018 §1.2). Los tipos
+ * compartidos llegan en T7; aquí se fija el contrato para probar en rojo.
+ */
+interface SedeFiltro {
+  sede_id: number;
+  sede_nombre: string;
+}
+
+interface DepartamentoFiltro {
+  departamento_id: number;
+  departamento_nombre: string;
+  sede_id: number;
+}
+
+interface AmbitoInventario {
+  sedes: SedeFiltro[];
+  departamentos: DepartamentoFiltro[];
+}
+
+/** Ámbito del Administrador: dos sedes y departamentos repartidos entre ellas. */
+const AMBITO_ADMIN: AmbitoInventario = {
+  sedes: [
+    { sede_id: 1, sede_nombre: 'Sede Central' },
+    { sede_id: 3, sede_nombre: 'Sede Norte' },
+  ],
+  departamentos: [
+    { departamento_id: 10, departamento_nombre: 'Operaciones', sede_id: 1 },
+    { departamento_id: 11, departamento_nombre: 'Compras', sede_id: 1 },
+    { departamento_id: 12, departamento_nombre: 'Logística', sede_id: 3 },
+  ],
+};
+
+/** Ámbito del Bodeguero: solo su sede y los departamentos de esa sede. */
+const AMBITO_BODEGUERO: AmbitoInventario = {
+  sedes: [{ sede_id: 1, sede_nombre: 'Sede Central' }],
+  departamentos: [
+    { departamento_id: 10, departamento_nombre: 'Operaciones', sede_id: 1 },
+    { departamento_id: 11, departamento_nombre: 'Compras', sede_id: 1 },
+  ],
+};
+
+/**
+ * Nota literal de la decisión D-3 de la spec 018. Es exclusiva del Bodeguero y
+ * debe aparecer textualmente junto a su selector departamental.
+ */
+const NOTA_STOCK_COMPARTIDO =
+  'El stock es compartido por la sede. Elegir un departamento no divide ni cambia el saldo; solo muestra productos con stock en esta sede.';
+
+/** Respuesta de existencias acotada a la Sede Central (sede_id 1). */
+const INSUMOS_SEDE_CENTRAL: ProductoExistencia[] = [
+  crearInsumo(),
+  crearInsumo({
+    producto_id: 3,
+    nombre: 'Toner HP 26A',
+    descripcion: null,
+    categoria_id: 2,
+    categoria_nombre: 'Toner',
+    stock_total: 3,
+    es_critico: true,
+    sedes: [crearSede({ sede_id: 1, sede_nombre: 'Sede Central', stock_actual: 3 })],
+  }),
+];
+
+/** Respuesta de existencias acotada a la Sede Norte (sede_id 3). */
+const INSUMOS_SEDE_NORTE: ProductoExistencia[] = [
+  crearInsumo({
+    producto_id: 2,
+    nombre: 'Resma Carta 75g',
+    descripcion: 'Resma de 500 hojas',
+    unidad_medida: 'RESMA',
+    stock_minimo: 20,
+    stock_total: 30,
+    sedes: [crearSede({ sede_id: 3, sede_nombre: 'Sede Norte', stock_actual: 30 })],
+  }),
+  crearInsumo({
+    producto_id: 3,
+    nombre: 'Toner HP 26A',
+    descripcion: null,
+    categoria_id: 2,
+    categoria_nombre: 'Toner',
+    stock_total: 3,
+    es_critico: true,
+    sedes: [crearSede({ sede_id: 3, sede_nombre: 'Sede Norte', stock_actual: 3 })],
   }),
 ];
 
@@ -239,6 +329,11 @@ describe('InventarioComponent', () => {
     };
     peticiones.insumos.flush(insumos);
     peticiones.categorias.flush(categorias);
+    // El rol por defecto es Bodeguero: desde la Feature 018 también pide el
+    // ámbito para poblar su selector departamental. El Solicitante no lo pide.
+    for (const ambito of httpMock.match(RUTA_AMBITO)) {
+      ambito.flush(AMBITO_ADMIN);
+    }
     fixture.detectChanges();
     return peticiones;
   }
@@ -347,6 +442,9 @@ describe('InventarioComponent', () => {
   it('debe mostrar un error si el backend no responde', () => {
     fixture.detectChanges();
 
+    // El ámbito llega bien; el que falla es el catálogo operativo.
+    httpMock.expectOne(RUTA_AMBITO).flush(AMBITO_ADMIN);
+
     // La otra peticion queda cancelada sola: `forkJoin` se desuscribe al fallar.
     httpMock.expectOne(RUTA_EXISTENCIAS).flush('error', { status: 500, statusText: 'Error' });
     fixture.detectChanges();
@@ -415,12 +513,14 @@ describe('InventarioComponent', () => {
       const peticiones = {
         insumos: httpMock.expectOne(RUTA_EXISTENCIAS),
         categorias: httpMock.expectOne(RUTA_CATEGORIAS),
+        ambito: httpMock.expectOne(RUTA_AMBITO),
       };
       peticiones.insumos.flush(INSUMOS_A);
       peticiones.categorias.flush(CATEGORIAS_A);
+      peticiones.ambito.flush(AMBITO_ADMIN);
       fixture.detectChanges();
 
-      for (const peticion of [peticiones.insumos, peticiones.categorias]) {
+      for (const peticion of [peticiones.insumos, peticiones.categorias, peticiones.ambito]) {
         expect(peticion.request.method).toBe('GET');
         expect(peticion.request.params.has('institucion_id')).toBe(false);
         expect(peticion.request.body).toBeNull();
@@ -515,10 +615,12 @@ describe('InventarioComponent', () => {
       insumos: httpMock.expectOne(RUTA_EXISTENCIAS),
       categorias: httpMock.expectOne(RUTA_CATEGORIAS),
       gestion: httpMock.expectOne(RUTA_GESTION),
+      ambito: httpMock.expectOne(RUTA_AMBITO),
     };
     peticiones.insumos.flush(INSUMOS);
     peticiones.categorias.flush(CATEGORIAS);
     peticiones.gestion.flush(datos);
+    peticiones.ambito.flush(AMBITO_ADMIN);
     fixture.detectChanges();
     return peticiones;
   }
@@ -834,6 +936,364 @@ describe('InventarioComponent', () => {
           'section[aria-label="Historial del recurso"]',
         ),
       ).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Filtros de sede y departamento (Feature 018, T6)
+  //
+  // La implementación (signals y plantilla) llega en T8. Estas pruebas fijan el
+  // contrato observable por DOM y HTTP: nombre accesible de los `<select>`,
+  // opciones recibidas del ámbito, query enviada y textos de estado.
+  // ---------------------------------------------------------------------------
+
+  /** Nombre accesible de un `<select>`: `aria-label`, `<label for>` o label envolvente. */
+  function nombreDelSelector(select: HTMLSelectElement): string {
+    const raiz = fixture.nativeElement as HTMLElement;
+    const aria = select.getAttribute('aria-label');
+    if (aria) {
+      return aria;
+    }
+    if (select.id) {
+      const etiqueta = raiz.querySelector(`label[for="${select.id}"]`);
+      if (etiqueta) {
+        return (etiqueta.textContent ?? '').trim();
+      }
+    }
+    const envoltorio = select.closest('label');
+    return (envoltorio?.textContent ?? '').trim();
+  }
+
+  /** Selector cuyo nombre accesible contiene el término indicado. */
+  function selectorDe(etiqueta: string): HTMLSelectElement | null {
+    const raiz = fixture.nativeElement as HTMLElement;
+    const selects = Array.from(raiz.querySelectorAll<HTMLSelectElement>('select'));
+    return (
+      selects.find((select) =>
+        nombreDelSelector(select).toLowerCase().includes(etiqueta.toLowerCase()),
+      ) ?? null
+    );
+  }
+
+  /** Opciones reales (se descarta la de valor vacío, que representa «todas»). */
+  function opcionesDelSelector(etiqueta: string): string[] {
+    const select = selectorDe(etiqueta);
+    expect(select).withContext(`selector "${etiqueta}"`).toBeTruthy();
+    if (select === null) {
+      return [];
+    }
+    return Array.from(select.options)
+      .filter((opcion) => opcion.value !== '')
+      .map((opcion) => (opcion.textContent ?? '').trim());
+  }
+
+  /** Elige la opción cuyo texto contiene `texto` y dispara `change`. */
+  function elegirEnSelector(etiqueta: string, texto: string): void {
+    const select = selectorDe(etiqueta);
+    expect(select).withContext(`selector "${etiqueta}"`).toBeTruthy();
+    if (select === null) {
+      return;
+    }
+    const opcion = Array.from(select.options).find((candidata) =>
+      (candidata.textContent ?? '').toLowerCase().includes(texto.toLowerCase()),
+    );
+    expect(opcion).withContext(`opción "${texto}" en "${etiqueta}"`).toBeTruthy();
+    if (opcion === undefined) {
+      return;
+    }
+    select.value = opcion.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+  }
+
+  /** Última consulta de existencias abierta; exige que haya exactamente una. */
+  function consultaExistencias(): TestRequest | null {
+    // `match` con string compara `urlWithParams`, así que un `?sede_id=…` deja
+    // de casar. Se selecciona por ruta y los `params` se afirman aparte.
+    const peticiones = httpMock.match((peticion) => peticion.url === RUTA_EXISTENCIAS);
+    expect(peticiones.length).withContext('una consulta de existencias').toBe(1);
+    return peticiones[0] ?? null;
+  }
+
+  interface OpcionesCarga {
+    ambito?: AmbitoInventario;
+    /** Responde 409 en la lectura de ámbito (Bodeguero/sin sede). */
+    ambitoSinSede?: boolean;
+    insumos?: ProductoExistencia[];
+    categorias?: Categoria[];
+    gestion?: GestionCatalogo;
+  }
+
+  /**
+   * Arranca la vista con el rol indicado y responde todo lo que pida, incluida
+   * la lectura de ámbito cuando la implementación ya la consulta (T8).
+   * Devuelve las rutas solicitadas para poder afirmar cuáles se hicieron.
+   */
+  function montarConRol(rol: string, opciones: OpcionesCarga = {}): string[] {
+    identidad.set(crearIdentidad(rol));
+    fixture.detectChanges();
+
+    const solicitadas: string[] = [];
+    for (const peticion of httpMock.match(() => true)) {
+      solicitadas.push(peticion.request.url);
+      if (peticion.cancelled) {
+        continue;
+      }
+      switch (peticion.request.url) {
+        case RUTA_AMBITO:
+          if (opciones.ambitoSinSede) {
+            peticion.flush(
+              { detail: 'Tu usuario no tiene una sede asignada.' },
+              { status: 409, statusText: 'Conflict' },
+            );
+          } else {
+            peticion.flush(opciones.ambito ?? AMBITO_ADMIN);
+          }
+          break;
+        case RUTA_EXISTENCIAS:
+          peticion.flush(opciones.insumos ?? INSUMOS);
+          break;
+        case RUTA_CATEGORIAS:
+          peticion.flush(opciones.categorias ?? CATEGORIAS);
+          break;
+        case RUTA_GESTION:
+          peticion.flush(opciones.gestion ?? GESTION);
+          break;
+        default:
+          peticion.flush([]);
+      }
+    }
+    fixture.detectChanges();
+    return solicitadas;
+  }
+
+  describe('filtros de sede y departamento (Feature 018)', () => {
+    /** AC-1/AC-5: el Administrador recibe el ámbito y ve ambos selectores. */
+    it('el Administrador consulta el ámbito y ve sede y departamento con sus opciones', () => {
+      const solicitadas = montarConRol('Administrador');
+      expect(solicitadas).toContain(RUTA_AMBITO);
+
+      const sedes = opcionesDelSelector('sede');
+      expect(sedes).toContain('Sede Central');
+      expect(sedes).toContain('Sede Norte');
+      expect(sedes.length).toBe(2);
+
+      expect(selectorDe('departamento'))
+        .withContext('selector de departamento')
+        .toBeTruthy();
+      const departamentos = opcionesDelSelector('departamento');
+      const permitidos = AMBITO_ADMIN.departamentos.map(
+        (departamento) => departamento.departamento_nombre,
+      );
+      expect(departamentos.length).toBeGreaterThan(0);
+      for (const nombre of departamentos) {
+        expect(permitidos).withContext(nombre).toContain(nombre);
+      }
+    });
+
+    /**
+     * AC-1: elegir sede acota la consulta con `sede_id` y recalcula la franja de
+     * indicadores y los `stock_total` sobre la respuesta filtrada.
+     */
+    it('al elegir una sede acota la consulta y recalcula la franja de indicadores', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Norte');
+
+      const consulta = consultaExistencias();
+      expect(consulta?.request.params.get('sede_id')).toBe('3');
+      consulta?.flush(INSUMOS_SEDE_NORTE);
+      fixture.detectChanges();
+
+      expect(filas().length).toBe(2);
+      expect(textoDeLaTabla()).toContain('Resma Carta 75g');
+      expect(textoDeLaTabla()).not.toContain('Cuaderno linedado');
+      expect(textoDeLaTabla()).toContain('30');
+      // La franja resume la respuesta filtrada, no el catálogo anterior.
+      expect(componente.totalCatalogo()).toBe(2);
+      expect(componente.totalConStock()).toBe(2);
+      expect(componente.totalCriticos()).toBe(1);
+    });
+
+    /**
+     * AC-5: cambiar de sede limpia el departamento incompatible y restringe las
+     * opciones departamentales a la sede elegida.
+     */
+    it('cambiar de sede limpia el departamento incompatible y acota sus opciones', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Central');
+      consultaExistencias()?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      elegirEnSelector('departamento', 'Operaciones');
+      const conDepartamento = consultaExistencias();
+      expect(conDepartamento?.request.params.get('sede_id')).toBe('1');
+      expect(conDepartamento?.request.params.get('departamento_id')).toBe('10');
+      conDepartamento?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      elegirEnSelector('sede', 'Sede Norte');
+      const alCambiar = consultaExistencias();
+      expect(alCambiar?.request.params.get('sede_id')).toBe('3');
+      // El departamento de la sede anterior no viaja en la nueva consulta.
+      expect(alCambiar?.request.params.has('departamento_id')).toBe(false);
+      alCambiar?.flush(INSUMOS_SEDE_NORTE);
+      fixture.detectChanges();
+
+      const departamentos = opcionesDelSelector('departamento');
+      expect(departamentos).toContain('Logística');
+      expect(departamentos).not.toContain('Operaciones');
+    });
+
+    /**
+     * AC-2/AC-7: los filtros organizacionales se combinan con texto, categoría y
+     * «Solo stock crítico» sin excluirse.
+     */
+    it('combina sede y departamento con texto, categoría y «Solo stock crítico»', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Central');
+      consultaExistencias()?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      elegirEnSelector('departamento', 'Operaciones');
+      const consulta = consultaExistencias();
+      expect(consulta?.request.params.get('departamento_id')).toBe('10');
+      consulta?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      componente.consulta.set('toner');
+      componente.seleccionarCategoria(2);
+      componente.alternarSoloCriticos();
+      fixture.detectChanges();
+
+      expect(filas().length).toBe(1);
+      expect(textoDeLaTabla()).toContain('Toner HP 26A');
+      expect(textoDeLaTabla()).not.toContain('Cuaderno linedado');
+    });
+
+    /**
+     * AC-7: «Limpiar filtros» restablece también los filtros organizacionales y
+     * vuelve a pedir el agregado permitido por rol.
+     */
+    it('«Limpiar filtros» restablece los filtros organizacionales y los existentes', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Norte');
+      consultaExistencias()?.flush(INSUMOS_SEDE_NORTE);
+      fixture.detectChanges();
+
+      componente.consulta.set('resma');
+      fixture.detectChanges();
+
+      const limpiar = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'),
+      ).find((botoncito) => (botoncito.textContent ?? '').trim() === 'Limpiar filtros');
+      expect(limpiar).withContext('botón «Limpiar filtros»').toBeTruthy();
+      limpiar?.click();
+      fixture.detectChanges();
+
+      const consulta = consultaExistencias();
+      expect(consulta?.request.params.has('sede_id')).toBe(false);
+      consulta?.flush(INSUMOS);
+      fixture.detectChanges();
+
+      expect(componente.consulta()).toBe('');
+      expect(filas().length).toBe(3);
+      expect(componente.totalCatalogo()).toBe(3);
+    });
+
+    /**
+     * AC-2/AC-4: el Bodeguero no tiene selector de sede, ve solo los
+     * departamentos de su sede y la nota literal D-3.
+     */
+    it('el Bodeguero no ve selector de sede, ve sus departamentos y la nota literal', () => {
+      montarConRol('Bodeguero', { ambito: AMBITO_BODEGUERO });
+
+      expect(selectorDe('sede'))
+        .withContext('selector de sede del Bodeguero')
+        .toBeNull();
+
+      const departamentos = opcionesDelSelector('departamento');
+      expect(departamentos.length).toBe(2);
+      expect(departamentos).toContain('Operaciones');
+      expect(departamentos).toContain('Compras');
+      expect(departamentos).not.toContain('Logística');
+
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain(NOTA_STOCK_COMPARTIDO);
+    });
+
+    /** AC-2: el Bodeguero consulta por `departamento_id`, nunca por `sede_id`. */
+    it('el Bodeguero consulta existencias con el departamento elegido', () => {
+      montarConRol('Bodeguero', { ambito: AMBITO_BODEGUERO });
+
+      elegirEnSelector('departamento', 'Operaciones');
+      const consulta = consultaExistencias();
+      expect(consulta?.request.params.get('departamento_id')).toBe('10');
+      // Sin selector de sede, el Bodeguero no envía `sede_id` (D-4).
+      expect(consulta?.request.params.has('sede_id')).toBe(false);
+      consulta?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      expect(filas().length).toBe(2);
+    });
+
+    /** AC-2: la nota de stock compartido es exclusiva del Bodeguero. */
+    it('la nota de stock compartido no se muestra al Administrador', () => {
+      montarConRol('Administrador');
+
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).not.toContain(NOTA_STOCK_COMPARTIDO);
+    });
+
+    /**
+     * AC-4: un 409 de ámbito (Bodeguero sin sede) deja la vista sin filtros
+     * sustitutos, con aviso, y no rompe el panel operativo.
+     */
+    it('un 409 de ámbito sin sede deja la vista con aviso y sin filtros sustitutos', () => {
+      montarConRol('Bodeguero', { ambitoSinSede: true });
+
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('sede asignada');
+
+      expect(selectorDe('sede')).toBeNull();
+      const departamento = selectorDe('departamento');
+      expect(departamento === null || departamento.disabled)
+        .withContext('selector departamental no disponible')
+        .toBe(true);
+      // La vista no se rompe: el panel operativo sigue montado.
+      expect(panelExistencias()).toBeTruthy();
+    });
+
+    /**
+     * AC-7 (guardia): el Solicitante no recibe ámbito ni selectores y conserva
+     * exactamente la vista operativa de hoy.
+     */
+    it('el Solicitante no recibe ámbito ni selectores y conserva la vista operativa', () => {
+      const solicitadas = montarConRol('Solicitante');
+
+      expect(solicitadas).not.toContain(RUTA_AMBITO);
+      expect(selectorDe('sede')).toBeNull();
+      expect(selectorDe('departamento')).toBeNull();
+      expect(filas().length).toBe(3);
+    });
+
+    /**
+     * AC-6: con filtros organizacionales y cero resultados el mensaje es el de
+     * filtros aplicados, distinto del catálogo vacío.
+     */
+    it('con filtros organizacionales sin resultados muestra el vacío filtrado', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Norte');
+      consultaExistencias()?.flush([]);
+      fixture.detectChanges();
+
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('Ningún insumo coincide con los filtros aplicados.');
+      expect(texto).not.toContain('El catálogo no tiene insumos cargados.');
     });
   });
 });

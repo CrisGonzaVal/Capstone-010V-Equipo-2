@@ -114,6 +114,17 @@ export const ROLES_EDICION_TICKETS = ['Administrador', 'Solicitante'] as const;
  */
 export const ROLES_GESTION_CATALOGO = ['Administrador'] as const;
 
+/**
+ * Roles que ven los filtros organizacionales de la pestaña de existencias
+ * (Feature 018, AC-3/AC-4; visibilidad AC-5/AC-8).
+ *
+ * Solo Administrador y Bodeguero pueden leer el ámbito (`GET
+ * /inventario/ambito`) para poblar los selectores de sede y departamento. Es
+ * **presentación**: la frontera sigue en la API, que responde 403 a Solicitante
+ * y Superadmin y mantiene el gating de la capacidad `inventario`.
+ */
+export const ROLES_FILTROS_INVENTARIO = ['Administrador', 'Bodeguero'] as const;
+
 function contiene(roles: readonly string[], rol: string | null): boolean {
   return rol !== null && roles.includes(rol);
 }
@@ -203,4 +214,16 @@ export function puedeAdministrar(rol: string | null): boolean {
  */
 export function puedeGestionarCatalogo(rol: string | null): boolean {
   return contiene(ROLES_GESTION_CATALOGO, rol);
+}
+
+/**
+ * `true` si el rol ve los filtros de inventario por sede y departamento
+ * (Feature 018, AC-3/AC-4; visibilidad AC-5/AC-8).
+ *
+ * Espejo de la matriz de la lectura de ámbito: solo Administrador y Bodeguero.
+ * Es presentación pura: la frontera sigue en la API, que autoriza la operación,
+ * aplica el gating de `inventario` y resuelve el alcance por rol.
+ */
+export function puedeVerFiltrosInventario(rol: string | null): boolean {
+  return contiene(ROLES_FILTROS_INVENTARIO, rol);
 }

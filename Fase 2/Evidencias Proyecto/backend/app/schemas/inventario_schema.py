@@ -128,6 +128,58 @@ class ProductoExistenciaRespuesta(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Ambito de filtros de existencias (Feature 018, plan §1.1 y §1.2)
+# ---------------------------------------------------------------------------
+
+
+class SedeFiltroRespuesta(BaseModel):
+    """Opcion de sede de `GET /inventario/ambito` (Feature 018, AC-4).
+
+    Contrato **minimo** del selector: id y nombre. No transporta institucion,
+    estado ni saldo; la lectura solo devuelve filas activas del alcance del actor
+    (spec §7, "Campos minimos").
+
+    Sin `model_config = ConfigDict(from_attributes=True)`: el servicio arma la
+    proyeccion a mano, igual que `ProductoExistenciaRespuesta`.
+    """
+
+    sede_id: int
+    sede_nombre: str
+
+
+class DepartamentoFiltroRespuesta(BaseModel):
+    """Opcion de departamento de `GET /inventario/ambito` (Feature 018, AC-4).
+
+    Ademas del id y el nombre expone la **asociacion obligatoria** `sede_id`: es
+    lo que permite acotar los departamentos a la sede elegida sin volver a
+    consultar organizacion (spec D-6). Un departamento sin sede no es opcion, por
+    eso `sede_id` no es opcional.
+
+    Tampoco declara `from_attributes`: la fila se proyecta explicitamente.
+    """
+
+    departamento_id: int
+    departamento_nombre: str
+    sede_id: int
+
+
+class AmbitoInventarioRespuesta(BaseModel):
+    """Read model de `GET /inventario/ambito` (Feature 018, plan §1.2).
+
+    Las dos colecciones salen siempre, aunque esten vacias: el Bodeguero con sede
+    inactiva recibe listas vacias y un Bodeguero sin sede recibe 409 desde el
+    servicio, nunca un ambito sustituto (spec D-5).
+
+    No lleva `from_attributes`: cruza sede y departamento con proyecciones
+    explicitas armadas por el service, y no expone usuarios, tickets, productos,
+    stock ni agregados.
+    """
+
+    sedes: List[SedeFiltroRespuesta]
+    departamentos: List[DepartamentoFiltroRespuesta]
+
+
+# ---------------------------------------------------------------------------
 # Ciclo de vida del catalogo (Feature 014, plan §2.3 y §2.7)
 # ---------------------------------------------------------------------------
 

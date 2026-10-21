@@ -43,6 +43,10 @@ MAPA_OPERACION_CAPACIDAD: dict[tuple[str, str], str] = {
     ("GET", "/api/v1/inventario/stock"): "inventario",
     ("GET", "/api/v1/inventario/movimientos"): "inventario",
     ("POST", "/api/v1/inventario/movimientos"): "inventario",
+    # Feature 018 (spec D-6/AC-8): la lectura de ambito son las opciones de
+    # filtro de existencias, la misma capacidad `inventario` que ya existe. El
+    # conjunto cerrado de capacidades de la 012 no se amplia.
+    ("GET", "/api/v1/inventario/ambito"): "inventario",
     # --- tickets: creacion y gestion del flujo ---
     ("GET", "/api/v1/tickets/catalogos"): "tickets",
     ("GET", "/api/v1/tickets/"): "tickets",

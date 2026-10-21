@@ -83,6 +83,13 @@ _ORGANIZACION: frozenset[str] = frozenset({_ADMINISTRADOR})
 # ciclo de vida. El gating de capacidad `catalogo` se aplica aparte.
 _CICLO_VIDA_CATALOGO: frozenset[str] = frozenset({_ADMINISTRADOR})
 
+# --- Feature 018 (spec D-6/AC-8) --------------------------------------------
+# Lectura minima de ambito para los selectores de la vista de existencias: sedes
+# y departamentos que el rol puede filtrar. Es operativa de la institucion; el
+# Solicitante no filtra por sede/departamento y Superadmin no lee negocio de un
+# tenant desde la 017.
+_AMBITO_INVENTARIO: frozenset[str] = frozenset({_ADMINISTRADOR, _BODEGUERO})
+
 
 #: Matriz explicita operacion -> roles permitidos (D-3, AC-9).
 #:
@@ -264,6 +271,11 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
         "/api/v1/inventario/categorias/{categoria_id}/historial",
     ): _CICLO_VIDA_CATALOGO,
     ("GET", "/api/v1/inventario/gestion"): _CICLO_VIDA_CATALOGO,
+    # Feature 018 (spec D-6/AC-8): lectura minima de ambito para los selectores
+    # de filtros de existencias. Es la **unica** incorporacion de la 018 (matriz
+    # 60 -> 61): ninguna entrada previa cambia de roles ni se retira. El gating
+    # de la capacidad `inventario` se evalua despues de esta matriz.
+    ("GET", "/api/v1/inventario/ambito"): _AMBITO_INVENTARIO,
 }
 
 

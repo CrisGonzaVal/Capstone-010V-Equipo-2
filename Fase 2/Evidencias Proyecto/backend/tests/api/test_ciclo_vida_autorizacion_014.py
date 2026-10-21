@@ -110,10 +110,18 @@ def test_matriz_conserva_las_operaciones_previas_intactas_ac_2():
 
 
 def test_matriz_tiene_exactamente_60_operaciones_tras_014():
-    """AC-2: 55 previas + las 5 nuevas de la 014."""
+    """AC-2: 55 previas + las 5 nuevas de la 014.
+
+    El nombre conserva el baseline historico de la 014, pero el total absoluto se
+    amplia **explicitamente** a 61 por la Feature 018 (spec D-6/AC-8, plan §1.4):
+    la 018 agrega `GET /api/v1/inventario/ambito` sin cambiar ninguna fila de la
+    014. No es una reescritura silenciosa del contrato, es una ampliacion
+    documentada.
+    """
     total = len(permisos.MATRIZ_PERMISOS)
-    assert total == 60, (
-        f"la matriz debe tener 60 operaciones (55 previas + 5 de la 014); tiene {total}"
+    assert total == 61, (
+        "la matriz debe tener 61 operaciones (55 previas + 5 de la 014 + la de "
+        f"ambito de la 018); tiene {total}"
     )
 
 
@@ -142,7 +150,13 @@ def test_openapi_publica_las_cinco_operaciones_ac_14(cliente):
 
 
 def test_openapi_tiene_60_operaciones_tras_014(cliente):
-    """AC-14: el contrato v1 publica las 60 operaciones de la matriz vigente."""
+    """AC-14: el contrato v1 publica las operaciones de la matriz vigente.
+
+    El nombre conserva el baseline historico de la 014; el total absoluto se
+    amplia **explicitamente** a 61 por la Feature 018 (spec D-6/AC-8, plan §1.4),
+    que publica `GET /api/v1/inventario/ambito` sin alterar las cinco rutas de la
+    014. Ampliacion documentada, no reescritura silenciosa.
+    """
     contrato = cliente.get("/openapi.json").json()
     total = sum(
         1
@@ -151,7 +165,7 @@ def test_openapi_tiene_60_operaciones_tras_014(cliente):
         for metodo in operaciones
         if metodo in _METODOS_OPENAPI
     )
-    assert total == 60, f"/openapi.json debe publicar 60 operaciones v1; publica {total}"
+    assert total == 61, f"/openapi.json debe publicar 61 operaciones v1; publica {total}"
 
 
 @pytest.mark.parametrize(

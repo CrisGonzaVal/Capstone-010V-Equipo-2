@@ -1,9 +1,11 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import {
+  AmbitoInventario,
   Categoria,
+  FiltrosExistencias,
   GestionCatalogo,
   HistorialTransicionCategoria,
   HistorialTransicionProducto,
@@ -40,15 +42,46 @@ export class InventarioService {
   }
 
   /**
+   * Opciones mínimas para filtrar existencias (Feature 018, AC-4/AC-8).
+   *
+   * `GET /inventario/ambito` devuelve solo sedes y departamentos activos del
+   * alcance del rol, sin consultar `/organizacion/*`: el Bodeguero no tiene
+   * acceso a esas lecturas administrativas. Es la única fuente de los selectores
+   * de la vista; el servidor autoriza la operación y aplica el gating de
+   * `inventario`.
+   */
+  obtenerAmbitoInventario(): Observable<AmbitoInventario> {
+    return this.http.get<AmbitoInventario>(`${URL_API}/inventario/ambito`);
+  }
+
+  /**
    * Catalogo clasificado por producto y por sede.
    *
-   * Sin parametros a proposito: la vista filtra en cliente (`spec.md` D-1), asi que
-   * la consulta devuelve el catalogo completo una sola vez. Los filtros del
-   * endpoint (`q`, `categoria_id`, `departamento_id`, `solo_criticos`) existen para
-   * consumidores que necesiten acotar en el servidor.
+   * Feature 018: los filtros **organizacionales** (`sede_id` y
+   * `departamento_id`) los resuelve el servidor, que acota la respuesta, los
+   * totales y la criticidad a ese ámbito. Los parámetros se envían solo cuando
+   * tienen valor: `null`/`undefined` no agregan la clave de query.
+   *
+   * El texto (`q`), la categoría y los críticos no se envían: siguen
+   * filtrándose en cliente sobre el conjunto organizacional ya cargado.
    */
-  obtenerExistencias(): Observable<ProductoExistencia[]> {
-    return this.http.get<ProductoExistencia[]>(`${URL_API}/inventario/existencias`);
+  obtenerExistencias(
+    filtros: FiltrosExistencias = {},
+  ): Observable<ProductoExistencia[]> {
+    let params = new HttpParams();
+    if (filtros.sede_id !== null && filtros.sede_id !== undefined) {
+      params = params.set('sede_id', filtros.sede_id);
+    }
+    if (
+      filtros.departamento_id !== null &&
+      filtros.departamento_id !== undefined
+    ) {
+      params = params.set('departamento_id', filtros.departamento_id);
+    }
+    return this.http.get<ProductoExistencia[]>(
+      `${URL_API}/inventario/existencias`,
+      { params },
+    );
   }
 
   registrarMovimiento(datos: MovimientoCrear): Observable<RespuestaMovimiento> {

@@ -126,6 +126,26 @@ export class UsuariosComponent implements OnInit {
     this.roles().filter((rol) => puedeAsignarRol(this.rolActual(), rol.nombre_rol)),
   );
 
+  /**
+   * Roles del combo de **edición** (Feature 007, D-6/AC-10; Feature 017, AC-9).
+   *
+   * Ofrece los mismos roles asignables que el alta —un Administrador nunca ve
+   * `Superadmin` ni puede promover a `Administrador`— y conserva el rol actual
+   * del usuario editado aunque no sea asignable, para que el combo muestre el
+   * valor persistido al editar a otro Administrador. `Superadmin` se excluye
+   * siempre: es una identidad de control, no un rol de tenant, y esta vista solo
+   * gestiona usuarios institucionales (Feature 017, AC-9/D-10).
+   */
+  readonly rolesEdicion = computed(() => {
+    const usuario = this.editando();
+    return this.roles().filter(
+      (rol) =>
+        rol.nombre_rol !== 'Superadmin' &&
+        (puedeAsignarRol(this.rolActual(), rol.nombre_rol) ||
+          rol.rol_id === usuario?.rol_id),
+    );
+  });
+
   readonly formularioEdicion = this.constructorFormulario.group({
     nombre: ['', [Validators.required, Validators.maxLength(100)]],
     apellido: ['', [Validators.required, Validators.maxLength(100)]],
