@@ -26,7 +26,7 @@
       justify-content: center;
       padding: 3rem 2rem;
     }
-    .frame { max-width: 1184px; width: 100%; }
+    .frame { max-width: 1120px; width: 100%; }
     .diagram-container { width: 100%; overflow-x: auto; margin-top: 1.5rem; }
     .eyebrow {
       font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
@@ -38,7 +38,7 @@
       font-weight: 400; letter-spacing: -0.02em; line-height: 1.15;
       color: var(--color-ink); margin-bottom: 0.35rem;
     }
-    .subtitle { color: var(--color-muted); font-size: 0.95rem; }
+    .subtitle { color: var(--color-muted); font-size: 0.95rem; max-width: 78ch; }
     svg { width: 100%; min-width: 1120px; display: block; }
     .note {
       margin-top: 1.75rem; padding-top: 1rem; border-top: 1px solid rgba(30,41,59,0.12);
@@ -53,52 +53,102 @@
       .diagram-container { overflow-x: visible; }
       svg { min-width: 0; }
     }
-  </style>
+      </style>
 </head>
 <body>
   <div class="frame">
     <p class="eyebrow">UML · casos de uso</p>
     <h1>Casos de uso · Solicitante</h1>
-    <p class="subtitle">Diagrama UML de casos de uso de CompuStock ERP para el actor Solicitante · Funcionario: 6 casos de uso dentro de la frontera del sistema.</p>
+    <p class="subtitle">8 casos de uso: consulta el stock de su departamento y gestiona sus propios tickets.</p>
     <div class="diagram-container">
-      <svg viewBox="0 0 1120 818" xmlns="http://www.w3.org/2000/svg"
+      <svg viewBox="0 0 1120 879" xmlns="http://www.w3.org/2000/svg"
            role="img" aria-labelledby="casos-uso-solicitante-title casos-uso-solicitante-desc">
         <title id="casos-uso-solicitante-title">Casos de uso · Solicitante</title>
-        <desc id="casos-uso-solicitante-desc">Diagrama UML de casos de uso de CompuStock ERP para el actor Solicitante · Funcionario: 6 casos de uso dentro de la frontera del sistema.</desc>
-        <defs>
-          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#475569"/>
-          </marker>
-          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#2563eb"/>
-          </marker>
-          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#1d4ed8"/>
-          </marker>
-        </defs>
-        <rect width="100%" height="100%" fill="#f8fafc"/>
-        <rect x="300" y="32" width="780" height="686" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.30)" stroke-width="1"/>
-        <text x="320" y="56" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">SISTEMA · COMPUSTOCK ERP</text>
-        <line x1="168" y1="350" x2="410" y2="104" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="358" x2="410" y2="212" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="368" x2="410" y2="320" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="376" x2="410" y2="428" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="386" x2="410" y2="536" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="394" x2="410" y2="644" stroke="#475569" stroke-width="1"/>
-        <ellipse cx="690" cy="104" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="97" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="107" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C2</text><text x="702" y="103" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Ver existencias y stock</text><text x="702" y="118" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">disponibilidad en tiempo real</text>
-        <ellipse cx="690" cy="212" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="205" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="215" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T1</text><text x="702" y="211" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Crear ticket</text><text x="702" y="226" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">justificación e ítems</text>
-        <ellipse cx="690" cy="320" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="313" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="323" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T5</text><text x="702" y="319" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Ver detalle del ticket</text><text x="702" y="334" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">solicitante · historial</text>
-        <ellipse cx="690" cy="428" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="421" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="431" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T6</text><text x="702" y="427" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Cancelar ticket</text><text x="702" y="442" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">solo si no fue despachado</text>
-        <ellipse cx="690" cy="536" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="529" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="539" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">R2</text><text x="702" y="535" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Recibir notificaciones</text><text x="702" y="550" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">hitos y recordatorios</text>
-        <ellipse cx="690" cy="644" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="637" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="647" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">R3</text><text x="702" y="643" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Ver dashboard analítico</text><text x="702" y="658" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">KPIs y alertas</text>
-        <circle cx="140" cy="338" r="12" fill="none" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="350" x2="140" y2="390" stroke="#1e293b" stroke-width="1.2"/><line x1="118" y1="366" x2="162" y2="366" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="390" x2="124" y2="418" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="390" x2="156" y2="418" stroke="#1e293b" stroke-width="1.2"/>
-        <text x="140" y="444" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Solicitante · Funcionario</text>
-        <text x="140" y="460" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">su departamento</text>
-        <line x1="300" y1="738" x2="1080" y2="738" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/><text x="300" y="762" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">LEYENDA</text><ellipse cx="410" cy="758" rx="14" ry="8" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><text x="432" y="762" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">caso de uso</text><line x1="538" y1="758" x2="566" y2="758" stroke="#475569" stroke-width="1"/><text x="574" y="762" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">asociación — el actor participa</text><text x="836" y="762" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">A admin · C catálogo · T tickets · R informes</text>
+        <desc id="casos-uso-solicitante-desc">Diagrama UML de casos de uso de CompuStock para el actor Solicitante · Funcionario: 8 casos de uso dentro de la frontera del sistema.</desc>
+        <rect width="1120" height="879" fill="#f8fafc"/>
+        <rect x="300" y="32" width="780" height="775" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.30)" stroke-width="1"/>
+        <text x="320" y="56" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">SISTEMA · COMPUSTOCK</text>
+        <line x1="162" y1="454" x2="390" y2="130" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="454" x2="390" y2="271" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="454" x2="390" y2="333" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="454" x2="390" y2="395" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="454" x2="390" y2="457" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="454" x2="390" y2="519" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="454" x2="390" y2="660" stroke="#475569" stroke-width="1" stroke-dasharray="5,4"/>
+        <line x1="162" y1="454" x2="390" y2="722" stroke="#475569" stroke-width="1"/>
+        <text x="1032" y="80" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="end">INVENTARIO Y EXISTENCIAS · 1 CASO</text>
+        <line x1="900" y1="88" x2="1032" y2="88" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/>
+        <ellipse cx="690" cy="130" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="123" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="133" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">I1</text>
+        <text x="690" y="127" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Consultar existencias y stock</text>
+        <text x="690" y="142" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">disponibilidad de su departamento</text>
+
+        <text x="1032" y="221" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="end">TICKETS Y DESPACHO · 5 CASOS</text>
+        <line x1="900" y1="229" x2="1032" y2="229" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/>
+        <ellipse cx="690" cy="271" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="264" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="274" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T1</text>
+        <text x="690" y="268" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Emitir ticket</text>
+        <text x="690" y="283" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">justificación e ítems</text>
+
+        <ellipse cx="690" cy="333" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="326" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="336" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T2</text>
+        <text x="690" y="330" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Consultar tablero</text>
+        <text x="690" y="345" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">solo sus tickets</text>
+
+        <ellipse cx="690" cy="395" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="388" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="398" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T5</text>
+        <text x="690" y="392" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Consultar detalle</text>
+        <text x="690" y="407" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">propio · historial</text>
+
+        <ellipse cx="690" cy="457" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="450" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="460" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T6</text>
+        <text x="690" y="454" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Editar ticket</text>
+        <text x="690" y="469" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">propio · antes del despacho</text>
+
+        <ellipse cx="690" cy="519" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="512" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="522" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T7</text>
+        <text x="690" y="516" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Anular ticket</text>
+        <text x="690" y="531" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">propio · sin movimiento de stock</text>
+
+        <text x="1032" y="610" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="end">INFORMES Y AVISOS · 2 CASOS</text>
+        <line x1="900" y1="618" x2="1032" y2="618" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/>
+        <ellipse cx="690" cy="660" rx="300" ry="25" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2" stroke-dasharray="5,4"/>
+        <rect x="406" y="653" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="663" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">R2</text>
+        <text x="690" y="657" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Recibir notificaciones</text>
+        <text x="690" y="672" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">hitos y avisos</text>
+<rect x="1002" y="653" width="66" height="14" rx="2" fill="#eff6ff" stroke="#2563eb" stroke-width="0.8"/><text x="1035" y="663" fill="#2563eb" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">PLAN · 016</text>
+        <ellipse cx="690" cy="722" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="715" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="725" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">R3</text>
+        <text x="690" y="719" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Ver dashboard analítico</text>
+        <text x="690" y="734" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">KPIs y alertas</text>
+
+        <circle cx="140" cy="426" r="12" fill="none" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="140" y1="438" x2="140" y2="476" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="118" y1="454" x2="162" y2="454" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="140" y1="476" x2="124" y2="504.0" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="140" y1="476" x2="156" y2="504.0" stroke="#1e293b" stroke-width="1.2"/>
+        <text x="140" y="530.0" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Solicitante · Funcionario</text>
+        <text x="140" y="546.0" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">su departamento</text>
+        <line x1="300" y1="843" x2="1080" y2="843" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/>
+        <text x="300" y="863" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">LEYENDA</text>
+        <ellipse cx="412" cy="860" rx="14" ry="8" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <text x="434" y="863" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">caso de uso</text>
+        <line x1="556" y1="860" x2="584" y2="860" stroke="#475569" stroke-width="1"/>
+        <text x="592" y="863" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">asociación — el actor participa</text>
+        <ellipse cx="840" cy="860" rx="14" ry="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.1" stroke-dasharray="4,3"/>
+        <text x="862" y="863" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">planificado · feature 015/016</text>
       </svg>
     </div>
-    <p class="note"><strong>Restricción.</strong> Solo consulta y solicita: ve sus propios tickets y el stock de su departamento. No opera inventario ni el tablero Kanban.</p>
-    <p class="colophon">CompuStock ERP · diagrama de casos de uso UML · paleta del producto (slate + blue)</p>
+    <p class="note"><strong>Restricción.</strong> Consulta y solicita: ve sus propios tickets y el stock de su departamento. No opera inventario ni despacha tickets; edita y anula solo los suyos. «Recibir notificaciones» es la feature 016, aún en backlog.</p>
+    <p class="colophon">CompuStock · diagrama de casos de uso UML · paleta del producto (slate + blue)</p>
   </div>
 </body>
 </html>

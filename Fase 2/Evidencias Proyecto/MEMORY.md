@@ -45,5 +45,6 @@ Memoria entre sesiones. Máximo ~50 líneas: resume lo útil y elimina lo que ya
 ## Próximos pasos
 - Backlog posterior al Sprint 6: **015** informes PDF/Excel y **016** notificaciones in-app; candidata **019** (bitácora de motivos/constancias). **Hito 2:** 11/Dic/2026.
 - Retirada de «ERP»/«Kanban» de textos visibles hecha como cambio directo sin spec, por decisión del usuario (exención puntual de AGENTS §7).
+- **Diagramas de casos de uso regenerados (21/Oct/2026):** 5 HTML en `docs/diagramas/` y 5 PNG a 2x (viewBox×2) replicados como solo PNG en `../Evidencias Grupales/diagramas/`. Inventario canónico: 26 casos en 5 paquetes (Control SaaS 5, Administración 6, Inventario 4, Tickets 8, Informes/avisos 3); 015/016 marcados `PLAN · 015/016` con elipse discontinua. Superadmin limitado a control (sin lecturas de negocio, 017) y sin la ficticia «asignar encargado» (es A3). El general usa franja de actores + tarjetas de paquete, sin líneas de asociación: el detalle UML vive en los cuatro diagramas por actor.
 - Hallazgo abierto: la semilla no trae Administrador `+clerk_test` (se mapea una identidad Clerk a un usuario local) y el bootstrap del Superadmin no se invoca al arrancar.
 - Aviso de accesibilidad preexistente en el buscador operativo de inventario (input sin `id`/`name`), anotado para limpieza de UI.
