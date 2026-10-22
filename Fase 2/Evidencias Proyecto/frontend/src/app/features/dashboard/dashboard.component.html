@@ -94,26 +94,26 @@
           <div class="overflow-x-auto">
             <table class="w-full text-left text-sm">
               <caption class="sr-only">
-                Filas de inventario por departamento y producto con stock igual o por debajo del mínimo
+                Filas de stock por sede y producto con stock igual o por debajo del mínimo
               </caption>
               <thead>
                 <tr
                   class="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-500"
                 >
                   <th scope="col" class="py-3 pr-4">Producto</th>
-                  <th scope="col" class="py-3 pr-4">Departamento</th>
+                  <th scope="col" class="py-3 pr-4">Sede</th>
                   <th scope="col" class="py-3 pr-4">Institución</th>
                   <th scope="col" class="py-3 pr-4 text-right">Stock actual</th>
                   <th scope="col" class="py-3 text-right">Mínimo</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 text-slate-700">
-                @for (alerta of alertas(); track alerta.inventario_id) {
+                @for (alerta of alertas(); track alerta.sede_id + '-' + alerta.producto_id) {
                   <tr class="hover:bg-slate-50">
                     <td class="py-3 pr-4 font-medium text-slate-900">
                       {{ alerta.producto_nombre }}
                     </td>
-                    <td class="py-3 pr-4">{{ alerta.departamento_nombre }}</td>
+                    <td class="py-3 pr-4">{{ alerta.sede_nombre }}</td>
                     <td class="py-3 pr-4 text-slate-500">
                       {{ alerta.institucion_nombre ?? 'Global' }}
                     </td>
@@ -160,8 +160,7 @@
                       {{ movimiento.producto_nombre }}
                     </p>
                     <p class="text-xs text-slate-500">
-                      {{ movimiento.departamento_nombre }} ·
-                      {{ movimiento.ubicacion ?? 'Sin ubicación' }} ·
+                      {{ movimiento.sede_nombre ?? movimiento.departamento_nombre ?? 'Sin sede' }} ·
                       {{ movimiento.institucion_nombre ?? 'Global' }}
                     </p>
                     <p class="text-xs text-slate-400">

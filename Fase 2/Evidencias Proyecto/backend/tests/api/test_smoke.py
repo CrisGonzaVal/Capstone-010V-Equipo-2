@@ -9,6 +9,18 @@ solo se prueban los casos felices.
 
 import pytest
 
+from ._soporte_sede_011 import asegurar_sede_de_departamento
+
+
+@pytest.fixture(autouse=True)
+def _sede_del_departamento(motor, datos_base):
+    """Feature 011 (T9): el alta de ticket exige sede en el departamento.
+
+    El smoke crea tickets sobre `datos_base`; desde T9 el departamento debe tener
+    una sede asignada, asi que se siembra la precondicion para toda la suite.
+    """
+    asegurar_sede_de_departamento(motor, datos_base)
+
 
 def _crear_usuario(datos_base):
     return {
@@ -55,13 +67,13 @@ def test_crear_usuario_responde_201(cliente, datos_base):
     assert cuerpo["nombre"] == "Carlos"
 
 
-def test_crear_usuario_con_correo_duplicado_responde_400(cliente, datos_base):
-    """Regla de negocio que hoy vivia dentro del endpoint y ahora en el servicio."""
+def test_crear_usuario_con_correo_duplicado_responde_409(cliente, datos_base):
+    """Feature 017 (AC-2/AC-7): el duplicado es un conflicto 409, no un 400."""
     nuevo = {**_crear_usuario(datos_base), "correo": "unicamente.nuevo@compustock.cl"}
     assert cliente.post("/api/v1/usuarios/", json=nuevo).status_code == 201
 
     duplicado = cliente.post("/api/v1/usuarios/", json={**nuevo, "nombre": "Otro"})
-    assert duplicado.status_code == 400, duplicado.text
+    assert duplicado.status_code == 409, duplicado.text
 
 
 def test_crear_usuario_con_correo_invalido_responde_422(cliente, datos_base):
@@ -122,8 +134,16 @@ def test_crear_ticket_responde_201(cliente, datos_base):
     assert cuerpo["detalles"][0]["cantidad_solicitada"] == 12
 
 
-def test_actualizar_estado_ticket_responde_200(cliente, datos_base):
-    """Cierra el ticket usando el id real de CERRADO, no una constante fija."""
+def test_actualizar_estado_ticket_hacia_cerrado_responde_409(cliente, datos_base):
+    """Ajustado por la enmienda D-4 de la 013 (AC-26): el cierre por `PATCH`
+    ya no existe en **ningun** catalogo.
+
+    Este smoke cerraba el ticket con `INGRESADO → CERRADO` = 200; con la
+    terminalidad por nombre, el unico camino a `Cerrado` es el despacho
+    transaccional de la 005, de modo que esa misma peticion responde hoy 409
+    con su detalle literal y sin tocar el ticket. El flujo lineal entre
+    estados operativos sigue respondiendo 200 (verificado en el modulo de la
+    004)."""
     creado = cliente.post(
         "/api/v1/tickets/",
         json={
@@ -139,8 +159,17 @@ def test_actualizar_estado_ticket_responde_200(cliente, datos_base):
         f"/api/v1/tickets/{creado['ticket_id']}/estado",
         json={"estado_id": datos_base["estado_cerrado_id"]},
     )
-    assert respuesta.status_code == 200, respuesta.text
-    assert respuesta.json()["estado_id"] == datos_base["estado_cerrado_id"]
+    assert respuesta.status_code == 409, respuesta.text
+    assert respuesta.json()["detail"] == (
+        "El cierre requiere despacho; use "
+        f"POST /api/v1/tickets/{creado['ticket_id']}/despacho"
+    )
+    tickets = cliente.get("/api/v1/tickets/").json()
+    ticket = next(t for t in tickets if t["ticket_id"] == creado["ticket_id"])
+    assert ticket["estado_id"] == datos_base["estado_ingresado_id"], (
+        "el 409 no puede mover el ticket"
+    )
+    assert ticket["fecha_cierre"] is None, "el PATCH no sella cierre"
 
 
 def test_actualizar_estado_de_ticket_inexistente_responde_404(cliente, datos_base):

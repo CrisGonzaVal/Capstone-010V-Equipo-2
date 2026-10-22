@@ -37,18 +37,27 @@ _INVENTARIO_Y_TICKETS = {"Superadmin", "Administrador", "Bodeguero"}
 _ESCRITURA_CATALOGO = {"Administrador"}
 _ESCRITURA_STOCK = {"Administrador", "Bodeguero"}
 _ESCRITURA_TICKETS = {"Administrador", "Bodeguero", "Solicitante"}
+#: Alta de institucion (Feature 010, D-7): solo Superadmin.
+_ALTA_INSTITUCION = {"Superadmin"}
+#: Gestion organizacional (Feature 011, D-4/D-5): solo Administrador institucional.
+_ORGANIZACION = {"Administrador"}
+#: Ciclo de vida del ticket (Feature 013, AC-17): anulacion y edicion las opera
+#: el dueño del ticket (Solicitante) junto con el Administrador institucional.
+_ANULACION_Y_EDICION = {"Administrador", "Solicitante"}
+#: Ciclo de vida del ticket (Feature 013, AC-17): rechazo, operativo de bodega.
+_RECHAZO = {"Administrador", "Bodeguero"}
 
-#: Matriz completa vigente tras el ajuste de la 008 y la operacion `GET
-#: /dashboard/` de la 009 (21 operaciones: las 18 de 007, los dos GET por objeto
-#: de catalogo que exige AC-9/AC-16 de la 008 y el dashboard consolidado de la
-#: 009).
+#: Matriz completa vigente tras el ajuste de la 008, la operacion `GET
+#: /dashboard/` de la 009, el alta de institucion de la 010, las seis
+#: asignaciones organizacionales de la 011, las dieciseis operaciones de la 012
+#: y las cinco de ciclo de vida de la 013 (49 operaciones).
 MATRIZ_008: dict[tuple[str, str], set[str]] = {
     ("GET", "/api/v1/auth/me"): _TODOS,
-    ("GET", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("POST", "/api/v1/usuarios/"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/roles"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/departamentos"): _ADMINISTRATIVOS,
-    ("GET", "/api/v1/usuarios/instituciones"): _ADMINISTRATIVOS,
+    ("GET", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("POST", "/api/v1/usuarios/"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/roles"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/departamentos"): _ORGANIZACION,
+    ("GET", "/api/v1/usuarios/instituciones"): _ORGANIZACION,
     ("GET", "/api/v1/inventario/categorias"): _TODOS,
     ("GET", "/api/v1/inventario/categorias/{categoria_id}"): _TODOS,
     ("GET", "/api/v1/inventario/productos"): _TODOS,
@@ -65,6 +74,61 @@ MATRIZ_008: dict[tuple[str, str], set[str]] = {
     ("PATCH", "/api/v1/tickets/{ticket_id}/estado"): _ESCRITURA_STOCK,
     # Feature 009 (D-3/AC-13/AC-14): lectura consolidada para los cuatro roles.
     ("GET", "/api/v1/dashboard/"): _TODOS,
+    # Feature 010 (D-7/AC-7…AC-9): alta de institucion, solo Superadmin.
+    ("POST", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
+    # Feature 011 (D-4/D-5/AC-5): asignaciones organizacionales, solo Administrador.
+    ("GET", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}/sede"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/usuarios/{usuario_id}/sede"): _ORGANIZACION,
+    (
+        "GET",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "POST",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados",
+    ): _ORGANIZACION,
+    (
+        "DELETE",
+        "/api/v1/organizacion/departamentos/{departamento_id}/encargados/{usuario_id}",
+    ): _ORGANIZACION,
+    # Feature 012 (T6): gestion administrativa de control SaaS, solo Superadmin.
+    ("GET", "/api/v1/control/instituciones/"): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    ("PUT", "/api/v1/control/instituciones/{institucion_id}"): _ALTA_INSTITUCION,
+    (
+        "PATCH",
+        "/api/v1/control/instituciones/{institucion_id}/estado",
+    ): _ALTA_INSTITUCION,
+    ("GET", "/api/v1/control/dashboard"): _ALTA_INSTITUCION,
+    (
+        "GET",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades",
+    ): _ALTA_INSTITUCION,
+    (
+        "PUT",
+        "/api/v1/control/instituciones/{institucion_id}/capacidades/{funcion}",
+    ): _ALTA_INSTITUCION,
+    # Feature 012 (T7): CRUD organizacional del Administrador institucional.
+    ("POST", "/api/v1/organizacion/sedes"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/sedes/{sede_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/organizacion/sedes/{sede_id}/estado"): _ORGANIZACION,
+    ("GET", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("POST", "/api/v1/organizacion/departamentos"): _ORGANIZACION,
+    ("PUT", "/api/v1/organizacion/departamentos/{departamento_id}"): _ORGANIZACION,
+    (
+        "PATCH",
+        "/api/v1/organizacion/departamentos/{departamento_id}/estado",
+    ): _ORGANIZACION,
+    ("PUT", "/api/v1/usuarios/{usuario_id}"): _ORGANIZACION,
+    ("PATCH", "/api/v1/usuarios/{usuario_id}/estado"): _ORGANIZACION,
+    # Feature 013 (T6, AC-17): ciclo de vida del ticket. Cinco operaciones
+    # nuevas y aditivas (44 -> 49); Superadmin queda fuera de toda escritura.
+    ("POST", "/api/v1/tickets/{ticket_id}/anulacion"): _ANULACION_Y_EDICION,
+    ("POST", "/api/v1/tickets/{ticket_id}/rechazo"): _RECHAZO,
+    ("PUT", "/api/v1/tickets/{ticket_id}"): _ANULACION_Y_EDICION,
+    ("GET", "/api/v1/tickets/{ticket_id}"): _TODOS,
+    ("GET", "/api/v1/tickets/{ticket_id}/historial"): _TODOS,
 }
 
 #: Las 5 operaciones exactamente afectadas por el ajuste 008.
@@ -150,11 +214,40 @@ def _cliente(app_sonda: FastAPI, motor, rol: str | None = None, *, autenticar=Fa
 # ---------------------------------------------------------------------------
 
 
-def test_matriz_central_es_la_esperada_para_008():
-    assert {
+#: Feature 017 (D-9/AC-15): lecturas de negocio retiradas al Superadmin.
+RETIRADAS_017: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/v1/dashboard/"),
+        ("GET", "/api/v1/tickets/catalogos"),
+        ("GET", "/api/v1/tickets/"),
+        ("GET", "/api/v1/tickets/{ticket_id}"),
+        ("GET", "/api/v1/tickets/{ticket_id}/historial"),
+        ("GET", "/api/v1/inventario/movimientos"),
+        ("GET", "/api/v1/inventario/categorias"),
+        ("GET", "/api/v1/inventario/categorias/{categoria_id}"),
+        ("GET", "/api/v1/inventario/productos"),
+        ("GET", "/api/v1/inventario/productos/{producto_id}"),
+        ("GET", "/api/v1/inventario/existencias"),
+        ("GET", "/api/v1/inventario/stock"),
+    }
+)
+
+
+def test_matriz_central_conserva_la_esperada_para_008():
+    """La 008 conserva sus filas; las features posteriores pueden agregar mas.
+
+    Feature 017 (D-9/AC-15): las 11 lecturas retiradas al Superadmin ajustan
+    solo ese rol; los roles institucionales conservan el conjunto de la 008.
+    """
+    vigente = {
         clave: set(roles) for clave, roles in permisos.MATRIZ_PERMISOS.items()
-    } == MATRIZ_008
-    assert len(MATRIZ_008) == 21
+    }
+    for clave, roles in MATRIZ_008.items():
+        if clave in RETIRADAS_017:
+            assert vigente.get(clave) == roles - {"Superadmin"}, clave
+        else:
+            assert vigente.get(clave) == roles, clave
+    assert len(MATRIZ_008) == 49
 
 
 def test_ajuste_008_es_minimo_y_acotado():

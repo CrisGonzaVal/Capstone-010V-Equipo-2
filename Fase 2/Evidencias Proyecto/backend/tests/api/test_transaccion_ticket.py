@@ -12,6 +12,33 @@ Las aserciones leen la API, no la base de datos: el rollback se comprueba
 viendo que el ticket nunca aparecio en `GET /api/v1/tickets/`.
 """
 
+import pytest
+from sqlalchemy.orm import sessionmaker
+
+from app.models import Inventario
+
+from ._soporte_sede_011 import asegurar_sede_de_departamento
+
+
+@pytest.fixture(autouse=True)
+def _sede_del_departamento(motor, datos_base):
+    """Feature 011 (T9): el alta de ticket exige sede en el departamento."""
+    asegurar_sede_de_departamento(motor, datos_base)
+
+
+def _stock_legado(motor, inventario_id: int) -> int:
+    """Saldo de una fila legada de `inventario`, leido por ORM.
+
+    Feature 011 (B1): `GET /inventario/stock` dejo de exponer el inventario
+    departamental legado. Estos casos siguen ejerciendo el camino legado de
+    movimientos (`inventario_id`), asi que observan su saldo directamente.
+    """
+    db = sessionmaker(bind=motor)()
+    try:
+        return db.get(Inventario, inventario_id).stock_actual
+    finally:
+        db.close()
+
 
 def _cuerpo_ticket(datos_base, detalles, asunto="Ticket de prueba"):
     return {
@@ -83,14 +110,16 @@ def test_ticket_valido_persiste_cabecera_y_detalles_juntos(cliente, datos_base):
     assert sorted(d["cantidad_solicitada"] for d in listados[0]["detalles"]) == [5, 7]
 
 
-def test_detalle_invalido_no_altera_el_stock(cliente_sin_excepcion, datos_base):
+def test_detalle_invalido_no_altera_el_stock(
+    cliente_sin_excepcion, motor, datos_base
+):
     """Crear un ticket no debe mover inventario, ni siquiera al fallar.
 
     Marca el limite de la operacion: `crear_ticket` es atomica, pero todavia
     no descuenta stock. Ese descuento pertenece a la approbacion del ticket
     (Feature 004/005), no a la creacion.
     """
-    stock_antes = cliente_sin_excepcion.get("/api/v1/inventario/stock").json()[0]["stock_actual"]
+    stock_antes = _stock_legado(motor, datos_base["inventario_id"])
 
     cuerpo = _cuerpo_ticket(
         datos_base,
@@ -102,11 +131,11 @@ def test_detalle_invalido_no_altera_el_stock(cliente_sin_excepcion, datos_base):
     # 404 desde la Feature 003 (antes 500 por el defecto de FK).
     assert cliente_sin_excepcion.post("/api/v1/tickets/", json=cuerpo).status_code == 404
 
-    stock_despues = cliente_sin_excepcion.get("/api/v1/inventario/stock").json()[0]["stock_actual"]
+    stock_despues = _stock_legado(motor, datos_base["inventario_id"])
     assert stock_despues == stock_antes
 
 
-def test_saldo_insuficiente_no_registra_movimiento(cliente, datos_base):
+def test_saldo_insuficiente_no_registra_movimiento(cliente, motor, datos_base):
     """Trazabilidad absoluta (`constitucion.md` §2): un rechazo no deja rastro.
 
     Un movimiento rechazado no debe generar fila en `movimiento_inventario`, y el
@@ -125,8 +154,8 @@ def test_saldo_insuficiente_no_registra_movimiento(cliente, datos_base):
     )
     assert saldo_insuficiente.status_code == 400, saldo_insuficiente.text
 
-    stock = cliente.get("/api/v1/inventario/stock").json()
-    assert stock[0]["stock_actual"] == 50
+    stock = _stock_legado(motor, datos_base["inventario_id"])
+    assert stock == 50
 
     # La siguiente operacion valida debe partir de 50, no del valor alterado.
     entrada = cliente.post(
@@ -142,7 +171,7 @@ def test_saldo_insuficiente_no_registra_movimiento(cliente, datos_base):
     assert entrada.json()["nuevo_stock"] == 60
 
 
-def test_tipo_de_movimiento_invalido_no_registra_movimiento(cliente, datos_base):
+def test_tipo_de_movimiento_invalido_no_registra_movimiento(cliente, motor, datos_base):
     respuesta = cliente.post(
         "/api/v1/inventario/movimientos",
         json={
@@ -153,4 +182,4 @@ def test_tipo_de_movimiento_invalido_no_registra_movimiento(cliente, datos_base)
         },
     )
     assert respuesta.status_code == 400, respuesta.text
-    assert cliente.get("/api/v1/inventario/stock").json()[0]["stock_actual"] == 50
+    assert _stock_legado(motor, datos_base["inventario_id"]) == 50

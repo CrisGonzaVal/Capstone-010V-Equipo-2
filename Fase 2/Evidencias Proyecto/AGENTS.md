@@ -33,9 +33,9 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 - `docs/spec/` — Documentación viva de Spec-Driven Development (única fuente de verdad): `constitucion.md`, `roadmap.md`, `stack.md`.
 - `docs/diagramas/` — Diagramas en **HTML + PNG** generados con el skill `diagram-design`: casos de uso por actor y vista general del sistema.
 - `docs/spec/features/` — Especificaciones por incremento (`spec.md`, `plan.md`, `tasks.md`).
-- `backend/` — API REST FastAPI: `app/main.py`, `app/core/` (`config.py`, `security.py`), `app/db/database.py`, `app/models/` (por entidad), `app/schemas/` (DTOs), `app/services/` (lógica ACID), `app/api/dependencies.py`, `app/api/v1/api.py`, `app/api/v1/endpoints/` (auth, usuarios, inventario, tickets) y `tests/` (pytest).
-- `frontend/` — Aplicación web Angular: `src/app/core/` (guards, interceptors, services), `src/app/shared/` (components, interfaces, pipes), `src/app/features/` (dashboard, inventario, tickets — cada una con `routes.ts` y `services/`) y `src/assets/`.
-- `database/` — Scripts SQL. El prefijo numérico **es funcional**, no decorativo: `docker-compose.yml` monta esta carpeta en `/docker-entrypoint-initdb.d` y PostgreSQL los ejecuta **en orden alfabético** al crear el volumen. `01_esquema.sql` (DDL) debe correr antes que `02_datos_semilla.sql` (TRUNCATE + INSERT), o la semilla trunca tablas inexistentes y el arranque aborta con `ON_ERROR_STOP=1`. No cambies un nombre sin revisar el orden.
+- `backend/` — API REST FastAPI: `app/main.py`, `app/core/` (`config.py`, `security.py`, `permisos.py`), `app/db/database.py`, `app/models/` (por entidad), `app/schemas/` (DTOs), `app/services/` (lógica ACID), `app/api/dependencies.py`, `app/api/v1/api.py`, `app/api/v1/endpoints/` (auth, usuarios, inventario, tickets, dashboard, organizacion, control) y `tests/` (pytest). Desde la Feature 010 el esquema efectivo de cada petición se resuelve en el esquema de control (`schema_translate_map` por ejecución).
+- `frontend/` — Aplicación web Angular: `src/app/core/` (guards, interceptors, services), `src/app/shared/` (components, interfaces, pipes), `src/app/features/` (dashboard, inventario, tickets, administracion y control — cada una con `routes.ts` y, cuando aplica, `services/`; más `auth` y `acceso-denegado`, sin `routes.ts` propio) y `src/assets/`.
+- `database/` — Dos scripts SQL, sin migraciones. El prefijo numérico **es funcional**: `docker-compose.yml` monta esta carpeta en `/docker-entrypoint-initdb.d` y PostgreSQL los ejecuta **en orden alfabético** al crear el volumen, con `ON_ERROR_STOP=1`. `01_esquema.sql` crea el DDL completo (`control` con 22 tablas + un esquema `tenant_<slug>_<hash>` por institución con las 19 tablas de negocio) y siembra la topología de instituciones; `02_datos_semilla.sql` llena la semilla QA, la reparte a los tenants, puebla el mapa y fija la versión `014.1`, con guardia fail-closed y `BEGIN/COMMIT`. Los cambios de esquema se resuelven recreando el volumen (`down -v`), nunca con migraciones. Ver `database/README.md`.
 - `.agents/skills/` — Skills del proyecto (ver §9). `opencode.json` y `skills-lock.json` configuran tooling.
 
 > **Fuera de alcance**: `../../Fase 1/` y `../../Fase 3/` existen en el mismo repositorio pero **no se leen** (ver §0). No son fuente de verdad para este trabajo.
@@ -44,6 +44,7 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 
 ## 5. Comandos de Operación
 - Levantar infraestructura local: `docker compose -f docker-compose.yml up -d`
+- Reset de la base QA (borra el volumen y vuelve a sembrar): `docker compose -f docker-compose.yml down -v` y luego `up -d`. En Windows hay atajos `reset-db.cmd` / `reset-db.ps1` en la raíz.
 - Backend dev server: `cd backend && uvicorn app.main:app --reload --port 8000`
 - Frontend dev server: `cd frontend && npm start` (puerto 4200)
 - **Dos puertos del frontend, y no son lo mismo.** `4200` es el dev server de `npm start` y
@@ -63,6 +64,9 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
   La suite corre sobre SQLite en memoria, asi que no necesita el contenedor `db`.
   Ojo: `backend/.dockerignore` excluye `tests/` y `requirements-dev.txt`, asi que
   los tests **no** viven dentro de la imagen; hay que correrlos desde el host.
+  Los tests gated de PostgreSQL 16 corren con
+  `$env:POSTGRES_TEST_URL = "postgresql://postgres:postgres@localhost:5433/postgres"`;
+  crean bases temporales desechables, nunca tocan `apt_erp`.
 - Frontend tests (configurado):
   ```
   cd frontend
@@ -100,7 +104,7 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 
 ## 7. Prohibiciones Estrictas ("No hagas")
 - No escribas código en `backend/` o `frontend/` sin una especificación (`spec.md`) y plan (`plan.md`) aprobados en `docs/spec/features/`.
-- No alteres el modelo de datos de 12 entidades (3NF) sin justificación aprobada en `docs/spec/stack.md`.
+- No alteres el modelo de datos canónico (17 entidades de dominio + `departamento_encargado` auxiliar; las estructuras auxiliares de `control` — p. ej. las columnas de invitación y la tabla de motivos/constancias de la 017 — se rigen por `docs/spec/stack.md`) sin justificación aprobada en `docs/spec/stack.md`.
 - No cambies el esquema de autenticación ni reintroduzcas JWT local HS256: Clerk es la única autoridad de autenticación desde la Feature 006. La autorización por rol (guards, permisos, redirecciones por rol) se implementó en la Feature 007; no se reabre ni se reimplementa fuera de su matriz central.
 - No instales paquetes en `package.json` o `requirements.txt` sin previo análisis de dependencias.
 - No subas secretos, credenciales ni archivos `.env` al repositorio.
@@ -114,6 +118,7 @@ Las rutas son relativas a la raíz de `Fase 2/Evidencias Proyecto/` (donde vive 
 5. **Cierre de feature = verificación, no marcado.** Marcar `[x]` en `roadmap.md` solo después de: (a) `tasks.md` con todas sus casillas marcadas, incluidos los checks de "Cierre"; (b) `spec.md` §5 con cada AC marcado y **su evidencia de verificación**; (c) tests en verde; (d) recorrido en los **dos** puertos (§5).
 6. **Una feature no está cerrada hasta que 8080 la refleja.** 4200 es el recorrido funcional (incluye escritura real contra la BD) y es la evidencia principal. 8080 exige antes `docker compose -f docker-compose.yml build frontend` + `up -d frontend`, y el recorrido ahí es de humo: que la vista nueva esté y que el flujo básico responda. No es redundante con 4200, porque fallan cosas que el dev server nunca ejecuta: el build de producción con sus presupuestos, el `try_files` de nginx para rutas Angular, y el cacheo de bundles con hash. Ojo con la asimetría: **el backend sí se actualiza solo** (el contenedor monta `./backend/app` como volumen y corre `uvicorn --reload`), el frontend no. Por eso una feature que solo toca Python no necesita reconstruir la imagen para probar su API, aunque 8080 siga mostrando el frontend viejo.
 7. **Mover o borrar un archivo no actualiza los `.md` que lo citan.** Al cerrar una feature, hacer un `grep` de coherencia sobre `AGENTS.md`, `MEMORY.md` y `.agents/skills/` para confirmar que ninguna ruta citada ni afirmación sobre el estado del proyecto quedó obsoleta. Una skill desactualizada es peor que un `.md` desactualizado: se carga sola e instruye al agente sobre código que ya no existe.
+8. **La base se reconstruye, no se migra.** `database/` solo contiene `01_esquema.sql` y `02_datos_semilla.sql`. Si un cambio toca el esquema, actualiza `01_`; si toca los datos QA, `02_`; y verifica el arranque limpio con `down -v` + `up -d`. No se crean scripts ni carpetas de migración.
 
 ## 9. Skills, Agentes y Comandos del Proyecto
 Las convenciones de §6 y el flujo de §8 están codificados como skills en `.agents/skills/`, con ejemplos de código antes/después. Cargar la que corresponda **antes** de escribir:

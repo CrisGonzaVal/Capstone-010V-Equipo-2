@@ -1,39 +1,24 @@
-<div class="space-y-6">
-  <div>
-    <h2 class="text-2xl font-bold text-slate-800">Administración y Roles</h2>
+<div class="mx-auto max-w-5xl space-y-6">
+  <header>
+    <h2 class="text-2xl font-bold text-slate-800">Administración institucional</h2>
     <p class="text-sm text-slate-500">
-      Gestión multi-tenant de instituciones, usuarios y permisos
+      Gestiona las sedes, departamentos, usuarios y encargados de tu institución. El
+      ámbito lo resuelve el servidor desde tu sesión.
     </p>
-  </div>
+  </header>
 
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-    @for (rol of roles; track rol.nombre) {
-      <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
-        <div class="flex justify-between items-center">
-          <h3 class="font-bold text-slate-800 text-lg">{{ rol.nombre }}</h3>
-          <span
-            class="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-1 rounded-full font-semibold"
-          >
-            Activo
-          </span>
-        </div>
+  <app-administracion-nav />
 
-        <p class="text-sm text-slate-500">{{ rol.descripcion }}</p>
-
-        <div class="space-y-2 pt-2 border-t border-slate-100 text-sm">
-          @for (permiso of rol.permisos; track permiso.etiqueta) {
-            <div class="flex justify-between items-center">
-              <span class="text-slate-600">{{ permiso.etiqueta }}</span>
-              <input
-                type="checkbox"
-                [checked]="permiso.activo"
-                [attr.aria-label]="'Permiso: ' + permiso.etiqueta"
-                class="accent-blue-600 h-4 w-4"
-              />
-            </div>
-          }
-        </div>
-      </div>
-    }
+  <!--
+    Panel único de la navegación por pestañas (enmienda T-17, AC-17): envuelve el
+    outlet y se etiqueta con la pestaña de la ruta vigente. La sección activa se
+    deriva de la misma resolución de `Router.url` que usa la barra.
+  -->
+  <div
+    role="tabpanel"
+    id="panel-administracion"
+    [attr.aria-labelledby]="'pestana-administracion-' + seccionActiva()"
+  >
+    <router-outlet />
   </div>
 </div>

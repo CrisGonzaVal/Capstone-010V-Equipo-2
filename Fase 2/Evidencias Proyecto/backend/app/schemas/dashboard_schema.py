@@ -1,15 +1,22 @@
-"""DTOs del dashboard analitico consolidado (Feature 009).
+"""DTOs del dashboard analitico consolidado (Features 009 y 011).
 
 Ningun schema de este modulo lleva `model_config = ConfigDict(from_attributes=True)`:
-todos son **read models** de consulta que cruzan `inventario`, `producto`,
-`departamento`, `institucion` y `movimiento_inventario` con joins y agregan, asi que
-los arma el service a mano (`app/services/dashboard_service.py`, plan §1). Con
-`from_attributes`, Pydantic buscaria campos que el objeto ORM no expone (por ejemplo
-`producto_nombre` o `total_alertas`) y fallaria (stack.md §2, "Read models de consulta").
+todos son **read models** de consulta que cruzan `stock_sede` (o `inventario`
+legado), `producto`, `sede`, `departamento`, `institucion` y
+`movimiento_inventario` con joins y agregan, asi que los arma el service a mano
+(`app/services/dashboard_service.py`, plan §1). Con `from_attributes`, Pydantic
+buscaria campos que el objeto ORM no expone (por ejemplo `producto_nombre` o
+`total_alertas`) y fallaria (stack.md §2, "Read models de consulta").
+
+Feature 011 (spec D-6/AC-11): la fuente de saldo pasa a ser el **stock por sede**,
+asi que la alerta se atribuye a `sede_id`/`sede_nombre` y a la institucion, y la
+actividad reconoce tanto movimientos historicos (`inventario_id`) como nuevos
+(`stock_sede_id`) mediante una proyeccion unica compatible: los campos de sede y
+los de departamento son mutuamente opcionales segun el origen del movimiento.
 
 Los nombres de campo son el contrato publico (`snake_case`, en espanol) y coinciden
-1:1 con los que fijan las pruebas de `tests/api/test_dashboard_analitico.py`. No se
-expone ningun campo personal de ticket: el KPI de tickets es un conteo agregado.
+1:1 con los que fijan las pruebas de `tests/api/`. No se expone ningun campo
+personal de ticket: el KPI de tickets es un conteo agregado.
 """
 
 from datetime import datetime
@@ -18,7 +25,7 @@ from pydantic import BaseModel
 
 
 class DashboardKpiRespuesta(BaseModel):
-    """Los cuatro KPI del dashboard (spec §5 D-4).
+    """Los cuatro KPI del dashboard (spec 009 §5 D-4; fuente 011 spec D-6).
 
     Todos los conteos son escalares: sin filas devuelven cero. `total_alertas` y la
     longitud de `DashboardAnaliticoRespuesta.alertas` son el mismo conjunto (AC-5).
@@ -31,19 +38,21 @@ class DashboardKpiRespuesta(BaseModel):
 
 
 class AlertaStockRespuesta(BaseModel):
-    """Fila de inventario actualmente critica (log de alertas derivado, D-1).
+    """Fila de stock por sede actualmente critica (log de alertas derivado, D-1).
 
-    Una fila es critica si `stock_actual <= stock_minimo` evaluado por pareja
-    departamento-producto. `institucion_id`/`institucion_nombre` llevan la
-    atribucion institucional de la fila (obligatoria en el resultado global del
-    Superadmin) y son `null` solo si la atribucion no puede resolverse.
+    Feature 011 (spec D-6/AC-11): una fila es critica si
+    `stock_actual <= stock_minimo` evaluado **por par sede-producto**. La alerta
+    identifica la bodega fisica que puede abastecer, por lo que se atribuye a la
+    **sede** (`sede_id`/`sede_nombre`) y a la institucion
+    (`institucion_id`/`institucion_nombre`, obligatoria en el resultado global del
+    Superadmin; `null` solo si la atribucion no puede resolverse). No se expone
+    ningun saldo departamental legado.
     """
 
-    inventario_id: int
+    sede_id: int
+    sede_nombre: str
     producto_id: int
     producto_nombre: str
-    departamento_id: int
-    departamento_nombre: str
     stock_actual: int
     stock_minimo: int
     institucion_id: str | None
@@ -51,12 +60,15 @@ class AlertaStockRespuesta(BaseModel):
 
 
 class MovimientoDashboardRespuesta(BaseModel):
-    """Fila de la actividad reciente (proyeccion enriquecida de movimientos, D-5).
+    """Fila de la actividad reciente (proyeccion unica de movimientos, D-5).
 
-    Cruza `movimiento_inventario` con `inventario`, `producto`, `departamento` e
-    `institucion`. `ubicacion` es la de la fila de inventario de origen.
-    `institucion_id`/`institucion_nombre` atribuyen cada movimiento en la lectura
-    global del Superadmin.
+    Cruza `movimiento_inventario` con su origen de auditoria, ya sea legado
+    (`inventario_id -> inventario -> producto + departamento`) o nuevo
+    (`stock_sede_id -> stock_sede -> producto + sede`). La proyeccion es unica y
+    compatible: `sede_id`/`sede_nombre` se pueblan en los movimientos nuevos y
+    `departamento_id`/`departamento_nombre`/`ubicacion` en los legados; el otro
+    conjunto queda `null` segun el origen. `institucion_id`/`institucion_nombre`
+    atribuyen cada movimiento en la lectura global del Superadmin.
     """
 
     movimiento_id: int
@@ -65,8 +77,10 @@ class MovimientoDashboardRespuesta(BaseModel):
     fecha_movimiento: datetime
     producto_id: int
     producto_nombre: str
-    departamento_id: int
-    departamento_nombre: str
+    sede_id: int | None
+    sede_nombre: str | None
+    departamento_id: int | None
+    departamento_nombre: str | None
     ubicacion: str | None
     institucion_id: str | None
     institucion_nombre: str | None

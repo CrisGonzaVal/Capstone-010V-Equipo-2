@@ -1,0 +1,152 @@
+<div class="max-w-5xl mx-auto space-y-6">
+  <!-- Retorno contextual: Gestión reabre su pestaña, Existencias la URL limpia -->
+  <a
+    routerLink="/inventario"
+    [queryParams]="parametrosRetorno()"
+    class="inline-flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900"
+  >
+    &larr; Volver al inventario
+  </a>
+
+  @if (cargando()) {
+    <div role="status" class="py-16 text-center text-sm text-slate-500">
+      Cargando detalle del producto…
+    </div>
+  } @else if (errorCarga()) {
+    <div class="bg-rose-50 border border-rose-200 rounded-xl px-6 py-8 text-center space-y-4">
+      <p role="alert" class="text-sm text-rose-800">{{ errorCarga() }}</p>
+      @if (puedeReintentar()) {
+        <button
+          type="button"
+          (click)="reintentar()"
+          class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg"
+        >
+          Reintentar
+        </button>
+      }
+    </div>
+  } @else {
+    @if (producto(); as producto) {
+    <!-- Cabecera: datos del catálogo y estados legibles, sin controles (AC-1/AC-3) -->
+    <div class="bg-white border border-slate-200 rounded-xl px-6 py-5 space-y-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="space-y-1">
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Detalle del producto
+          </p>
+          <h2 class="text-2xl font-bold text-slate-800">{{ producto.nombre }}</h2>
+          <p class="text-sm text-slate-600">
+            {{ producto.descripcion ?? 'Sin descripción registrada.' }}
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-semibold px-2 py-0.5 rounded" [class]="claseEstadoProducto()">
+            {{ etiquetaEstadoProducto() }}
+          </span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded" [class]="claseEstadoCategoria()">
+            {{ etiquetaEstadoCategoria() }}
+          </span>
+        </div>
+      </div>
+
+      <dl class="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+        <div>
+          <dt class="text-xs font-semibold text-slate-500">Categoría</dt>
+          <dd class="text-slate-800">{{ producto.categoria_nombre }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-slate-500">Unidad de medida</dt>
+          <dd class="text-slate-800">
+            {{ producto.unidad_medida ?? 'Sin unidad registrada' }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-xs font-semibold text-slate-500">Stock mínimo</dt>
+          <dd class="text-slate-800">{{ producto.stock_minimo }}</dd>
+        </div>
+      </dl>
+
+      @if (producto.activo === false || producto.categoria_activa === false) {
+        <p class="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-4 py-3 rounded-lg">
+          Este registro está retirado del catálogo operativo: se muestra solo como
+          consulta, sin acciones de modificación. Los roles operativos no ven
+          productos ni categorías inactivos.
+        </p>
+      }
+    </div>
+
+    <!-- Agregados del ámbito: total, mínimo, sedes y criticidad (AC-1/AC-7) -->
+    <dl class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-white border border-slate-200 rounded-xl px-5 py-4">
+        <dt class="text-xs uppercase tracking-wider text-slate-500">Stock total</dt>
+        <dd class="text-2xl font-bold text-slate-800">{{ producto.stock_total }}</dd>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl px-5 py-4">
+        <dt class="text-xs uppercase tracking-wider text-slate-500">Stock mínimo</dt>
+        <dd class="text-2xl font-bold text-slate-800">{{ producto.stock_minimo }}</dd>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl px-5 py-4">
+        <dt class="text-xs uppercase tracking-wider text-slate-500">Sedes con existencia</dt>
+        <dd class="text-2xl font-bold text-slate-800">{{ producto.sedes.length }}</dd>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl px-5 py-4">
+        <dt class="text-xs uppercase tracking-wider text-slate-500">Estado del stock</dt>
+        <dd>
+          <span class="inline-block mt-1 text-xs font-semibold px-2 py-0.5 rounded" [class]="claseEstadoStock()">
+            {{ estadoStock() }}
+          </span>
+        </dd>
+      </div>
+    </dl>
+
+    <!-- Desglose por sede ya acotado por el servidor al ámbito del rol (AC-2) -->
+    <section class="bg-white border border-slate-200 rounded-xl">
+      <div class="px-6 py-4 border-b border-slate-200 space-y-1">
+        <h3 class="font-bold text-slate-800">Existencias por sede</h3>
+        <p class="text-xs text-slate-500">
+          Desglose según el ámbito autorizado de tu rol; no hereda los filtros de la lista.
+        </p>
+      </div>
+
+      @if (producto.sedes.length === 0) {
+        <!-- Vacío válido: el producto existe, pero no tiene saldo en el ámbito -->
+        <p class="px-6 py-6 text-sm text-slate-500">
+          Sin existencias registradas para este producto en el ámbito de tu rol. El
+          producto sí existe en el catálogo: este es un resultado vacío, no un error.
+        </p>
+      } @else {
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <caption class="sr-only">
+              Existencias del producto {{ producto.nombre }} por sede
+            </caption>
+            <thead>
+              <tr class="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-200">
+                <th scope="col" class="px-6 py-2">Sede</th>
+                <th scope="col" class="px-6 py-2 text-right">Existencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (sede of producto.sedes; track sede.sede_id) {
+                <tr class="border-b border-slate-100 last:border-0">
+                  <td class="px-6 py-2 text-slate-800">{{ sede.sede_nombre }}</td>
+                  <td
+                    class="px-6 py-2 text-right"
+                    [class]="
+                      sede.stock_actual <= producto.stock_minimo
+                        ? 'text-rose-600 font-semibold'
+                        : 'text-slate-700'
+                    "
+                  >
+                    {{ sede.stock_actual }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </section>
+    }
+  }
+</div>

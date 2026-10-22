@@ -31,22 +31,20 @@ describe('DashboardService', () => {
     },
     alertas: [
       {
-        inventario_id: 11,
+        sede_id: 11,
+        sede_nombre: 'Sede Central',
         producto_id: 101,
         producto_nombre: 'Papel Bond',
-        departamento_id: 21,
-        departamento_nombre: 'Operaciones',
         stock_actual: 9,
         stock_minimo: 10,
         institucion_id: 'INSTA',
         institucion_nombre: 'Instituto Alfa',
       },
       {
-        inventario_id: 12,
+        sede_id: 12,
+        sede_nombre: 'Sede Norte',
         producto_id: 202,
         producto_nombre: 'Papel Bond',
-        departamento_id: 22,
-        departamento_nombre: 'Operaciones',
         stock_actual: 3,
         stock_minimo: 10,
         institucion_id: 'INSTB',
@@ -62,9 +60,11 @@ describe('DashboardService', () => {
         fecha_movimiento: '2026-04-01T08:00:00',
         producto_id: 101,
         producto_nombre: 'Papel Bond',
-        departamento_id: 21,
-        departamento_nombre: 'Operaciones',
-        ubicacion: 'Operaciones (INSTA)',
+        sede_id: 11,
+        sede_nombre: 'Sede Central',
+        departamento_id: null,
+        departamento_nombre: null,
+        ubicacion: null,
         institucion_id: 'INSTA',
         institucion_nombre: 'Instituto Alfa',
       },
@@ -75,6 +75,8 @@ describe('DashboardService', () => {
         fecha_movimiento: '2026-04-01T07:30:00',
         producto_id: 202,
         producto_nombre: 'Papel Bond',
+        sede_id: null,
+        sede_nombre: null,
         departamento_id: 22,
         departamento_nombre: 'Operaciones',
         ubicacion: 'Operaciones (INSTB)',
@@ -130,17 +132,20 @@ describe('DashboardService', () => {
 
     expect(recibidos).toEqual([RESPUESTA]);
     expect(recibidos[0].kpi.total_alertas).toBe(4);
-    expect(recibidos[0].alertas.map((a) => a.institucion_id)).toEqual([
-      'INSTA',
-      'INSTB',
-    ]);
+    expect(recibidos[0].alertas.map((a) => a.sede_id)).toEqual([11, 12]);
+    expect(recibidos[0].alertas[0].sede_nombre).toBe('Sede Central');
     expect(recibidos[0].alertas[0].institucion_nombre).toBe('Instituto Alfa');
     expect(recibidos[0].actividad_disponible).toBe(true);
+    // Movimiento nuevo: sede poblada y bloque de departamento nulo.
+    expect(recibidos[0].actividad_movimientos[0].sede_nombre).toBe('Sede Central');
+    expect(recibidos[0].actividad_movimientos[0].departamento_nombre).toBeNull();
+    // Movimiento legado: departamento/ubicacion poblados y sede nula.
     expect(recibidos[0].actividad_movimientos[1].institucion_nombre).toBe(
       'Instituto Beta',
     );
-    expect(recibidos[0].actividad_movimientos[0].ubicacion).toBe(
-      'Operaciones (INSTA)',
+    expect(recibidos[0].actividad_movimientos[1].sede_nombre).toBeNull();
+    expect(recibidos[0].actividad_movimientos[1].ubicacion).toBe(
+      'Operaciones (INSTB)',
     );
   });
 

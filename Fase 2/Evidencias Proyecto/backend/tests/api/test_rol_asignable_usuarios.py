@@ -60,8 +60,6 @@ def contexto(motor, datos_base):
         institucion_ajena = Institucion(
             institucion_id="INST02",
             nombre="Instituto Ajeno",
-            rut="2-9",
-            direccion="Otra Calle 456",
         )
         db.add(institucion_ajena)
         db.flush()
@@ -120,6 +118,15 @@ def _cliente(motor, rol: str, departamento_id):
     dep = None if departamento_id is _SIN_DEPARTAMENTO else departamento_id
     app.dependency_overrides[dependencies.get_db] = _db_de_prueba
     app.dependency_overrides[dependencies.get_current_user] = lambda: _identidad(rol, dep)
+    # Feature 012 (D-3/AC-8): el alta local verifica el correo contra Clerk. La
+    # costura se overridea para no invocar la red (esta suite mide el rol
+    # asignable y el limite institucional, no la vinculacion Clerk).
+    app.dependency_overrides[dependencies.obtener_verificador_correo_clerk] = (
+        lambda: (lambda _correo: True)
+    )
+    from tests.soporte_frontera_017 import instalar_frontera_clerk
+
+    instalar_frontera_clerk(identidad_existente=True)
     try:
         with TestClient(app) as cliente:
             yield cliente
@@ -139,8 +146,13 @@ def _payload(contexto, correo: str, rol_id: int, *, departamento_id=None) -> dic
     }
 
 
-def _usuarios_como_superadmin(motor) -> list:
-    with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
+def _usuarios_como_administrador(motor) -> list:
+    """Listado leido con el rol que conserva `/usuarios/` (Feature 017, D-10).
+
+    Superadmin ya no accede a las rutas ordinarias de usuarios (403); el
+    Administrador es el unico rol autorizado en su tenant.
+    """
+    with _cliente(motor, "Administrador", 1) as cliente:
         respuesta = cliente.get(RUTA_USUARIOS)
     assert respuesta.status_code == 200, respuesta.text
     return respuesta.json()
@@ -168,7 +180,7 @@ def test_administrador_crea_usuario_con_rol_permitido(
     assert cuerpo["correo"] == correo
     assert cuerpo["rol_id"] == contexto["roles"][rol_asignado]
 
-    correos = {u["correo"] for u in _usuarios_como_superadmin(motor)}
+    correos = {u["correo"] for u in _usuarios_como_administrador(motor)}
     assert correo in correos
 
 
@@ -183,7 +195,7 @@ def test_administrador_no_puede_asignar_rol_prohibido(
 ):
     """Administrador -> Superadmin/Administrador responde 403 y NO crea fila."""
     correo = f"intruso.{rol_prohibido.lower()}@compustock.cl"
-    antes = _usuarios_como_superadmin(motor)
+    antes = _usuarios_como_administrador(motor)
 
     with _cliente(motor, "Administrador", contexto["departamento_id"]) as cliente:
         respuesta = cliente.post(
@@ -191,32 +203,37 @@ def test_administrador_no_puede_asignar_rol_prohibido(
             json=_payload(contexto, correo, contexto["roles"][rol_prohibido]),
         )
 
-    despues = _usuarios_como_superadmin(motor)
+    despues = _usuarios_como_administrador(motor)
     assert respuesta.status_code == 403, respuesta.text
     assert len(despues) == len(antes)
     assert all(usuario["correo"] != correo for usuario in despues)
 
 
 # ---------------------------------------------------------------------------
-# Superadmin: los cuatro roles
+# Superadmin: sin acceso a las rutas ordinarias de usuarios (Feature 017, D-10)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "rol_asignado", ["Superadmin", "Administrador", "Bodeguero", "Solicitante"]
 )
-def test_superadmin_puede_asignar_cualquiera_de_los_cuatro_roles(
+def test_superadmin_no_accede_a_las_rutas_ordinarias_de_usuarios(
     motor, contexto, rol_asignado
 ):
-    """Superadmin conserva libertad total de rol: 201 para los cuatro."""
+    """D-10/AC-8: la gestion global usa `/control/*`; `/usuarios/` responde 403.
+
+    La libertad de rol del Superadmin no se ejerce por la API tenant: el
+    gobierno de Administradores tiene sus propias cinco rutas de control.
+    """
     correo = f"libre.{rol_asignado.lower()}@compustock.cl"
     with _cliente(motor, "Superadmin", _SIN_DEPARTAMENTO) as cliente:
         respuesta = cliente.post(
             RUTA_USUARIOS,
             json=_payload(contexto, correo, contexto["roles"][rol_asignado]),
         )
-    assert respuesta.status_code == 201, respuesta.text
-    assert respuesta.json()["rol_id"] == contexto["roles"][rol_asignado]
+        listado = cliente.get(RUTA_USUARIOS)
+    assert respuesta.status_code == 403, respuesta.text
+    assert listado.status_code == 403, listado.text
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +244,7 @@ def test_superadmin_puede_asignar_cualquiera_de_los_cuatro_roles(
 def test_administrador_no_crea_usuario_en_departamento_ajeno(motor, contexto):
     """Un departamento de otra institucion responde 403 sin crear la fila."""
     correo = "ajeno.institucion@compustock.cl"
-    antes = _usuarios_como_superadmin(motor)
+    antes = _usuarios_como_administrador(motor)
 
     with _cliente(motor, "Administrador", contexto["departamento_id"]) as cliente:
         respuesta = cliente.post(
@@ -240,7 +257,7 @@ def test_administrador_no_crea_usuario_en_departamento_ajeno(motor, contexto):
             ),
         )
 
-    despues = _usuarios_como_superadmin(motor)
+    despues = _usuarios_como_administrador(motor)
     assert respuesta.status_code == 403, respuesta.text
     assert len(despues) == len(antes)
     assert all(usuario["correo"] != correo for usuario in despues)

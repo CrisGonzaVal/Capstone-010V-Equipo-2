@@ -1,30 +1,58 @@
 import { provideHttpClient } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { WritableSignal, signal } from '@angular/core';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { of } from 'rxjs';
 
+import { AutenticacionService } from '../../core/services/auth.service';
 import { URL_API } from '../../shared/config/url-api';
-import { Categoria, ProductoExistencia, SedeExistencia } from '../../shared/interfaces';
+import {
+  Categoria,
+  GestionCatalogo,
+  HistorialTransicionCategoria,
+  IdentidadAutenticada,
+  ProductoExistencia,
+  SedeExistencia,
+} from '../../shared/interfaces';
 import { InventarioComponent } from './inventario.component';
 
 const RUTA_EXISTENCIAS = `${URL_API}/inventario/existencias`;
 const RUTA_CATEGORIAS = `${URL_API}/inventario/categorias`;
+const RUTA_GESTION = `${URL_API}/inventario/gestion`;
+const RUTA_AMBITO = `${URL_API}/inventario/ambito`;
+
+function rutaEstadoProducto(productoId: number): string {
+  return `${URL_API}/inventario/productos/${productoId}/estado`;
+}
+
+function rutaEstadoCategoria(categoriaId: number): string {
+  return `${URL_API}/inventario/categorias/${categoriaId}/estado`;
+}
+
+function rutaHistorialProducto(productoId: number): string {
+  return `${URL_API}/inventario/productos/${productoId}/historial`;
+}
+
+function rutaHistorialCategoria(categoriaId: number): string {
+  return `${URL_API}/inventario/categorias/${categoriaId}/historial`;
+}
 
 function crearCategoria(sobrescribir: Partial<Categoria> = {}): Categoria {
   return {
     categoria_id: 1,
     nombre_cat: 'Papeleria',
     descripcion_cat: 'Insumos de papeleria',
+    activo: true,
     ...sobrescribir,
   };
 }
 
 function crearSede(sobrescribir: Partial<SedeExistencia> = {}): SedeExistencia {
   return {
-    inventario_id: 1,
-    departamento_id: 1,
-    departamento_nombre: 'Operaciones',
+    sede_id: 1,
+    sede_nombre: 'Sede Central',
     stock_actual: 50,
-    ubicacion: 'Bodega central',
     ...sobrescribir,
   };
 }
@@ -60,14 +88,8 @@ const INSUMOS: ProductoExistencia[] = [
     stock_minimo: 20,
     stock_total: 150,
     sedes: [
-      crearSede({ inventario_id: 2, stock_actual: 120 }),
-      crearSede({
-        inventario_id: 3,
-        departamento_id: 2,
-        departamento_nombre: 'Bodega',
-        stock_actual: 30,
-        ubicacion: 'Bodega central - A2',
-      }),
+      crearSede({ sede_id: 2, sede_nombre: 'Sede Central', stock_actual: 120 }),
+      crearSede({ sede_id: 3, sede_nombre: 'Sede Norte', stock_actual: 30 }),
     ],
   }),
   crearInsumo({
@@ -80,26 +102,244 @@ const INSUMOS: ProductoExistencia[] = [
     stock_total: 3,
     es_critico: true,
     sedes: [
-      crearSede({
-        inventario_id: 4,
-        departamento_id: 2,
-        departamento_nombre: 'Bodega',
-        stock_actual: 3,
-        ubicacion: 'Bodega central - B1',
-      }),
+      crearSede({ sede_id: 4, sede_nombre: 'Sede Norte', stock_actual: 3 }),
     ],
   }),
 ];
+
+// --- Feature 018: filtros de sede y departamento (T6) ---
+
+/**
+ * Forma pactada de `GET /inventario/ambito` (plan 018 §1.2). Los tipos
+ * compartidos llegan en T7; aquí se fija el contrato para probar en rojo.
+ */
+interface SedeFiltro {
+  sede_id: number;
+  sede_nombre: string;
+}
+
+interface DepartamentoFiltro {
+  departamento_id: number;
+  departamento_nombre: string;
+  sede_id: number;
+}
+
+interface AmbitoInventario {
+  sedes: SedeFiltro[];
+  departamentos: DepartamentoFiltro[];
+}
+
+/** Ámbito del Administrador: dos sedes y departamentos repartidos entre ellas. */
+const AMBITO_ADMIN: AmbitoInventario = {
+  sedes: [
+    { sede_id: 1, sede_nombre: 'Sede Central' },
+    { sede_id: 3, sede_nombre: 'Sede Norte' },
+  ],
+  departamentos: [
+    { departamento_id: 10, departamento_nombre: 'Operaciones', sede_id: 1 },
+    { departamento_id: 11, departamento_nombre: 'Compras', sede_id: 1 },
+    { departamento_id: 12, departamento_nombre: 'Logística', sede_id: 3 },
+  ],
+};
+
+/** Ámbito del Bodeguero: solo su sede y los departamentos de esa sede. */
+const AMBITO_BODEGUERO: AmbitoInventario = {
+  sedes: [{ sede_id: 1, sede_nombre: 'Sede Central' }],
+  departamentos: [
+    { departamento_id: 10, departamento_nombre: 'Operaciones', sede_id: 1 },
+    { departamento_id: 11, departamento_nombre: 'Compras', sede_id: 1 },
+  ],
+};
+
+/**
+ * Nota literal de la decisión D-3 de la spec 018. Es exclusiva del Bodeguero y
+ * debe aparecer textualmente junto a su selector departamental.
+ */
+const NOTA_STOCK_COMPARTIDO =
+  'El stock es compartido por la sede. Elegir un departamento no divide ni cambia el saldo; solo muestra productos con stock en esta sede.';
+
+/** Respuesta de existencias acotada a la Sede Central (sede_id 1). */
+const INSUMOS_SEDE_CENTRAL: ProductoExistencia[] = [
+  crearInsumo(),
+  crearInsumo({
+    producto_id: 3,
+    nombre: 'Toner HP 26A',
+    descripcion: null,
+    categoria_id: 2,
+    categoria_nombre: 'Toner',
+    stock_total: 3,
+    es_critico: true,
+    sedes: [crearSede({ sede_id: 1, sede_nombre: 'Sede Central', stock_actual: 3 })],
+  }),
+];
+
+/** Respuesta de existencias acotada a la Sede Norte (sede_id 3). */
+const INSUMOS_SEDE_NORTE: ProductoExistencia[] = [
+  crearInsumo({
+    producto_id: 2,
+    nombre: 'Resma Carta 75g',
+    descripcion: 'Resma de 500 hojas',
+    unidad_medida: 'RESMA',
+    stock_minimo: 20,
+    stock_total: 30,
+    sedes: [crearSede({ sede_id: 3, sede_nombre: 'Sede Norte', stock_actual: 30 })],
+  }),
+  crearInsumo({
+    producto_id: 3,
+    nombre: 'Toner HP 26A',
+    descripcion: null,
+    categoria_id: 2,
+    categoria_nombre: 'Toner',
+    stock_total: 3,
+    es_critico: true,
+    sedes: [crearSede({ sede_id: 3, sede_nombre: 'Sede Norte', stock_actual: 3 })],
+  }),
+];
+
+/**
+ * Listado administrativo (Feature 014, AC-15): ambos estados.
+ *
+ * `Grapadora retirada` es un producto **inactivo que no está en el listado
+ * operativo** (`INSUMOS`). Sirve para probar que la sección consume `/gestion`
+ * y no la lista filtrada: si la sección se alimentara de la vista operativa,
+ * ese producto no aparecería.
+ */
+const GESTION: GestionCatalogo = {
+  categorias: [
+    {
+      categoria_id: 1,
+      nombre_cat: 'Papeleria',
+      descripcion_cat: 'Insumos de papeleria',
+      activo: true,
+    },
+    {
+      categoria_id: 2,
+      nombre_cat: 'Toner',
+      descripcion_cat: 'Consumibles',
+      activo: false,
+    },
+  ],
+  productos: [
+    {
+      producto_id: 1,
+      nombre: 'Cuaderno linedado',
+      descripcion: 'Cuaderno de 100 hojas',
+      unidad_medida: 'UNIDAD',
+      stock_minimo: 10,
+      categoria_id: 1,
+      categoria_nombre: 'Papeleria',
+      categoria_activa: true,
+      activo: true,
+    },
+    {
+      producto_id: 9,
+      nombre: 'Grapadora retirada',
+      descripcion: null,
+      unidad_medida: 'UNIDAD',
+      stock_minimo: 0,
+      categoria_id: 2,
+      categoria_nombre: 'Toner',
+      categoria_activa: false,
+      activo: false,
+    },
+  ],
+};
+
+/** Variante con la categoría `Toner` reactivada, para la recarga tras un 200. */
+const GESTION_TONER_ACTIVA: GestionCatalogo = {
+  ...GESTION,
+  categorias: GESTION.categorias.map((categoria) =>
+    categoria.categoria_id === 2 ? { ...categoria, activo: true } : categoria,
+  ),
+};
+
+const HISTORIAL_CATEGORIA: HistorialTransicionCategoria[] = [
+  {
+    historial_categoria_id: 2,
+    categoria_id: 2,
+    usuario_id: 9,
+    fecha_transicion: '2026-10-20T10:15:00',
+    activo_origen: true,
+    activo_destino: false,
+    motivo: 'Tóner descontinuado por el proveedor',
+    usuario_nombre: 'Ana',
+    usuario_apellido: 'Pérez',
+  },
+  {
+    historial_categoria_id: 1,
+    categoria_id: 2,
+    usuario_id: 8,
+    fecha_transicion: '2026-10-19T08:00:00',
+    activo_origen: false,
+    activo_destino: true,
+    motivo: 'Reapertura del catálogo de consumibles',
+    usuario_nombre: 'Bruno',
+    usuario_apellido: 'Soto',
+  },
+];
+
+function crearIdentidad(rol: string): IdentidadAutenticada {
+  return {
+    usuario_id: 9,
+    sub: 'user_inventario',
+    nombre: 'Ana',
+    apellido: 'Pérez',
+    correo: 'ana.perez@losalpes.cl',
+    rol,
+    institucion: { institucion_id: 'inst-los-alpes', nombre: 'Los Alpes' },
+  };
+}
 
 describe('InventarioComponent', () => {
   let fixture: ComponentFixture<InventarioComponent>;
   let componente: InventarioComponent;
   let httpMock: HttpTestingController;
 
+  /** Identidad local (`/auth/me`) que la vista lee para decidir la sección. */
+  let identidad: WritableSignal<IdentidadAutenticada | null>;
+
+  /**
+   * Query params de la ruta padre (Feature 019, AC-9). Es mutable para poder
+   * simular la entrada con `?tab=gestion` antes del primer `detectChanges`
+   * —que es cuando corre `ngOnInit`— sin reconfigurar el TestBed.
+   */
+  let parametrosConsulta: Record<string, string>;
+
+  /**
+   * `ActivatedRoute` mínimo de la ruta `/inventario`. El componente lo lee para
+   * restaurar la pestaña de procedencia; el enlace usa `RouterLink`, no la ruta.
+   */
+  function rutaPadre(): ActivatedRoute {
+    return {
+      snapshot: {
+        paramMap: convertToParamMap({}),
+        get queryParamMap() {
+          return convertToParamMap(parametrosConsulta);
+        },
+      },
+      paramMap: of(convertToParamMap({})),
+      get queryParamMap() {
+        return of(convertToParamMap(parametrosConsulta));
+      },
+    } as unknown as ActivatedRoute;
+  }
+
   beforeEach(async () => {
+    // Por defecto, un rol operativo: las pruebas heredadas de la vista
+    // operativa no deben disparar el listado de gestión.
+    identidad = signal<IdentidadAutenticada | null>(crearIdentidad('Bodeguero'));
+    parametrosConsulta = {};
+
     await TestBed.configureTestingModule({
       imports: [InventarioComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        // `RouterLink` (Feature 019, T10) exige el router en el TestBed.
+        provideRouter([]),
+        { provide: ActivatedRoute, useValue: rutaPadre() },
+        { provide: AutenticacionService, useValue: { identidad } },
+      ],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -121,6 +361,11 @@ describe('InventarioComponent', () => {
     };
     peticiones.insumos.flush(insumos);
     peticiones.categorias.flush(categorias);
+    // El rol por defecto es Bodeguero: desde la Feature 018 también pide el
+    // ámbito para poblar su selector departamental. El Solicitante no lo pide.
+    for (const ambito of httpMock.match(RUTA_AMBITO)) {
+      ambito.flush(AMBITO_ADMIN);
+    }
     fixture.detectChanges();
     return peticiones;
   }
@@ -162,9 +407,9 @@ describe('InventarioComponent', () => {
     const texto = textoDeLaTabla();
     expect(texto).toContain('Resma Carta 75g');
     expect(texto).toContain('Papeleria');
-    // La celda de sedes une departamento, ubicacion y cantidad.
-    expect(texto).toContain('Operaciones · Bodega central');
-    expect(texto).toContain('Bodega · Bodega central - A2');
+    // La celda de sedes une el nombre de la sede y su saldo.
+    expect(texto).toContain('Sede Central');
+    expect(texto).toContain('Sede Norte');
 
     // El estado se distingue por texto, no solo por color.
     expect(texto).toContain('Disponible');
@@ -229,6 +474,9 @@ describe('InventarioComponent', () => {
   it('debe mostrar un error si el backend no responde', () => {
     fixture.detectChanges();
 
+    // El ámbito llega bien; el que falla es el catálogo operativo.
+    httpMock.expectOne(RUTA_AMBITO).flush(AMBITO_ADMIN);
+
     // La otra peticion queda cancelada sola: `forkJoin` se desuscribe al fallar.
     httpMock.expectOne(RUTA_EXISTENCIAS).flush('error', { status: 500, statusText: 'Error' });
     fixture.detectChanges();
@@ -270,7 +518,7 @@ describe('InventarioComponent', () => {
         nombre: 'Resma Carta 75g',
         stock_total: 120,
         stock_minimo: 20,
-        sedes: [crearSede({ inventario_id: 55, stock_actual: 120 })],
+        sedes: [crearSede({ sede_id: 55, stock_actual: 120 })],
       }),
     ];
 
@@ -297,17 +545,918 @@ describe('InventarioComponent', () => {
       const peticiones = {
         insumos: httpMock.expectOne(RUTA_EXISTENCIAS),
         categorias: httpMock.expectOne(RUTA_CATEGORIAS),
+        ambito: httpMock.expectOne(RUTA_AMBITO),
       };
       peticiones.insumos.flush(INSUMOS_A);
       peticiones.categorias.flush(CATEGORIAS_A);
+      peticiones.ambito.flush(AMBITO_ADMIN);
       fixture.detectChanges();
 
-      for (const peticion of [peticiones.insumos, peticiones.categorias]) {
+      for (const peticion of [peticiones.insumos, peticiones.categorias, peticiones.ambito]) {
         expect(peticion.request.method).toBe('GET');
         expect(peticion.request.params.has('institucion_id')).toBe(false);
         expect(peticion.request.body).toBeNull();
         expect(peticion.request.headers.get('X-Institucion-Id')).toBeNull();
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Ciclo de vida del catálogo (Feature 014, AC-11/AC-12/AC-15)
+  // ---------------------------------------------------------------------------
+
+  function seccionGestion(): HTMLElement | null {
+    return fixture.nativeElement.querySelector(
+      'section[aria-label="Ciclo de vida del catálogo"]',
+    );
+  }
+
+  function panelExistencias(): HTMLElement | null {
+    return fixture.nativeElement.querySelector('#panel-existencias');
+  }
+
+  function panelGestion(): HTMLElement | null {
+    return fixture.nativeElement.querySelector('#panel-gestion');
+  }
+
+  function pestanas(): HTMLButtonElement[] {
+    const raiz = fixture.nativeElement as HTMLElement;
+    return Array.from(raiz.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+  }
+
+  function pestana(etiqueta: string): HTMLButtonElement {
+    const encontrada = pestanas().find((candidata) => (candidata.textContent ?? '').trim() === etiqueta);
+    expect(encontrada).withContext(`pestaña "${etiqueta}"`).toBeTruthy();
+    return encontrada!;
+  }
+
+  /** Pulsa la pestaña de gestión (solo existe para Administrador). */
+  function abrirGestion(): void {
+    pestana('Gestión del catálogo').click();
+    fixture.detectChanges();
+  }
+
+  /** Vuelve a la pestaña operativa. */
+  function abrirExistencias(): void {
+    pestana('Existencias').click();
+    fixture.detectChanges();
+  }
+
+  function textoSeccion(): string {
+    return (seccionGestion()?.textContent ?? '').replace(/\s+/g, ' ');
+  }
+
+  function botonesDeLaSeccion(): HTMLButtonElement[] {
+    const seccion = seccionGestion();
+    return seccion === null
+      ? []
+      : Array.from(seccion.querySelectorAll<HTMLButtonElement>('button'));
+  }
+
+  function boton(texto: string): HTMLButtonElement {
+    const encontrado = botonesDeLaSeccion().find(
+      (candidato) =>
+        (candidato.textContent ?? '').replace(/\s+/g, ' ').trim() === texto,
+    );
+    expect(encontrado).withContext(`botón "${texto}"`).toBeTruthy();
+    return encontrado!;
+  }
+
+  function botonConAria(fragmento: string): HTMLButtonElement {
+    const encontrado = botonesDeLaSeccion().find((candidato) =>
+      (candidato.getAttribute('aria-label') ?? '').includes(fragmento),
+    );
+    expect(encontrado).withContext(`botón con aria "${fragmento}"`).toBeTruthy();
+    return encontrado!;
+  }
+
+  /** Responde las tres peticiones de una transición aceptada (recargas). */
+  function responderRecargas(datos: GestionCatalogo = GESTION): void {
+    httpMock.expectOne(RUTA_GESTION).flush(datos);
+    httpMock.expectOne(RUTA_EXISTENCIAS).flush(INSUMOS);
+    httpMock.expectOne(RUTA_CATEGORIAS).flush(CATEGORIAS);
+    fixture.detectChanges();
+  }
+
+  /** Arranca como Administrador y responde catálogo operativo + gestión. */
+  function montarAdmin(datos: GestionCatalogo = GESTION) {
+    identidad.set(crearIdentidad('Administrador'));
+    fixture.detectChanges();
+
+    const peticiones = {
+      insumos: httpMock.expectOne(RUTA_EXISTENCIAS),
+      categorias: httpMock.expectOne(RUTA_CATEGORIAS),
+      gestion: httpMock.expectOne(RUTA_GESTION),
+      ambito: httpMock.expectOne(RUTA_AMBITO),
+    };
+    peticiones.insumos.flush(INSUMOS);
+    peticiones.categorias.flush(CATEGORIAS);
+    peticiones.gestion.flush(datos);
+    peticiones.ambito.flush(AMBITO_ADMIN);
+    fixture.detectChanges();
+    return peticiones;
+  }
+
+  describe('sección de gestión por rol (AC-11)', () => {
+    for (const rol of ['Bodeguero', 'Solicitante'] as const) {
+      it(`no renderiza la sección ni el conmutador para ${rol} y conserva la vista operativa`, () => {
+        identidad.set(crearIdentidad(rol));
+        fixture.detectChanges();
+        cargar(CATEGORIAS, INSUMOS);
+
+        expect(seccionGestion()).toBeNull();
+        expect(panelGestion()).toBeNull();
+        // Sin conmutador: no hay pestaña vacía ni bloqueada, solo la vista operativa.
+        expect(pestanas().length).toBe(0);
+        expect(fixture.nativeElement.querySelector('[role="tablist"]')).toBeNull();
+        expect(fixture.nativeElement.textContent).not.toContain(
+          'Ciclo de vida del catálogo',
+        );
+        expect(fixture.nativeElement.textContent).not.toContain('Gestión del catálogo');
+        // La pestaña operativa es la única y está renderizada.
+        expect(panelExistencias()).toBeTruthy();
+        expect(componente.pestanaActiva()).toBe('existencias');
+        // Ninguna acción de mutación en toda la vista.
+        const raiz = fixture.nativeElement as HTMLElement;
+        const textos = Array.from(raiz.querySelectorAll<HTMLButtonElement>('button')).map(
+          (b) => (b.textContent ?? '').trim(),
+        );
+        expect(textos).not.toContain('Dar de baja');
+        expect(textos).not.toContain('Reactivar');
+        // La vista operativa sigue igual.
+        expect(filas().length).toBe(3);
+        expect(componente.gestion()).toBeNull();
+      });
+    }
+  });
+
+  describe('pestañas de inventario (enmienda de AC-11)', () => {
+    it('abre «Existencias» por defecto y no renderiza la pestaña de gestión', () => {
+      montarAdmin();
+
+      expect(componente.pestanaActiva()).toBe('existencias');
+      expect(panelExistencias()).toBeTruthy();
+      expect(panelGestion()).toBeNull();
+      expect(seccionGestion()).toBeNull();
+      // La tabla operativa y sus filtros viven en la pestaña por defecto.
+      expect(filas().length).toBe(3);
+      expect(fixture.nativeElement.querySelector('input[aria-label="Buscar insumos"]')).toBeTruthy();
+    });
+
+    it('el Administrador ve el conmutador con las dos pestañas y su selección', () => {
+      montarAdmin();
+
+      expect(fixture.nativeElement.querySelector('[role="tablist"]')).toBeTruthy();
+      expect(pestanas().map((p) => (p.textContent ?? '').trim())).toEqual([
+        'Existencias',
+        'Gestión del catálogo',
+      ]);
+      expect(pestana('Existencias').getAttribute('aria-selected')).toBe('true');
+      expect(pestana('Gestión del catálogo').getAttribute('aria-selected')).toBe('false');
+      // Un solo tab stop: `tabindex` móvil en la pestaña activa.
+      expect(pestana('Existencias').getAttribute('tabindex')).toBe('0');
+      expect(pestana('Gestión del catálogo').getAttribute('tabindex')).toBe('-1');
+    });
+
+    it('cambia a la pestaña de gestión y vuelve a Existencias', () => {
+      montarAdmin();
+
+      abrirGestion();
+
+      expect(componente.pestanaActiva()).toBe('gestion');
+      expect(panelGestion()).toBeTruthy();
+      expect(seccionGestion()).toBeTruthy();
+      expect(panelExistencias()).toBeNull();
+      expect(filas().length).toBe(0);
+      expect(pestana('Gestión del catálogo').getAttribute('aria-selected')).toBe('true');
+      expect(pestana('Existencias').getAttribute('aria-selected')).toBe('false');
+
+      abrirExistencias();
+
+      expect(panelExistencias()).toBeTruthy();
+      expect(panelGestion()).toBeNull();
+      expect(filas().length).toBe(3);
+    });
+
+    it('navega entre pestañas con las flechas del teclado', () => {
+      montarAdmin();
+
+      const tablist = fixture.nativeElement.querySelector('[role="tablist"]') as HTMLElement;
+      tablist.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      fixture.detectChanges();
+      expect(componente.pestanaActiva()).toBe('gestion');
+      expect(panelGestion()).toBeTruthy();
+
+      tablist.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+      fixture.detectChanges();
+      expect(componente.pestanaActiva()).toBe('existencias');
+    });
+  });
+
+  describe('sección de gestión del Administrador (AC-11/AC-15)', () => {
+    it('consume el listado de gestión y muestra activos e inactivos', () => {
+      montarAdmin();
+      abrirGestion();
+
+      expect(componente.gestion()).toEqual(GESTION);
+      const seccion = seccionGestion();
+      expect(seccion).toBeTruthy();
+
+      const texto = textoSeccion();
+      expect(texto).toContain('Ciclo de vida del catálogo');
+      // Categorías y productos, con su estado visible por texto, no solo color.
+      expect(texto).toContain('Papeleria');
+      expect(texto).toContain('Activa');
+      expect(texto).toContain('Toner');
+      expect(texto).toContain('Inactiva');
+      expect(texto).toContain('Cuaderno linedado');
+      expect(texto).toContain('Grapadora retirada');
+      expect(texto).toContain('Inactivo');
+      expect(texto).toContain('(categoría inactiva)');
+      // La franja resume ambos estados del listado administrativo.
+      expect(componente.totalActivosGestion()).toBe(2);
+      expect(componente.totalInactivosGestion()).toBe(2);
+    });
+
+    it('se alimenta solo de /gestion: el inactivo ausente del catálogo operativo aparece ahí y no en la tabla', () => {
+      montarAdmin();
+
+      abrirGestion();
+      // `Grapadora retirada` solo existe en el listado administrativo.
+      expect(textoSeccion()).toContain('Grapadora retirada');
+
+      // La tabla operativa conserva exactamente sus 3 filas filtradas y el
+      // inactivo no está en ella.
+      abrirExistencias();
+      expect(textoDeLaTabla()).not.toContain('Grapadora retirada');
+      expect(filas().length).toBe(3);
+    });
+
+    it('200 idempotente muestra el estado actual sin error', () => {
+      montarAdmin();
+      abrirGestion();
+
+      // `Toner` ya está inactiva: reactivarla sin cambio efectivo es 200.
+      botonConAria('la categoría Toner').click();
+      fixture.detectChanges();
+      expect(textoSeccion()).toContain('Reactivar «Toner»');
+
+      componente.motivo.set('Reactivación aprobada por coordinación');
+      fixture.detectChanges();
+      boton('Confirmar').click();
+
+      const peticion = httpMock.expectOne(rutaEstadoCategoria(2));
+      expect(peticion.request.method).toBe('PATCH');
+      expect(peticion.request.body).toEqual({
+        activo: true,
+        motivo: 'Reactivación aprobada por coordinación',
+      });
+      peticion.flush({
+        categoria_id: 2,
+        nombre_cat: 'Toner',
+        descripcion_cat: 'Consumibles',
+        activo: true,
+      });
+      fixture.detectChanges();
+
+      const seccion = seccionGestion()!;
+      expect(seccion.querySelector('[role="alert"]')).toBeNull();
+      const estado = seccion.querySelector('[role="status"]');
+      expect(estado?.textContent).toContain('«Toner» ahora está activo');
+      // El formulario se cierra y el estado recargado refleja el destino.
+      expect(seccion.querySelector('textarea#motivo-transicion')).toBeNull();
+
+      responderRecargas(GESTION_TONER_ACTIVA);
+      expect(componente.gestion()).toEqual(GESTION_TONER_ACTIVA);
+    });
+
+    it('422 del motivo se muestra con el mensaje del servidor', () => {
+      montarAdmin();
+      abrirGestion();
+
+      botonConAria('la categoría Papeleria').click();
+      componente.motivo.set('Motivo válido en cliente');
+      fixture.detectChanges();
+      boton('Confirmar').click();
+
+      httpMock.expectOne(rutaEstadoCategoria(1)).flush(
+        { detail: 'El motivo es obligatorio para cambiar el estado.' },
+        { status: 422, statusText: 'Unprocessable Entity' },
+      );
+      fixture.detectChanges();
+
+      const alerta = seccionGestion()!.querySelector('[role="alert"]');
+      expect(alerta?.textContent).toContain('El motivo es obligatorio');
+      // Sin recargas: el fallo no toca el listado.
+      httpMock.expectNone(RUTA_GESTION);
+    });
+
+    it('409 de precondición se muestra con el mensaje del servidor', () => {
+      montarAdmin();
+      abrirGestion();
+
+      botonConAria('la categoría Papeleria').click();
+      componente.motivo.set('Se retira la categoría');
+      fixture.detectChanges();
+      boton('Confirmar').click();
+
+      httpMock.expectOne(rutaEstadoCategoria(1)).flush(
+        { detail: 'La categoría tiene productos activos.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+      fixture.detectChanges();
+
+      const alerta = seccionGestion()!.querySelector('[role="alert"]');
+      expect(alerta?.textContent).toContain('La categoría tiene productos activos.');
+      expect(seccionGestion()!.querySelector('textarea#motivo-transicion')).toBeTruthy();
+    });
+
+    it('exige motivo no vacío y de hasta 500 caracteres antes de enviar', () => {
+      montarAdmin();
+      abrirGestion();
+
+      botonConAria('el producto Cuaderno linedado').click();
+      fixture.detectChanges();
+
+      // Vacío.
+      boton('Confirmar').click();
+      fixture.detectChanges();
+      expect(seccionGestion()!.textContent).toContain('El motivo es obligatorio');
+      httpMock.expectNone(rutaEstadoProducto(1));
+
+      // Solo espacios.
+      componente.motivo.set('   ');
+      fixture.detectChanges();
+      boton('Confirmar').click();
+      fixture.detectChanges();
+      expect(seccionGestion()!.textContent).toContain('El motivo es obligatorio');
+      httpMock.expectNone(rutaEstadoProducto(1));
+
+      // Más de 500.
+      componente.motivo.set('x'.repeat(501));
+      fixture.detectChanges();
+      boton('Confirmar').click();
+      fixture.detectChanges();
+      expect(seccionGestion()!.textContent).toContain('500 caracteres');
+      httpMock.expectNone(rutaEstadoProducto(1));
+    });
+
+    it('envía la transición de producto con motivo y recarga ambos listados', () => {
+      montarAdmin();
+      abrirGestion();
+
+      botonConAria('el producto Cuaderno linedado').click();
+      fixture.detectChanges();
+      expect(textoSeccion()).toContain('Dar de baja «Cuaderno linedado»');
+
+      componente.motivo.set('Producto descontinuado');
+      fixture.detectChanges();
+      boton('Confirmar').click();
+
+      const peticion = httpMock.expectOne(rutaEstadoProducto(1));
+      expect(peticion.request.method).toBe('PATCH');
+      expect(peticion.request.body).toEqual({
+        activo: false,
+        motivo: 'Producto descontinuado',
+      });
+      peticion.flush({
+        producto_id: 1,
+        nombre: 'Cuaderno linedado',
+        descripcion: 'Cuaderno de 100 hojas',
+        unidad_medida: 'UNIDAD',
+        stock_minimo: 10,
+        categoria_id: 1,
+        activo: false,
+        categoria: null,
+      });
+      fixture.detectChanges();
+
+      const estado = seccionGestion()!.querySelector('[role="status"]');
+      expect(estado?.textContent).toContain('«Cuaderno linedado» ahora está inactivo');
+
+      responderRecargas();
+    });
+
+    it('carga y presenta el historial del recurso', () => {
+      montarAdmin();
+      abrirGestion();
+
+      botonConAria('el historial de la categoría Toner').click();
+      fixture.detectChanges();
+
+      const peticion = httpMock.expectOne(rutaHistorialCategoria(2));
+      expect(peticion.request.method).toBe('GET');
+      peticion.flush(HISTORIAL_CATEGORIA);
+      fixture.detectChanges();
+
+      const historial = fixture.nativeElement.querySelector(
+        'section[aria-label="Historial del recurso"]',
+      ) as HTMLElement;
+      expect(historial).toBeTruthy();
+      const texto = (historial.textContent ?? '').replace(/\s+/g, ' ');
+      expect(texto).toContain('Historial de «Toner»');
+      expect(texto).toContain('Activo → Inactivo');
+      expect(texto).toContain('Ana Pérez');
+      expect(texto).toContain('Tóner descontinuado por el proveedor');
+      expect(texto).toContain('20/10/2026');
+
+      // Se cierra sin dejar peticiones pendientes.
+      boton('Cerrar historial').click();
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector(
+          'section[aria-label="Historial del recurso"]',
+        ),
+      ).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Filtros de sede y departamento (Feature 018, T6)
+  //
+  // La implementación (signals y plantilla) llega en T8. Estas pruebas fijan el
+  // contrato observable por DOM y HTTP: nombre accesible de los `<select>`,
+  // opciones recibidas del ámbito, query enviada y textos de estado.
+  // ---------------------------------------------------------------------------
+
+  /** Nombre accesible de un `<select>`: `aria-label`, `<label for>` o label envolvente. */
+  function nombreDelSelector(select: HTMLSelectElement): string {
+    const raiz = fixture.nativeElement as HTMLElement;
+    const aria = select.getAttribute('aria-label');
+    if (aria) {
+      return aria;
+    }
+    if (select.id) {
+      const etiqueta = raiz.querySelector(`label[for="${select.id}"]`);
+      if (etiqueta) {
+        return (etiqueta.textContent ?? '').trim();
+      }
+    }
+    const envoltorio = select.closest('label');
+    return (envoltorio?.textContent ?? '').trim();
+  }
+
+  /** Selector cuyo nombre accesible contiene el término indicado. */
+  function selectorDe(etiqueta: string): HTMLSelectElement | null {
+    const raiz = fixture.nativeElement as HTMLElement;
+    const selects = Array.from(raiz.querySelectorAll<HTMLSelectElement>('select'));
+    return (
+      selects.find((select) =>
+        nombreDelSelector(select).toLowerCase().includes(etiqueta.toLowerCase()),
+      ) ?? null
+    );
+  }
+
+  /** Opciones reales (se descarta la de valor vacío, que representa «todas»). */
+  function opcionesDelSelector(etiqueta: string): string[] {
+    const select = selectorDe(etiqueta);
+    expect(select).withContext(`selector "${etiqueta}"`).toBeTruthy();
+    if (select === null) {
+      return [];
+    }
+    return Array.from(select.options)
+      .filter((opcion) => opcion.value !== '')
+      .map((opcion) => (opcion.textContent ?? '').trim());
+  }
+
+  /** Elige la opción cuyo texto contiene `texto` y dispara `change`. */
+  function elegirEnSelector(etiqueta: string, texto: string): void {
+    const select = selectorDe(etiqueta);
+    expect(select).withContext(`selector "${etiqueta}"`).toBeTruthy();
+    if (select === null) {
+      return;
+    }
+    const opcion = Array.from(select.options).find((candidata) =>
+      (candidata.textContent ?? '').toLowerCase().includes(texto.toLowerCase()),
+    );
+    expect(opcion).withContext(`opción "${texto}" en "${etiqueta}"`).toBeTruthy();
+    if (opcion === undefined) {
+      return;
+    }
+    select.value = opcion.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+  }
+
+  /** Última consulta de existencias abierta; exige que haya exactamente una. */
+  function consultaExistencias(): TestRequest | null {
+    // `match` con string compara `urlWithParams`, así que un `?sede_id=…` deja
+    // de casar. Se selecciona por ruta y los `params` se afirman aparte.
+    const peticiones = httpMock.match((peticion) => peticion.url === RUTA_EXISTENCIAS);
+    expect(peticiones.length).withContext('una consulta de existencias').toBe(1);
+    return peticiones[0] ?? null;
+  }
+
+  interface OpcionesCarga {
+    ambito?: AmbitoInventario;
+    /** Responde 409 en la lectura de ámbito (Bodeguero/sin sede). */
+    ambitoSinSede?: boolean;
+    insumos?: ProductoExistencia[];
+    categorias?: Categoria[];
+    gestion?: GestionCatalogo;
+  }
+
+  /**
+   * Arranca la vista con el rol indicado y responde todo lo que pida, incluida
+   * la lectura de ámbito cuando la implementación ya la consulta (T8).
+   * Devuelve las rutas solicitadas para poder afirmar cuáles se hicieron.
+   */
+  function montarConRol(rol: string, opciones: OpcionesCarga = {}): string[] {
+    identidad.set(crearIdentidad(rol));
+    fixture.detectChanges();
+
+    const solicitadas: string[] = [];
+    for (const peticion of httpMock.match(() => true)) {
+      solicitadas.push(peticion.request.url);
+      if (peticion.cancelled) {
+        continue;
+      }
+      switch (peticion.request.url) {
+        case RUTA_AMBITO:
+          if (opciones.ambitoSinSede) {
+            peticion.flush(
+              { detail: 'Tu usuario no tiene una sede asignada.' },
+              { status: 409, statusText: 'Conflict' },
+            );
+          } else {
+            peticion.flush(opciones.ambito ?? AMBITO_ADMIN);
+          }
+          break;
+        case RUTA_EXISTENCIAS:
+          peticion.flush(opciones.insumos ?? INSUMOS);
+          break;
+        case RUTA_CATEGORIAS:
+          peticion.flush(opciones.categorias ?? CATEGORIAS);
+          break;
+        case RUTA_GESTION:
+          peticion.flush(opciones.gestion ?? GESTION);
+          break;
+        default:
+          peticion.flush([]);
+      }
+    }
+    fixture.detectChanges();
+    return solicitadas;
+  }
+
+  describe('filtros de sede y departamento (Feature 018)', () => {
+    /** AC-1/AC-5: el Administrador recibe el ámbito y ve ambos selectores. */
+    it('el Administrador consulta el ámbito y ve sede y departamento con sus opciones', () => {
+      const solicitadas = montarConRol('Administrador');
+      expect(solicitadas).toContain(RUTA_AMBITO);
+
+      const sedes = opcionesDelSelector('sede');
+      expect(sedes).toContain('Sede Central');
+      expect(sedes).toContain('Sede Norte');
+      expect(sedes.length).toBe(2);
+
+      expect(selectorDe('departamento'))
+        .withContext('selector de departamento')
+        .toBeTruthy();
+      const departamentos = opcionesDelSelector('departamento');
+      const permitidos = AMBITO_ADMIN.departamentos.map(
+        (departamento) => departamento.departamento_nombre,
+      );
+      expect(departamentos.length).toBeGreaterThan(0);
+      for (const nombre of departamentos) {
+        expect(permitidos).withContext(nombre).toContain(nombre);
+      }
+    });
+
+    /**
+     * AC-1: elegir sede acota la consulta con `sede_id` y recalcula la franja de
+     * indicadores y los `stock_total` sobre la respuesta filtrada.
+     */
+    it('al elegir una sede acota la consulta y recalcula la franja de indicadores', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Norte');
+
+      const consulta = consultaExistencias();
+      expect(consulta?.request.params.get('sede_id')).toBe('3');
+      consulta?.flush(INSUMOS_SEDE_NORTE);
+      fixture.detectChanges();
+
+      expect(filas().length).toBe(2);
+      expect(textoDeLaTabla()).toContain('Resma Carta 75g');
+      expect(textoDeLaTabla()).not.toContain('Cuaderno linedado');
+      expect(textoDeLaTabla()).toContain('30');
+      // La franja resume la respuesta filtrada, no el catálogo anterior.
+      expect(componente.totalCatalogo()).toBe(2);
+      expect(componente.totalConStock()).toBe(2);
+      expect(componente.totalCriticos()).toBe(1);
+    });
+
+    /**
+     * AC-5: cambiar de sede limpia el departamento incompatible y restringe las
+     * opciones departamentales a la sede elegida.
+     */
+    it('cambiar de sede limpia el departamento incompatible y acota sus opciones', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Central');
+      consultaExistencias()?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      elegirEnSelector('departamento', 'Operaciones');
+      const conDepartamento = consultaExistencias();
+      expect(conDepartamento?.request.params.get('sede_id')).toBe('1');
+      expect(conDepartamento?.request.params.get('departamento_id')).toBe('10');
+      conDepartamento?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      elegirEnSelector('sede', 'Sede Norte');
+      const alCambiar = consultaExistencias();
+      expect(alCambiar?.request.params.get('sede_id')).toBe('3');
+      // El departamento de la sede anterior no viaja en la nueva consulta.
+      expect(alCambiar?.request.params.has('departamento_id')).toBe(false);
+      alCambiar?.flush(INSUMOS_SEDE_NORTE);
+      fixture.detectChanges();
+
+      const departamentos = opcionesDelSelector('departamento');
+      expect(departamentos).toContain('Logística');
+      expect(departamentos).not.toContain('Operaciones');
+    });
+
+    /**
+     * AC-2/AC-7: los filtros organizacionales se combinan con texto, categoría y
+     * «Solo stock crítico» sin excluirse.
+     */
+    it('combina sede y departamento con texto, categoría y «Solo stock crítico»', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Central');
+      consultaExistencias()?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      elegirEnSelector('departamento', 'Operaciones');
+      const consulta = consultaExistencias();
+      expect(consulta?.request.params.get('departamento_id')).toBe('10');
+      consulta?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      componente.consulta.set('toner');
+      componente.seleccionarCategoria(2);
+      componente.alternarSoloCriticos();
+      fixture.detectChanges();
+
+      expect(filas().length).toBe(1);
+      expect(textoDeLaTabla()).toContain('Toner HP 26A');
+      expect(textoDeLaTabla()).not.toContain('Cuaderno linedado');
+    });
+
+    /**
+     * AC-7: «Limpiar filtros» restablece también los filtros organizacionales y
+     * vuelve a pedir el agregado permitido por rol.
+     */
+    it('«Limpiar filtros» restablece los filtros organizacionales y los existentes', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Norte');
+      consultaExistencias()?.flush(INSUMOS_SEDE_NORTE);
+      fixture.detectChanges();
+
+      componente.consulta.set('resma');
+      fixture.detectChanges();
+
+      const limpiar = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'),
+      ).find((botoncito) => (botoncito.textContent ?? '').trim() === 'Limpiar filtros');
+      expect(limpiar).withContext('botón «Limpiar filtros»').toBeTruthy();
+      limpiar?.click();
+      fixture.detectChanges();
+
+      const consulta = consultaExistencias();
+      expect(consulta?.request.params.has('sede_id')).toBe(false);
+      consulta?.flush(INSUMOS);
+      fixture.detectChanges();
+
+      expect(componente.consulta()).toBe('');
+      expect(filas().length).toBe(3);
+      expect(componente.totalCatalogo()).toBe(3);
+    });
+
+    /**
+     * AC-2/AC-4: el Bodeguero no tiene selector de sede, ve solo los
+     * departamentos de su sede y la nota literal D-3.
+     */
+    it('el Bodeguero no ve selector de sede, ve sus departamentos y la nota literal', () => {
+      montarConRol('Bodeguero', { ambito: AMBITO_BODEGUERO });
+
+      expect(selectorDe('sede'))
+        .withContext('selector de sede del Bodeguero')
+        .toBeNull();
+
+      const departamentos = opcionesDelSelector('departamento');
+      expect(departamentos.length).toBe(2);
+      expect(departamentos).toContain('Operaciones');
+      expect(departamentos).toContain('Compras');
+      expect(departamentos).not.toContain('Logística');
+
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain(NOTA_STOCK_COMPARTIDO);
+    });
+
+    /** AC-2: el Bodeguero consulta por `departamento_id`, nunca por `sede_id`. */
+    it('el Bodeguero consulta existencias con el departamento elegido', () => {
+      montarConRol('Bodeguero', { ambito: AMBITO_BODEGUERO });
+
+      elegirEnSelector('departamento', 'Operaciones');
+      const consulta = consultaExistencias();
+      expect(consulta?.request.params.get('departamento_id')).toBe('10');
+      // Sin selector de sede, el Bodeguero no envía `sede_id` (D-4).
+      expect(consulta?.request.params.has('sede_id')).toBe(false);
+      consulta?.flush(INSUMOS_SEDE_CENTRAL);
+      fixture.detectChanges();
+
+      expect(filas().length).toBe(2);
+    });
+
+    /** AC-2: la nota de stock compartido es exclusiva del Bodeguero. */
+    it('la nota de stock compartido no se muestra al Administrador', () => {
+      montarConRol('Administrador');
+
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).not.toContain(NOTA_STOCK_COMPARTIDO);
+    });
+
+    /**
+     * AC-4: un 409 de ámbito (Bodeguero sin sede) deja la vista sin filtros
+     * sustitutos, con aviso, y no rompe el panel operativo.
+     */
+    it('un 409 de ámbito sin sede deja la vista con aviso y sin filtros sustitutos', () => {
+      montarConRol('Bodeguero', { ambitoSinSede: true });
+
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('sede asignada');
+
+      expect(selectorDe('sede')).toBeNull();
+      const departamento = selectorDe('departamento');
+      expect(departamento === null || departamento.disabled)
+        .withContext('selector departamental no disponible')
+        .toBe(true);
+      // La vista no se rompe: el panel operativo sigue montado.
+      expect(panelExistencias()).toBeTruthy();
+    });
+
+    /**
+     * AC-7 (guardia): el Solicitante no recibe ámbito ni selectores y conserva
+     * exactamente la vista operativa de hoy.
+     */
+    it('el Solicitante no recibe ámbito ni selectores y conserva la vista operativa', () => {
+      const solicitadas = montarConRol('Solicitante');
+
+      expect(solicitadas).not.toContain(RUTA_AMBITO);
+      expect(selectorDe('sede')).toBeNull();
+      expect(selectorDe('departamento')).toBeNull();
+      expect(filas().length).toBe(3);
+    });
+
+    /**
+     * AC-6: con filtros organizacionales y cero resultados el mensaje es el de
+     * filtros aplicados, distinto del catálogo vacío.
+     */
+    it('con filtros organizacionales sin resultados muestra el vacío filtrado', () => {
+      montarConRol('Administrador');
+
+      elegirEnSelector('sede', 'Sede Norte');
+      consultaExistencias()?.flush([]);
+      fixture.detectChanges();
+
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('Ningún insumo coincide con los filtros aplicados.');
+      expect(texto).not.toContain('El catálogo no tiene insumos cargados.');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Entradas al detalle y restauración de pestaña (Feature 019, T10; AC-8/AC-9)
+  //
+  // Dos únicas entradas (D-2): el nombre del producto en «Existencias» para
+  // todos los roles y en «Gestión del catálogo» solo para Administrador. La
+  // procedencia viaja en `?tab=gestion`; Existencias deja la URL limpia.
+  // ---------------------------------------------------------------------------
+
+  /** Enlace cuyo texto visible es exactamente el nombre del producto. */
+  function enlaceDeProducto(nombre: string): HTMLAnchorElement | null {
+    const raiz = fixture.nativeElement as HTMLElement;
+    return (
+      Array.from(raiz.querySelectorAll<HTMLAnchorElement>('a')).find(
+        (enlace) => (enlace.textContent ?? '').replace(/\s+/g, ' ').trim() === nombre,
+      ) ?? null
+    );
+  }
+
+  /** Todos los enlaces a `/inventario/<id>` presentes en la vista. */
+  function enlacesAlDetalle(): HTMLAnchorElement[] {
+    const raiz = fixture.nativeElement as HTMLElement;
+    return Array.from(raiz.querySelectorAll<HTMLAnchorElement>('a')).filter((enlace) =>
+      /^\/inventario\/\d+(?:\?|$)/.test(enlace.getAttribute('href') ?? ''),
+    );
+  }
+
+  describe('entradas al detalle de producto (AC-8/AC-9)', () => {
+    for (const rol of ['Administrador', 'Bodeguero', 'Solicitante'] as const) {
+      it(`enlaza el nombre del producto en Existencias para ${rol} sin query de pestaña`, () => {
+        montarConRol(rol);
+
+        const enlace = enlaceDeProducto('Cuaderno linedado');
+        expect(enlace).withContext(`enlace de «Cuaderno linedado» para ${rol}`).toBeTruthy();
+        expect(enlace!.getAttribute('href')).toBe('/inventario/1');
+        // Existencias es la procedencia por defecto: la URL no lleva `tab`.
+        expect(enlace!.getAttribute('href')).not.toContain('tab=');
+
+        // Cada fila operativa tiene su enlace, con el id de su producto.
+        expect(enlacesAlDetalle().map((candidato) => candidato.getAttribute('href')))
+          .toEqual(['/inventario/1', '/inventario/2', '/inventario/3']);
+      });
+    }
+
+    it('el Administrador enlaza el nombre en Gestión con ?tab=gestion, incluido el inactivo', () => {
+      montarAdmin();
+      abrirGestion();
+
+      const activo = enlaceDeProducto('Cuaderno linedado');
+      expect(activo).withContext('enlace del producto activo en Gestión').toBeTruthy();
+      expect(activo!.getAttribute('href')).toBe('/inventario/1?tab=gestion');
+
+      // AC-8: la entrada de Gestión incluye productos inactivos.
+      const inactivo = enlaceDeProducto('Grapadora retirada');
+      expect(inactivo).withContext('enlace del producto inactivo en Gestión').toBeTruthy();
+      expect(inactivo!.getAttribute('href')).toBe('/inventario/9?tab=gestion');
+
+      // Los botones de ciclo de vida siguen intactos junto al enlace.
+      expect(botonConAria('el producto Cuaderno linedado')).toBeTruthy();
+      expect(botonConAria('el producto Grapadora retirada')).toBeTruthy();
+    });
+
+    for (const rol of ['Bodeguero', 'Solicitante'] as const) {
+      it(`${rol} no tiene enlace de Gestión ni consulta el listado de gestión`, () => {
+        const solicitadas = montarConRol(rol);
+
+        expect(solicitadas).not.toContain(RUTA_GESTION);
+        httpMock.expectNone(RUTA_GESTION);
+        // Ni el panel ni un enlace con la procedencia de Gestión.
+        expect(panelGestion()).toBeNull();
+        const conTab = enlacesAlDetalle().filter((enlace) =>
+          (enlace.getAttribute('href') ?? '').includes('tab=gestion'),
+        );
+        expect(conTab).withContext('enlaces con procedencia Gestión').toEqual([]);
+        // La entrada operativa sigue disponible.
+        expect(enlaceDeProducto('Cuaderno linedado')!.getAttribute('href')).toBe(
+          '/inventario/1',
+        );
+      });
+    }
+
+    it('al entrar con ?tab=gestion el Administrador abre directamente Gestión (AC-9)', () => {
+      parametrosConsulta = { tab: 'gestion' };
+      identidad.set(crearIdentidad('Administrador'));
+
+      fixture.detectChanges();
+
+      const peticiones = {
+        insumos: httpMock.expectOne(RUTA_EXISTENCIAS),
+        categorias: httpMock.expectOne(RUTA_CATEGORIAS),
+        gestion: httpMock.expectOne(RUTA_GESTION),
+        ambito: httpMock.expectOne(RUTA_AMBITO),
+      };
+      peticiones.insumos.flush(INSUMOS);
+      peticiones.categorias.flush(CATEGORIAS);
+      peticiones.gestion.flush(GESTION);
+      peticiones.ambito.flush(AMBITO_ADMIN);
+      fixture.detectChanges();
+
+      // El retorno desde el detalle reabre la pestaña de procedencia.
+      expect(componente.pestanaActiva()).toBe('gestion');
+      expect(panelGestion()).toBeTruthy();
+      expect(panelExistencias()).toBeNull();
+      expect(pestana('Gestión del catálogo').getAttribute('aria-selected')).toBe('true');
+      // La carga de gestión sigue siendo la única y condicionada al rol.
+      expect(componente.gestion()).toEqual(GESTION);
+    });
+
+    it('sin ?tab=gestion el Administrador sigue entrando por Existencias', () => {
+      montarAdmin();
+
+      expect(componente.pestanaActiva()).toBe('existencias');
+      expect(panelExistencias()).toBeTruthy();
+      expect(panelGestion()).toBeNull();
+    });
+
+    it('el query param no concede Gestión a un rol que no la tiene', () => {
+      parametrosConsulta = { tab: 'gestion' };
+      identidad.set(crearIdentidad('Solicitante'));
+
+      fixture.detectChanges();
+      httpMock.expectOne(RUTA_EXISTENCIAS).flush(INSUMOS);
+      httpMock.expectOne(RUTA_CATEGORIAS).flush(CATEGORIAS);
+      fixture.detectChanges();
+
+      // `gestionVisible()` manda: el parámetro es procedencia, no autorización.
+      expect(componente.pestanaActiva()).toBe('existencias');
+      expect(panelGestion()).toBeNull();
+      httpMock.expectNone(RUTA_GESTION);
     });
   });
 });

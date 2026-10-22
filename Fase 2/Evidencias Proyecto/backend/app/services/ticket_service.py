@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, case, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
@@ -10,10 +10,11 @@ from app.models import (
     Departamento,
     DetalleTicket,
     EstadoTicket,
-    Inventario,
+    HistorialTransicionTicket,
     MovimientoInventario,
     Prioridad,
     Producto,
+    StockSede,
     Ticket,
     Usuario,
 )
@@ -21,20 +22,34 @@ from app.core import permisos
 from app.schemas.ticket_schema import (
     CatalogosTicketRespuesta,
     EstadoTicketRespuesta,
+    HistorialTransicionRespuesta,
     PrioridadRespuesta,
     ProductoCatalogoRespuesta,
     SolicitanteRespuesta,
     TicketCrear,
+    TicketDetalleRespuesta,
     TicketDespacho,
+    TicketEditar,
 )
 from app.services import ambito_service
 from app.services.auth_service import IdentidadAutenticada
 from app.services.inventario_service import TIPO_SALIDA, es_stock_critico
 
-#: Nombres canonicos de los estados que gobiernan el despacho. Se buscan por
-#: nombre (case-insensitive) y nunca por id fijo (D-1, plan §3.2).
+#: Nombres canonicos de los estados que gobiernan el despacho y el ciclo de
+#: vida. Se buscan por nombre (case-insensitive) y nunca por id fijo (D-1,
+#: plan §3.2). `Cerrado` y `Anulado` son los dos terminales de la 013,
+#: resueltos por nombre canonico y nunca por su posicion en el catalogo
+#: (spec D-4, enmienda AC-26); `Pendiente` es el unico estado editable.
 NOMBRE_ESTADO_EN_CURSO = "encurso"
 NOMBRE_ESTADO_CERRADO = "cerrado"
+NOMBRE_ESTADO_ANULADO = "anulado"
+NOMBRE_ESTADO_PENDIENTE = "pendiente"
+
+#: Longitud maxima del motivo de anulacion/rechazo (D-6): la escala del
+#: `VARCHAR(500)` del historial y de `ticket.descripcion`. Se valida en el
+#: servicio, nunca en Pydantic (plan decision 3), para no adelantar el 422 al
+#: 404/409 del orden AC-7.
+LONGITUD_MAXIMA_MOTIVO = 500
 
 #: Observacion literal de auditoria de cada salida de despacho (D-6). El formato
 #: solo lleva ids enteros y etiquetas fijas, por lo que cabe en el `VARCHAR(250)`
@@ -54,10 +69,18 @@ def _es_solicitante(identidad: IdentidadAutenticada | None) -> bool:
     return permisos.nombre_rol_de(identidad) == _SOLICITANTE
 
 
+#: Detalle unico del 404 de ticket (spec D-8): oculta por igual el inexistente
+#: y el ajeno al alcance del rol. Es el mismo literal que esperan las pruebas
+#: de la 013 y que `global_service.leer_global_unico` devuelve al no resolver
+#: el recurso en ningun tenant.
+DETALLE_TICKET_NO_ENCONTRADO = "Ticket no encontrado"
+
+
 def _ticket_no_encontrado() -> HTTPException:
     """404 unico de ticket: oculta por igual el inexistente y el ajeno (D-5)."""
     return HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado"
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=DETALLE_TICKET_NO_ENCONTRADO,
     )
 
 
@@ -166,9 +189,15 @@ def obtener_catalogos(
 
     Feature 008 (D-1/AC-6): el catalogo deja de ser global. Un rol limitado solo
     recibe los productos de su institucion y su `stock_total` suma unicamente las
-    existencias de los departamentos de esa misma institucion; el stock de otra
+    existencias de las sedes de esa misma institucion; el stock de otra
     institucion no influye. Superadmin (alcance global) ve el catalogo completo,
     cada producto atribuido con su `institucion_id` (AC-8).
+
+    Feature 011 (spec D-2/D-6, M2): el agregado sale **exclusivamente** de
+    `StockSede` (nunca del `inventario` departamental legado). `stock_total` es la
+    suma de los saldos de las sedes del tenant y `es_critico` se evalua **por
+    sede** -coherente con `/inventario/existencias`-: un producto es critico si
+    alguna sede esta en o bajo el minimo.
     """
     institucion_id = _institucion_efectiva(db, identidad)
 
@@ -179,23 +208,21 @@ def obtener_catalogos(
         select(EstadoTicket).order_by(EstadoTicket.estado_id)
     ).scalars().all()
 
-    # Read model de producto + categoria + stock agregado. El `group_by` lista
-    # TODAS las columnas del `SELECT` porque PostgreSQL 16 lo exige y SQLite es
-    # mas laxo: un `group_by` incompleto passaria la suite en memoria y
+    # Read model de producto + categoria + stock agregado por sede. El `group_by`
+    # lista TODAS las columnas del `SELECT` porque PostgreSQL 16 lo exige y SQLite
+    # es mas laxo: un `group_by` incompleto passaria la suite en memoria y
     # reventaria en el contenedor.
     #
-    # `outerjoin` + `coalesce`: un producto sin filas en `inventario` tiene que
+    # `outerjoin` + `coalesce`: un producto sin filas en `stock_sede` tiene que
     # salir en 0 y no en `None`, porque `stock_total` es `NOT NULL` en el DTO.
-    condicion_inventario = Inventario.producto_id == Producto.producto_id
+    # `sedes_criticas`/`sedes_total` soportan la criticidad por sede (D-6): la
+    # marca sale de la sede, no del promedio institucional.
+    condicion_stock = StockSede.producto_id == Producto.producto_id
     if institucion_id is not None:
-        # El `outerjoin` de inventario solo acepta existencias de departamentos
-        # de la institucion del actor; el stock ajeno no entra al agregado.
-        departamentos_propios = select(Departamento.departamento_id).where(
-            Departamento.institucion_id == institucion_id
-        )
-        condicion_inventario = and_(
-            condicion_inventario,
-            Inventario.departamento_id.in_(departamentos_propios),
+        # El `outerjoin` de stock solo acepta existencias de la institucion del
+        # actor; el stock ajeno no entra al agregado.
+        condicion_stock = and_(
+            condicion_stock, StockSede.institucion_id == institucion_id
         )
 
     consulta_productos = (
@@ -206,10 +233,20 @@ def obtener_catalogos(
             Producto.stock_minimo,
             Producto.institucion_id,
             Categoria.nombre_cat.label("categoria_nombre"),
-            func.coalesce(func.sum(Inventario.stock_actual), 0).label("stock_total"),
+            func.coalesce(func.sum(StockSede.stock_actual), 0).label("stock_total"),
+            func.count(StockSede.stock_sede_id).label("sedes_total"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (StockSede.stock_actual <= Producto.stock_minimo, 1),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("sedes_criticas"),
         )
         .join(Categoria, Producto.categoria_id == Categoria.categoria_id)
-        .outerjoin(Inventario, condicion_inventario)
+        .outerjoin(StockSede, condicion_stock)
         .group_by(
             Producto.producto_id,
             Producto.nombre,
@@ -225,6 +262,12 @@ def obtener_catalogos(
         consulta_productos = consulta_productos.where(
             Producto.institucion_id == institucion_id
         )
+    # Feature 014 (AC-4): el selector de alta solo ofrece disponibilidad
+    # operativa (`producto.activo AND categoria.activo`), igual que existencias y
+    # listados de catalogo.
+    consulta_productos = consulta_productos.where(
+        Producto.activo.is_(True), Categoria.activo.is_(True)
+    )
 
     consulta_solicitantes = (
         select(
@@ -252,7 +295,14 @@ def obtener_catalogos(
                 unidad_medida=fila.unidad_medida,
                 categoria_nombre=fila.categoria_nombre,
                 stock_total=fila.stock_total,
-                es_critico=es_stock_critico(fila.stock_total, fila.stock_minimo),
+                # Criticidad por sede (D-6): alguna sede en o bajo el minimo. Un
+                # producto sin ninguna sede conserva la semantica de "sin
+                # existencia" (`0 <= stock_minimo`) del catalogo.
+                es_critico=(
+                    fila.sedes_criticas > 0
+                    if fila.sedes_total > 0
+                    else es_stock_critico(0, fila.stock_minimo)
+                ),
                 institucion_id=fila.institucion_id,
             )
             for fila in db.execute(consulta_productos).all()
@@ -276,10 +326,16 @@ def listar_tickets(
     `CURRENT_TIMESTAMP` no tiene subsegundo, asi que sin el desempate el orden
     de las altas de un mismo segundo seria el que quisiera el motor (AC-27).
 
-    `selectinload` en cadena resuelve `detalles` y el `producto` anidado que
-    `DetalleTicketRespuesta` serializa en un numero FIJO de consultas, en vez de
-    una por ticket y otra por detalle. Se descarta `joinedload` en la coleccion
-    porque multiplicaria las filas del ticket por cada detalle.
+    `selectinload` en cadena resuelve `detalles`, el `producto` anidado y su
+    `categoria` -los tres niveles que `DetalleTicketRespuesta` serializa- en un
+    numero FIJO de consultas, en vez de una por ticket y otra por detalle.
+    `categoria` se carga eager de forma explicita porque la lectura global del
+    Superadmin (`global_service._LectorPostgres`) cierra la sesion de cada
+    tenant **antes** de que FastAPI serialice la respuesta: sin precargarla, el
+    `lazy="select"` de `Producto.categoria` revienta con `DetachedInstanceError`
+    sobre el objeto ya desasociado (500 en `GET /tickets/`). Se descarta
+    `joinedload` en la coleccion porque multiplicaria las filas del ticket por
+    cada detalle.
 
     El filtro por `estado_id` se comprueba con `is not None`: un `0` o un id
     valido nunca deben confundirse con "sin filtro".
@@ -290,7 +346,9 @@ def listar_tickets(
     consulta = (
         select(Ticket)
         .options(
-            selectinload(Ticket.detalles).selectinload(DetalleTicket.producto)
+            selectinload(Ticket.detalles)
+            .selectinload(DetalleTicket.producto)
+            .selectinload(Producto.categoria)
         )
         .order_by(Ticket.fecha_creacion.desc(), Ticket.ticket_id.desc())
     )
@@ -316,7 +374,11 @@ def _verificar_referencia(db: Session, modelo, valor: int, etiqueta: str) -> Non
 
 
 def _verificar_productos(
-    db: Session, detalles, institucion_id: str | None
+    db: Session,
+    detalles,
+    institucion_id: str | None,
+    *,
+    permitidos_inactivos: set[int] | None = None,
 ) -> None:
     """Valida todos los `producto_id` del payload antes de escribir nada.
 
@@ -328,8 +390,17 @@ def _verificar_productos(
     404**, con el mismo mensaje que uno inexistente, de modo que un id ajeno no
     revele su existencia. Con alcance global (`institucion_id is None`) no se
     restringe por institucion.
+
+    Feature 014 (AC-4/AC-9): la disponibilidad es el predicado conjunto
+    `producto.activo AND categoria.activo`. Un producto no disponible responde
+    **409** (existe, pero no se puede pedir). `permitidos_inactivos` es el
+    conjunto de ids que la edicion de un ticket `Pendiente` conserva porque ya
+    figuran en sus detalles actuales; el alta no lo usa (siempre vacio). Las dos
+    pasadas (existencia/pertenencia y luego disponibilidad) garantizan que el
+    conjunto completo se valide **antes** de tocar los detalles.
     """
     ids_requeridos = {detalle.producto_id for detalle in detalles}
+    productos: dict[int, Producto] = {}
     for producto_id in sorted(ids_requeridos):
         producto = db.get(Producto, producto_id)
         if producto is None:
@@ -342,6 +413,81 @@ def _verificar_productos(
             institucion_id,
             detalle=f"No existe producto indicado: {producto_id}",
         )
+        productos[producto_id] = producto
+
+    conservados = permitidos_inactivos or set()
+    for producto_id in sorted(ids_requeridos):
+        producto = productos[producto_id]
+        categoria_activa = (
+            producto.categoria is not None and producto.categoria.activo
+        )
+        if producto.activo and categoria_activa:
+            continue
+        if producto_id in conservados:
+            continue
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"El producto indicado no esta disponible: {producto_id}",
+        )
+
+
+def _sede_vigente_de_solicitante(db: Session, usuario: Usuario | None) -> int:
+    """Sede vigente del departamento del solicitante, o **409** sin fallback.
+
+    Feature 011 (spec D-5/AC-9): al crear un ticket se copia a `ticket.sede_id` la
+    sede del departamento del solicitante. Un departamento sin sede asignada
+    -o inexistente- impide el alta con **409**, sin usar una sede por defecto
+    (regla 3/8 de la spec). La validacion no escribe, de modo que un rechazo no
+    deja ticket parcial.
+    """
+    if usuario is None or usuario.departamento_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El departamento del solicitante no tiene una sede asignada",
+        )
+    departamento = db.get(Departamento, usuario.departamento_id)
+    if departamento is None or departamento.sede_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El departamento del solicitante no tiene una sede asignada",
+        )
+    return departamento.sede_id
+
+
+def _registrar_transicion(
+    db: Session,
+    ticket: Ticket,
+    estado_origen_id: int | None,
+    estado_destino_id: int,
+    identidad: IdentidadAutenticada | None,
+    motivo: str | None,
+) -> None:
+    """Inserta una fila del historial de transiciones (AC-9, AC-11, D-10).
+
+    Debe invocarse **dentro** de la misma transaccion que el cambio de estado
+    que documenta, sin commit propio: si la fila no puede escribirse, el
+    `rollback` del llamador revierte tambien el cambio de estado y no queda
+    ningun efecto parcial (`constitucion.md` §3, AC-11).
+
+    El actor es la identidad autenticada; en invocacion directa al servicio
+    sin identidad (no observable por HTTP) se atribuye a `ticket.usuario_id`
+    (plan decision 9). `estado_origen_id` es nulo **solo** en la fila de
+    creacion del ticket (AC-9); toda transicion posterior declara su origen.
+    """
+    actor_id = (
+        identidad.usuario.usuario_id
+        if identidad is not None
+        else ticket.usuario_id
+    )
+    db.add(
+        HistorialTransicionTicket(
+            ticket_id=ticket.ticket_id,
+            estado_origen_id=estado_origen_id,
+            estado_destino_id=estado_destino_id,
+            usuario_id=actor_id,
+            motivo=motivo,
+        )
+    )
 
 
 def crear_ticket(
@@ -395,6 +541,14 @@ def crear_ticket(
 
     AC-17: si el estado destino es `Cerrado` (case-insensitive), se sella
     `fecha_cierre` en la propia creacion.
+
+    Feature 013 (spec D-11, plan decision 8): un ticket nuevo **no puede nacer
+    en `Anulado`**. El estado existe en el catalogo, asi que el rechazo es
+    **409** (precondicion, no 404/422) y ocurre antes del primer `add()`, sin
+    dejar ticket ni detalle parciales. Ademas la creacion inserta su fila de
+    historial (origen nulo, destino = estado inicial, actor = identidad o
+    `ticket.usuario_id`; decision 9) en la misma transaccion del ticket (AC-9,
+    AC-11).
     """
     if _es_solicitante(identidad):
         # Se ignora el `usuario_id` recibido y se reescribe al del autenticado:
@@ -425,21 +579,39 @@ def crear_ticket(
     _verificar_referencia(db, EstadoTicket, datos.estado_id, "estado")
     _verificar_productos(db, datos.detalles, institucion_ticket)
 
-    # Determinar si el estado destino es "Cerrado" (case-insensitive)
+    # Feature 011 (spec D-5/AC-9): instantanea de la sede vigente del departamento
+    # del solicitante. Se resuelve **antes** de escribir; sin sede el alta es 409.
+    sede_ticket = _sede_vigente_de_solicitante(db, solicitante)
+
+    # Resolucion por nombre (case-insensitive) de los dos estados con reglas
+    # propias en el alta: `Cerrado` sella fecha (AC-17) y `Anulado` se rechaza
+    # (D-11). Ante nombres duplicados gana el de menor `estado_id` (plan §3.2).
     estados = db.execute(
         select(EstadoTicket).order_by(EstadoTicket.estado_id)
     ).scalars().all()
-    estado_cierre = next(
-        (e for e in estados if e.nombre.casefold() == "cerrado"), None
-    )
+    estado_cierre = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_CERRADO)
     es_estado_cierre = (
         estado_cierre is not None and datos.estado_id == estado_cierre.estado_id
     )
+
+    # D-11 (plan decision 8): `Anulado` no es elegible para alta. El estado
+    # existe, asi que el rechazo es 409 y no 404/422; va antes del primer
+    # `add()` para no dejar ticket ni detalle parciales.
+    estado_anulado = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_ANULADO)
+    if estado_anulado is not None and datos.estado_id == estado_anulado.estado_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El estado 'Anulado' no es elegible para alta: un ticket nuevo "
+                "no puede nacer anulado"
+            ),
+        )
 
     try:
         nuevo_ticket = Ticket(
             **datos.model_dump(exclude={"detalles"}),
             institucion_id=institucion_ticket,
+            sede_id=sede_ticket,
         )
         db.add(nuevo_ticket)
         db.flush()  # asigna ticket_id sin cerrar la transaccion
@@ -459,6 +631,18 @@ def crear_ticket(
                 )
             )
 
+        # AC-9/decision 9: la creacion es una mutacion del ciclo de vida y
+        # registra su fila de historial (origen nulo, destino = estado
+        # inicial) en la MISMA transaccion que el ticket.
+        _registrar_transicion(
+            db,
+            nuevo_ticket,
+            estado_origen_id=None,
+            estado_destino_id=datos.estado_id,
+            identidad=identidad,
+            motivo=None,
+        )
+
         db.commit()
         db.refresh(nuevo_ticket)
     except Exception:
@@ -474,32 +658,61 @@ def actualizar_estado_ticket(
     estado_id: int,
     identidad: IdentidadAutenticada | None = None,
 ) -> Ticket:
-    """Aplica una transicion del flujo lineal y sella el cierre, atomicamente.
+    """Aplica una transicion del flujo lineal con terminales por nombre, atomicamente.
 
     Orden de validacion (D-8): ticket (404) -> estado pedido (404) -> flujo
     (409). El flujo se evalua sobre los indices del catalogo ordenado por
     `estado_id` (D-1): un paso en cualquier direccion entre contiguos; el
-    indice actual igual al destino, la distancia != 1 y cualquier salida
-    desde el ultimo estado (terminal) rechazan sin tocar el ticket (D-2).
+    indice actual igual al destino y la distancia != 1 rechazan sin tocar el
+    ticket.
+
+    `Cerrado` y `Anulado` son los dos estados terminales, resueltos por
+    **nombre canonico** (casefold, menor `estado_id` ante duplicados) y nunca
+    por su posicion en el catalogo (013 D-4, enmienda AC-26): ninguno admite
+    salida en **ningun** catalogo, y el cambio de estado tampoco puede llevar
+    a `Cerrado` ni a `Anulado`. La terminalidad ordinal de la 004 (el ultimo
+    estado del catalogo no se sale) quedo **derogada** por la enmienda: la
+    ultima posicion no otorga terminalidad a ningun otro estado; la
+    contiguidad del flujo lineal entre los estados operativos se conserva.
 
     El cierre se reconoce por nombre `casefold() == "cerrado"` sobre ese
     mismo catalogo, nunca por un id fijo (D-3); si el nombre esta repetido,
-    gana el de menor `estado_id`. La fecha solo se escribe si aun es `None`:
-    reentrar en `Cerrado` jamas la sobrescribe. El unico `commit` del final
-    hace estado y fecha una sola operacion (`constitucion.md` §3).
+    gana el de menor `estado_id`. `fecha_cierre` ya no se sella en esta
+    funcion: con la terminalidad por nombre, toda peticion cuyo destino sea
+    `Cerrado` responde 409, de modo que los dos caminos vigentes de sellado
+    son el alta directa (004 AC-17) y el despacho transaccional (005), y
+    ninguno de los dos la sobrescribe. El unico `commit` del final hace
+    estado e historial una sola operacion (`constitucion.md` §3).
 
-    Feature 005 (AC-15, D-1/D-12): la transicion `EnCurso -> Cerrado` esta
-    **reservada al despacho transaccional**. Cuando el ticket esta en el
-    `EnCurso` canonico y el destino es el `Cerrado` canonico, se responde 409
-    con el detalle literal que dirige al endpoint de despacho, sin mutar el
-    ticket. Ambos estados se resuelven por **nombre** (menor `estado_id` ante
-    duplicados), nunca por el ultimo ordinal: en un catalogo degenerado el
-    ultimo estado podria no ser `Cerrado`. La guardia va despues de validar el
-    flujo (orden D-8) y antes de cualquier escritura.
+    Feature 005 (AC-15, D-1/D-12): el despacho transaccional es el **unico
+    camino a `Cerrado`**. Toda peticion cuyo destino sea el `Cerrado`
+    canonico responde 409 con el detalle literal que dirige al endpoint de
+    despacho, sin mutar el ticket. El estado se resuelve por **nombre**
+    (menor `estado_id` ante duplicados), nunca por el ultimo ordinal: en un
+    catalogo degenerado el ultimo estado podria no ser `Cerrado`. La guardia
+    va despues de validar el flujo (orden D-8) y antes de cualquier
+    escritura; los contratos `EnCurso -> Cerrado` de la 004/005 conservan su
+    409 y su detalle literal intactos.
+
+    Feature 013 (spec D-4/§6, plan decision 5, enmienda AC-26): `Anulado`
+    queda **fuera** del flujo lineal y se resuelve por nombre canonico.
+    Cualquier peticion cuyo destino sea `Anulado`, cuyo origen sea `Anulado`
+    o cuyo origen sea `Cerrado` responde **409** tras los dos 404 (ticket/
+    alcance y estado pedido, orden D-8 intacto) y antes del 409 generico de
+    flujo: el de `Anulado` dirige a la operacion de anulacion o rechazo
+    correspondiente; el de salida desde `Cerrado` declara que el cierre es
+    definitivo y que el despacho es el unico camino a el. Ningun catalogo
+    altera estas reglas (AC-26): un ticket ya despachado no puede volver a
+    un estado despachable, de modo que no hay camino a una segunda rebaja
+    de stock.
 
     Feature 007 (D-5/AC-6): tras comprobar la existencia se verifica el alcance
     del rol; un ticket de otra institucion (Administrador/Bodeguero) o ajeno al
     Solicitante responde 404, igual que uno inexistente, antes de tocar nada.
+
+    Feature 013 (AC-9/AC-11): toda transicion aceptada inserta su fila de
+    historial en la MISMA transaccion que el cambio de estado, via
+    `_registrar_transicion`, con la identidad autenticada como actor.
     """
     ticket = db.get(Ticket, ticket_id)
     if not ticket:
@@ -520,6 +733,48 @@ def actualizar_estado_ticket(
             detail=f"No existe estado indicado: {estado_id}",
         )
 
+    # Guardia 013 (D-4/§6): `Anulado` esta fuera del flujo lineal. Hacia
+    # `Anulado` solo se llega por anulacion o rechazo; desde `Anulado` no se
+    # sale por ningun camino. El 409 dirige a la operacion correspondiente y
+    # va antes del 409 generico de flujo para que toda peticion que toque
+    # `Anulado` reciba ese detalle (tras los dos 404 del orden D-8).
+    estado_anulado = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_ANULADO)
+    if estado_anulado is not None and estado_id == estado_anulado.estado_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El estado 'Anulado' solo se alcanza por anulacion o rechazo; "
+                f"use POST /api/v1/tickets/{ticket_id}/anulacion o "
+                f"POST /api/v1/tickets/{ticket_id}/rechazo"
+            ),
+        )
+    if estado_anulado is not None and ticket.estado_id == estado_anulado.estado_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El ticket esta en 'Anulado', estado terminal del que ninguna "
+                "operacion lo saca; la anulacion y el rechazo solo se aplican "
+                "desde 'Pendiente' o 'EnRevision'"
+            ),
+        )
+
+    # Guardia 013 (enmienda D-4, AC-26): `Cerrado` es terminal por nombre
+    # canonico en **cualquier** catalogo y nada sale de el por `PATCH
+    # /estado`. El 409 declara que el cierre es definitivo y que el despacho
+    # de la 005 es el unico camino a el. Va tras los dos 404 y las guardias
+    # de `Anulado` (orden D-8) y antes del 409 generico de flujo.
+    estado_cierre = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_CERRADO)
+    if estado_cierre is not None and ticket.estado_id == estado_cierre.estado_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El ticket esta en 'Cerrado', estado terminal por nombre: el "
+                "cierre es definitivo y no admite ninguna salida; el despacho "
+                "transaccional es el unico camino a el, use "
+                f"POST /api/v1/tickets/{ticket_id}/despacho"
+            ),
+        )
+
     indice_actual = next(
         (i for i, e in enumerate(estados) if e.estado_id == ticket.estado_id), None
     )
@@ -527,7 +782,11 @@ def actualizar_estado_ticket(
         indice_actual is None  # el ticket esta en un estado ya borrado
         or indice_destino == indice_actual
         or abs(indice_destino - indice_actual) != 1
-        or indice_actual == len(estados) - 1  # el terminal no se sale nunca
+        # La terminalidad **ordinal** de la 004 (el ultimo estado del catalogo
+        # no se sale) quedo derogada por la enmienda D-4 de la 013 (AC-26):
+        # la terminalidad se resuelve solo por nombre, via las guardias de
+        # `Anulado` y `Cerrado` de arriba; la ultima posicion no la otorga
+        # ningun otro estado.
     )
     if fuera_de_flujo:
         raise HTTPException(
@@ -541,18 +800,19 @@ def actualizar_estado_ticket(
 
     estado_destino = estados[indice_destino]
 
-    # Guardia AC-15 de la 005 (D-1, D-12): el cierre `EnCurso -> Cerrado` esta
-    # reservado al despacho transaccional para que ningun cierre evite la rebaja
-    # y la auditoria atomicas (`constitucion.md` §3). Se resuelve por **nombre
-    # canonico** (menor `estado_id` ante duplicados) y no por el ultimo ordinal,
-    # que en un catalogo degenerado podria no ser `Cerrado`. Va despues del flujo
-    # (orden D-8) y antes de tocar el ticket.
-    estado_en_curso = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_EN_CURSO)
-    estado_cierre = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_CERRADO)
+    # Guardia AC-15 de la 005 (D-1, D-12), ampliada por la enmienda D-4 de la
+    # 013 (AC-26): el despacho transaccional es el **unico camino a `Cerrado`**
+    # en cualquier catalogo, no solo para el paso `EnCurso -> Cerrado`. Toda
+    # peticion cuyo destino sea el `Cerrado` canonico responde con el MISMO
+    # detalle literal de la 005 (los contratos `EnCurso -> Cerrado` quedan
+    # intactos) y sin mutar el ticket. El destino se resuelve por **nombre
+    # canonico** (menor `estado_id` ante duplicados) y no por el ultimo
+    # ordinal, que en un catalogo degenerado podria no ser `Cerrado`. Va
+    # despues del flujo (orden D-8) y antes de tocar el ticket; con esta
+    # guardia, la reentrada en `Cerrado` es imposible y un ticket ya
+    # despachado no vuelve a un estado despachable (sin doble rebaja).
     if (
-        estado_en_curso is not None
-        and estado_cierre is not None
-        and ticket.estado_id == estado_en_curso.estado_id
+        estado_cierre is not None
         and estado_destino.estado_id == estado_cierre.estado_id
     ):
         raise HTTPException(
@@ -563,16 +823,33 @@ def actualizar_estado_ticket(
             ),
         )
 
-    ticket.estado_id = estado_id
-    if (
-        estado_cierre is not None
-        and estado_destino.estado_id == estado_cierre.estado_id
-        and ticket.fecha_cierre is None
-    ):
-        ticket.fecha_cierre = datetime.utcnow()
+    try:
+        # El origen se captura ANTES de mutar: es el que declara la fila del
+        # historial (AC-9).
+        estado_origen_id = ticket.estado_id
+        ticket.estado_id = estado_id
+        # `fecha_cierre` ya no se sella aqui (enmienda AC-26): con `Cerrado`
+        # terminal por nombre, toda peticion cuyo destino sea `Cerrado` ya
+        # respondio 409 arriba. Los dos caminos vigentes de sellado son el
+        # alta directa (004 AC-17) y el despacho (005), ambos con su
+        # `if fecha_cierre is None` sin sobrescribir nunca la fecha.
 
-    db.commit()
-    db.refresh(ticket)
+        # AC-11 (013): cambio de estado y su fila de historial son una sola
+        # operacion; si la fila falla, el rollback revierte el estado.
+        _registrar_transicion(
+            db,
+            ticket,
+            estado_origen_id=estado_origen_id,
+            estado_destino_id=estado_id,
+            identidad=identidad,
+            motivo=None,
+        )
+
+        db.commit()
+        db.refresh(ticket)
+    except Exception:
+        db.rollback()
+        raise
     return ticket
 
 
@@ -619,11 +896,19 @@ def despachar_ticket(
     que la denegacion no muta la transaccion de despacho.
 
     Feature 008 (D-2/D-4/AC-12): el ticket se ancla a la institucion de su
-    solicitante y tanto el producto de cada detalle como el inventario que se
-    rebaja deben pertenecer a esa misma institucion. Una referencia cruzada es
-    una inconsistencia que impide resolver el despacho: responde **409**, se
-    evalua antes de cualquier escritura y, como el resto de rechazos, no deja
-    stock, entrega, estado ni auditoria parciales en la unica transaccion.
+    solicitante y tanto el producto de cada detalle como el stock que se rebaja
+    deben pertenecer a esa misma institucion. Una referencia cruzada es una
+    inconsistencia que impide resolver el despacho: responde **409**, se evalua
+    antes de cualquier escritura y, como el resto de rechazos, no deja stock,
+    entrega, estado ni auditoria parciales en la unica transaccion.
+
+    Feature 011 (spec D-5/AC-9): el despacho usa **exclusivamente** la instantanea
+    `ticket.sede_id`, nunca la asignacion vigente del departamento; rebaja solo el
+    `StockSede` de esa sede y enlaza el movimiento nuevo por `stock_sede_id`,
+    dejando `inventario_id` nulo. Un ticket sin instantanea (legado sin migrar)
+    responde 409. La sede se bloquea con `FOR UPDATE` junto al ticket para
+    serializar despachos concurrentes; SQLite ignora el bloqueo y la garantia real
+    se verifica en PostgreSQL.
     """
     ticket = db.execute(
         select(Ticket).where(Ticket.ticket_id == ticket_id).with_for_update()
@@ -633,8 +918,8 @@ def despachar_ticket(
 
     _verificar_alcance_de_ticket(db, ticket, identidad)
 
-    # Institucion del ticket (la de su solicitante): todo detalle y el inventario
-    # que se rebaje debe pertenecer a ella (D-2, AC-12).
+    # Institucion del ticket (la de su solicitante): todo detalle y el stock que
+    # se rebaje debe pertenecer a ella (D-2, AC-12).
     institucion_ticket = _institucion_de_ticket(db, ticket)
 
     if db.get(Usuario, datos.usuario_id) is None:
@@ -677,14 +962,36 @@ def despachar_ticket(
             detail="El ticket no tiene detalles que despachar",
         )
 
+    # Feature 011 (spec D-5/AC-9): el despacho usa **exclusivamente** la sede
+    # almacenada en el ticket, nunca la asignacion vigente del departamento. Un
+    # ticket legado sin instantanea no se despacha.
+    sede_ticket = ticket.sede_id
+    if sede_ticket is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El ticket no tiene una sede asignada (instantanea); "
+                "no se puede despachar sin una sede"
+            ),
+        )
+
     ids_producto = sorted({detalle.producto_id for detalle in detalles})
 
-    filas_inventario = db.execute(
-        select(Inventario).where(Inventario.producto_id.in_(ids_producto))
+    # El saldo vigente se lee de `stock_sede` y se bloquea con `FOR UPDATE` en la
+    # misma transaccion (patron de la Feature 005): dos despachos concurrentes del
+    # mismo ticket o de la misma sede se serializan. SQLite ignora `FOR UPDATE`;
+    # la concurrencia real se verifica en PostgreSQL.
+    filas_stock = db.execute(
+        select(StockSede)
+        .where(
+            StockSede.sede_id == sede_ticket,
+            StockSede.producto_id.in_(ids_producto),
+        )
+        .with_for_update()
     ).scalars().all()
-    inventario_por_producto: dict[int, list[Inventario]] = {}
-    for fila in filas_inventario:
-        inventario_por_producto.setdefault(fila.producto_id, []).append(fila)
+    stock_por_producto: dict[int, StockSede] = {
+        fila.producto_id: fila for fila in filas_stock
+    }
 
     cantidad_requerida: dict[int, int] = {}
     for detalle in detalles:
@@ -693,7 +1000,8 @@ def despachar_ticket(
             + detalle.cantidad_solicitada
         )
 
-    inventario_unico: dict[int, Inventario] = {}
+    # Validacion total antes de escribir: ninguna comprobacion de negocio muta, de
+    # modo que un rechazo no deja stock, entrega, estado ni auditoria parciales.
     for producto_id in ids_producto:
         producto = db.get(Producto, producto_id)
         if producto is None:
@@ -715,33 +1023,20 @@ def despachar_ticket(
                     "del ticket"
                 ),
             )
-        filas = inventario_por_producto.get(producto_id, [])
-        if len(filas) != 1:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"El producto {producto_id} requiere exactamente una fila de "
-                    f"inventario para despachar y tiene {len(filas)}"
-                ),
-            )
-        inventario = filas[0]
-        # AC-12: el inventario que se rebaja debe ser de la institucion del
-        # ticket (su institucion se deriva del departamento).
-        if not ambito_service.pertenece_al_alcance(
-            ambito_service.institucion_de_inventario(db, inventario),
-            institucion_ticket,
+        fila = stock_por_producto.get(producto_id)
+        # AC-12: el stock que se rebaja debe ser de la institucion del ticket.
+        if fila is not None and not ambito_service.pertenece_al_alcance(
+            fila.institucion_id, institucion_ticket
         ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"El inventario {inventario.inventario_id} del producto "
+                    f"El stock de la sede {sede_ticket} del producto "
                     f"{producto_id} no pertenece a la institucion del ticket"
                 ),
             )
-        inventario_unico[producto_id] = inventario
-
-    for producto_id, requerido in cantidad_requerida.items():
-        disponible = inventario_unico[producto_id].stock_actual
+        disponible = 0 if fila is None else fila.stock_actual
+        requerido = cantidad_requerida[producto_id]
         if disponible < requerido:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -753,8 +1048,8 @@ def despachar_ticket(
 
     try:
         for detalle in detalles:
-            inventario = inventario_unico[detalle.producto_id]
-            inventario.stock_actual -= detalle.cantidad_solicitada
+            fila = stock_por_producto[detalle.producto_id]
+            fila.stock_actual -= detalle.cantidad_solicitada
             detalle.cantidad_entregada = detalle.cantidad_solicitada
             db.add(
                 MovimientoInventario(
@@ -765,13 +1060,27 @@ def despachar_ticket(
                         detalle_ticket_id=detalle.detalle_ticket_id,
                         producto_id=detalle.producto_id,
                     ),
-                    inventario_id=inventario.inventario_id,
+                    # Movimiento nuevo: se enlaza por `stock_sede_id` y deja
+                    # `inventario_id` nulo (spec D-2 y §7).
+                    stock_sede_id=fila.stock_sede_id,
                 )
             )
 
         ticket.estado_id = estado_cerrado.estado_id
         if ticket.fecha_cierre is None:
             ticket.fecha_cierre = datetime.utcnow()
+
+        # AC-5/AC-9 (013): el despacho es una mutacion del ciclo de vida y
+        # suma su fila de historial en la MISMA transaccion ACID que la rebaja
+        # de stock; el despacho no exige motivo (motivo nulo).
+        _registrar_transicion(
+            db,
+            ticket,
+            estado_origen_id=estado_en_curso.estado_id,
+            estado_destino_id=estado_cerrado.estado_id,
+            identidad=identidad,
+            motivo=None,
+        )
 
         db.commit()
         db.refresh(ticket)
@@ -780,3 +1089,394 @@ def despachar_ticket(
         raise
 
     return ticket
+
+
+def _cambiar_a_anulado(
+    db: Session,
+    ticket_id: int,
+    motivo: str | None,
+    identidad: IdentidadAutenticada | None = None,
+) -> Ticket:
+    """Anula un ticket con motivo, atomicamente. Helper unico de la 013.
+
+    Comparte el camino de la anulacion y el rechazo (plan decision 6): la
+    distincion de roles vive en la matriz de permisos, no en el servicio. El
+    orden de validacion es estricto (spec §5 invariante 2, AC-7) y **ninguna**
+    comprobacion escribe hasta la mutacion final:
+
+    1. El ticket existe y esta en el alcance del rol -> **404** (inexistente y
+       ajeno, identicos; D-8).
+    2. El catalogo contiene `Anulado` (si no, **409**, spec §6) y el estado
+       actual admite la operacion: solo `Pendiente` y `EnRevision`; `EnCurso`,
+       `Cerrado` y `Anulado` responden **409** (D-3), como tambien un estado
+       ya borrado del catalogo (defensa fail-closed).
+    3. El motivo es valido (no vacio y hasta `LONGITUD_MAXIMA_MOTIVO`) ->
+       **422** (D-6). Se valida **aqui** y no en Pydantic (decision 3): el
+       schema de entrada lo define T8 y la validacion en el servicio es lo que
+       respeta el orden 404 -> 409 -> 422 ante problemas simultaneos.
+
+    La mutacion es una sola transaccion: el estado del ticket y su fila de
+    historial con el **motivo literal** (AC-9/AC-11); si la fila no puede
+    escribirse, el estado no cambia. `fecha_cierre` queda **nula** (D-5: no es
+    un cierre por despacho) y no se escribe stock ni movimiento de inventario
+    (la anulacion no mueve existencias).
+    """
+    ticket = db.get(Ticket, ticket_id)
+    if not ticket:
+        raise _ticket_no_encontrado()
+
+    _verificar_alcance_de_ticket(db, ticket, identidad)
+
+    estados = db.execute(
+        select(EstadoTicket).order_by(EstadoTicket.estado_id)
+    ).scalars().all()
+    estado_anulado = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_ANULADO)
+    if estado_anulado is None:
+        # Spec §6: sin `Anulado` en el catalogo del tenant la operacion no
+        # puede resolver su estado destino; es un 409, no un 500.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El catalogo de estados no contiene 'Anulado': la operacion "
+                "no esta disponible en esta instalacion"
+            ),
+        )
+
+    if ticket.estado_id == estado_anulado.estado_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El ticket ya esta en 'Anulado'",
+        )
+
+    # D-3: desde `EnCurso` el unico cierre valido es el despacho de la 005;
+    # `Cerrado` y `Anulado` son terminales. Todo lo que no sea `Pendiente` o
+    # `EnRevision` (incluido un estado ya borrado del catalogo) es inadmisible.
+    estado_en_curso = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_EN_CURSO)
+    estado_cerrado = _resolver_estado_por_nombre(estados, NOMBRE_ESTADO_CERRADO)
+    estados_inadmisibles = {
+        estado.estado_id
+        for estado in (estado_en_curso, estado_cerrado, estado_anulado)
+        if estado is not None
+    }
+    estado_actual_conocido = any(
+        e.estado_id == ticket.estado_id for e in estados
+    )
+    if not estado_actual_conocido or ticket.estado_id in estados_inadmisibles:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El estado actual no admite anulacion ni rechazo: solo se "
+                "admiten 'Pendiente' o 'EnRevision'"
+            ),
+        )
+
+    if (
+        not isinstance(motivo, str)
+        or not motivo.strip()
+        or len(motivo) > LONGITUD_MAXIMA_MOTIVO
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "El motivo es obligatorio y no puede exceder "
+                f"{LONGITUD_MAXIMA_MOTIVO} caracteres"
+            ),
+        )
+
+    try:
+        estado_origen_id = ticket.estado_id
+        ticket.estado_id = estado_anulado.estado_id
+        # D-5: `fecha_cierre` NO se sella; la anulacion no es un cierre por
+        # despacho y no escribe stock ni movimientos.
+
+        # AC-9/AC-11: la fila del historial con el motivo literal viaja en la
+        # MISMA transaccion que el cambio de estado.
+        _registrar_transicion(
+            db,
+            ticket,
+            estado_origen_id=estado_origen_id,
+            estado_destino_id=estado_anulado.estado_id,
+            identidad=identidad,
+            motivo=motivo,
+        )
+
+        db.commit()
+        db.refresh(ticket)
+    except Exception:
+        db.rollback()
+        raise
+
+    return ticket
+
+
+def anular_ticket(
+    db: Session,
+    ticket_id: int,
+    motivo: str | None,
+    identidad: IdentidadAutenticada | None = None,
+) -> Ticket:
+    """Anulacion de un ticket (spec D-1/D-3/D-6; matriz 013: Solicitante y
+    Administrador). Delega en `_cambiar_a_anulado`: la distincion entre
+    anulacion y rechazo es de matriz y de registro, no de camino.
+    """
+    return _cambiar_a_anulado(db, ticket_id, motivo, identidad)
+
+
+def rechazar_ticket(
+    db: Session,
+    ticket_id: int,
+    motivo: str | None,
+    identidad: IdentidadAutenticada | None = None,
+) -> Ticket:
+    """Rechazo de un ticket (spec D-1/D-3/D-6; matriz 013: Bodeguero y
+    Administrador). Comparte `_cambiar_a_anulado` con la anulacion; el estado
+    destino es el mismo (`Anulado`) y solo difieren roles y semantica publica.
+    """
+    return _cambiar_a_anulado(db, ticket_id, motivo, identidad)
+
+
+def editar_ticket(
+    db: Session,
+    ticket_id: int,
+    datos: TicketEditar,
+    identidad: IdentidadAutenticada | None = None,
+) -> Ticket:
+    """Edita asunto, descripcion, prioridad y detalles de un ticket `Pendiente`.
+
+    Feature 013 (spec D-9, plan decision 7, AC-13…AC-16). El orden de
+    validacion es estricto y **ninguna** comprobacion escribe hasta la
+    mutacion final:
+
+    1. El ticket existe y esta en el alcance del rol -> **404** (inexistente y
+       ajeno, identicos; D-8).
+    2. El ticket esta en `Pendiente` (resuelto por nombre canonico; si el
+       catalogo no lo contiene, fail-closed) -> si no, **409** sin tocar
+       cabecera ni detalles (AC-14).
+    3. Validacion total del payload: la prioridad existe (**404** nombrando la
+       referencia) y todos los productos existen y pertenecen a la
+       institucion del ticket (**404** identico para inexistente y ajeno;
+       `_verificar_referencia`/`_verificar_productos`, misma regla que el
+       alta). La forma del payload (asunto, cantidad no positiva, detalles
+       vacios) la valida `TicketEditar` en Pydantic con 422 antes del
+       servicio (AC-15).
+
+    Feature 014 (AC-9): antes de validar se capturan los `producto_id` de los
+    detalles **actuales**. Un producto no disponible (inactivo o de categoria
+    inactiva) se acepta solo si su id ya figura en ese conjunto: se conserva el
+    item y se puede cambiar su cantidad. Un id no presente en los detalles
+    actuales responde **409** antes de borrar o reemplazar nada.
+
+    La escritura es atomica (AC-15, plan decision 7): la cabecera se
+    actualiza, los detalles previos se **borran** y los nuevos se insertan en
+    la MISMA transaccion; cualquier fallo revierte cabecera y detalles sin
+    items parciales. No se tocan estado, solicitante, sede ni institucion
+    (AC-13), el solicitante no se reatribuye (el payload no lleva
+    `usuario_id`) y **no** se registra fila de historial: editar no es una
+    mutacion de estado (D-10).
+    """
+    ticket = db.get(Ticket, ticket_id)
+    if not ticket:
+        raise _ticket_no_encontrado()
+
+    _verificar_alcance_de_ticket(db, ticket, identidad)
+
+    estados = db.execute(
+        select(EstadoTicket).order_by(EstadoTicket.estado_id)
+    ).scalars().all()
+    estado_pendiente = _resolver_estado_por_nombre(
+        estados, NOMBRE_ESTADO_PENDIENTE
+    )
+    if estado_pendiente is None or ticket.estado_id != estado_pendiente.estado_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La edicion solo se aplica a tickets en estado 'Pendiente'",
+        )
+
+    institucion_ticket = _institucion_de_ticket(db, ticket)
+    _verificar_referencia(db, Prioridad, datos.prioridad_id, "prioridad")
+
+    # Feature 014 (AC-9): el reemplazo es completo, asi que los ids inactivos
+    # que se conservan se deciden contra los detalles **actuales** del ticket,
+    # capturados antes de validar y de borrar nada. El alta no tiene esta
+    # excepcion: todo producto no disponible responde 409.
+    ids_actuales = set(
+        db.execute(
+            select(DetalleTicket.producto_id).where(
+                DetalleTicket.ticket_id == ticket.ticket_id
+            )
+        ).scalars().all()
+    )
+    _verificar_productos(
+        db,
+        datos.detalles,
+        institucion_ticket,
+        permitidos_inactivos=ids_actuales,
+    )
+
+    try:
+        ticket.asunto = datos.asunto
+        ticket.descripcion = datos.descripcion
+        ticket.prioridad_id = datos.prioridad_id
+
+        # Reemplazo del conjunto completo de detalles (D-9): se borran los
+        # previos y se insertan los nuevos en la MISMA transaccion que la
+        # cabecera; sin escritura parcial (AC-15). `cantidad_entregada` en 0
+        # es la misma regla del alta: en `Pendiente` nada fue entregado.
+        db.execute(
+            delete(DetalleTicket).where(
+                DetalleTicket.ticket_id == ticket.ticket_id
+            )
+        )
+        for detalle in datos.detalles:
+            db.add(
+                DetalleTicket(
+                    ticket_id=ticket.ticket_id,
+                    producto_id=detalle.producto_id,
+                    cantidad_solicitada=detalle.cantidad_solicitada,
+                    cantidad_entregada=0,
+                    institucion_id=institucion_ticket,
+                )
+            )
+
+        db.commit()
+        db.refresh(ticket)
+    except Exception:
+        db.rollback()
+        raise
+
+    return ticket
+
+
+def _cargar_ticket_para_detalle(db: Session, ticket_id: int) -> Ticket:
+    """Ticket con TODO lo que `TicketDetalleRespuesta` serializa, eager.
+
+    Los tres niveles de `detalles -> producto -> categoria` y las cuatro
+    relaciones de cabecera (`usuario -> departamento`, `prioridad`, `estado` y
+    `sede`) se precargan con `selectinload` en cadena: un numero FIJO de
+    consultas en vez de una por nivel. La precarga eager tambien protege la
+    lectura global del Superadmin (`global_service._LectorPostgres`): el DTO se
+    construye dentro de la sesion de cada tenant, pero precargar garantiza que
+    ningun `lazy="select"` dependa de una sesion ya cerrada al serializar
+    (patron documentado en `listar_tickets`).
+    """
+    consulta = (
+        select(Ticket)
+        .options(
+            selectinload(Ticket.detalles)
+            .selectinload(DetalleTicket.producto)
+            .selectinload(Producto.categoria),
+            selectinload(Ticket.usuario).selectinload(Usuario.departamento),
+            selectinload(Ticket.prioridad),
+            selectinload(Ticket.estado),
+            selectinload(Ticket.sede),
+        )
+        .where(Ticket.ticket_id == ticket_id)
+    )
+    ticket = db.execute(consulta).scalars().first()
+    if ticket is None:
+        raise _ticket_no_encontrado()
+    return ticket
+
+
+def obtener_ticket_detalle(
+    db: Session, ticket_id: int, identidad: IdentidadAutenticada | None = None
+) -> TicketDetalleRespuesta:
+    """Detalle del ticket con cabecera, items y campos resueltos (spec §6, D-13).
+
+    Feature 013 (AC-18/AC-19): el alcance es el mismo que en el resto de
+    operaciones de tickets —el Solicitante lee los suyos, Administrador y
+    Bodeguero los de su institucion y Superadmin con alcance global (la capa
+    HTTP lo compone con `global_service.leer_global_unico` sobre la sesion de
+    cada tenant)— y un ticket inexistente o fuera de alcance responde **404**
+    identico, sin revelar existencia (D-8). Solo lectura: no muta nada.
+
+    Los campos de presentacion (`estado_nombre`, `prioridad_nombre`,
+    `solicitante_*`, `departamento_nombre`, `sede_nombre`) se resuelven aqui,
+    en la capa de servicios, para que el DTO no dependa de la vista ni de la
+    capa HTTP (AGENTS §6).
+    """
+    ticket = _cargar_ticket_para_detalle(db, ticket_id)
+    _verificar_alcance_de_ticket(db, ticket, identidad)
+
+    solicitante = ticket.usuario
+    departamento = solicitante.departamento if solicitante is not None else None
+    respuesta = TicketDetalleRespuesta.model_validate(ticket)
+    respuesta.estado_nombre = ticket.estado.nombre if ticket.estado else None
+    respuesta.prioridad_nombre = (
+        ticket.prioridad.nombre if ticket.prioridad else None
+    )
+    respuesta.solicitante_id = ticket.usuario_id
+    respuesta.solicitante_nombre = solicitante.nombre if solicitante else None
+    respuesta.solicitante_apellido = (
+        solicitante.apellido if solicitante else None
+    )
+    respuesta.solicitante_correo = solicitante.correo if solicitante else None
+    respuesta.departamento_nombre = (
+        departamento.nombre_dep if departamento else None
+    )
+    respuesta.sede_nombre = ticket.sede.nombre if ticket.sede else None
+    return respuesta
+
+
+def _fila_historial_a_respuesta(
+    fila: HistorialTransicionTicket,
+) -> HistorialTransicionRespuesta:
+    """DTO de una fila del historial con sus estados y actor resueltos (AC-9)."""
+    estado_origen = fila.estado_origen
+    estado_destino = fila.estado_destino
+    usuario = fila.usuario
+    return HistorialTransicionRespuesta(
+        historial_transicion_id=fila.historial_transicion_id,
+        ticket_id=fila.ticket_id,
+        estado_origen_id=fila.estado_origen_id,
+        estado_destino_id=fila.estado_destino_id,
+        usuario_id=fila.usuario_id,
+        fecha_transicion=fila.fecha_transicion,
+        motivo=fila.motivo,
+        estado_origen_nombre=estado_origen.nombre if estado_origen else None,
+        estado_destino_nombre=estado_destino.nombre if estado_destino else None,
+        usuario_nombre=usuario.nombre if usuario else None,
+        usuario_apellido=usuario.apellido if usuario else None,
+    )
+
+
+def obtener_historial_ticket(
+    db: Session, ticket_id: int, identidad: IdentidadAutenticada | None = None
+) -> List[HistorialTransicionRespuesta]:
+    """Transiciones del ticket en orden determinista (spec §6, AC-9/AC-10).
+
+    Mismo alcance por rol que el detalle (AC-18/AC-19): 404 identico para
+    inexistente y fuera de alcance; Superadmin global via la capa HTTP. El
+    orden es `fecha_transicion DESC, historial_transicion_id DESC` (mas
+    reciente primero, desempate estable por id ante timestamps iguales de
+    SQLite, que no tiene subsegundos). Un ticket sin transiciones devuelve la
+    lista vacia; un ticket legado previo a la 013 no inventa filas (AC-12).
+
+    Es la unica lectura del historial: no hay operacion publica de creacion,
+    edicion o borrado de sus filas (AC-10). Las relaciones `estado_origen`,
+    `estado_destino` y `usuario` se precargan eager para resolver los nombres
+    de presentacion en un numero fijo de consultas y sin depender de sesiones
+    ya cerradas (lector global del Superadmin).
+    """
+    ticket = db.get(Ticket, ticket_id)
+    if ticket is None:
+        raise _ticket_no_encontrado()
+    _verificar_alcance_de_ticket(db, ticket, identidad)
+
+    consulta = (
+        select(HistorialTransicionTicket)
+        .options(
+            selectinload(HistorialTransicionTicket.estado_origen),
+            selectinload(HistorialTransicionTicket.estado_destino),
+            selectinload(HistorialTransicionTicket.usuario),
+        )
+        .where(HistorialTransicionTicket.ticket_id == ticket_id)
+        .order_by(
+            HistorialTransicionTicket.fecha_transicion.desc(),
+            HistorialTransicionTicket.historial_transicion_id.desc(),
+        )
+    )
+    return [
+        _fila_historial_a_respuesta(fila)
+        for fila in db.execute(consulta).scalars().all()
+    ]

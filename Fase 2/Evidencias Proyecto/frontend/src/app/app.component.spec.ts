@@ -80,12 +80,14 @@ describe('AppComponent', () => {
 
   it('debe exponer el titulo del sistema', () => {
     const fixture = TestBed.createComponent(AppComponent);
-    expect(fixture.componentInstance.titulo).toEqual('CompuStock ERP');
+    expect(fixture.componentInstance.titulo).toEqual('CompuStock');
   });
 
   it('debe renderizar el encabezado principal', () => {
     const compilado = crearYRenderizar();
-    expect(compilado.querySelector('h1')?.textContent).toContain('Sistema ERP');
+    expect(compilado.querySelector('h1')?.textContent).toContain(
+      'Sistema de Gestión de Insumos',
+    );
   });
 
   it('debe alternar el menu lateral', () => {
@@ -227,12 +229,49 @@ describe('AppComponent', () => {
       expect(destinos(compilado)).toContain('/tickets');
     });
 
-    it('mantiene el enlace de administración a Administrador y Superadmin', () => {
-      for (const rol of ['Administrador', 'Superadmin']) {
+    it('mantiene el enlace de administración solo al Administrador', () => {
+      autenticacionFalsa.identidad.set({
+        ...IDENTIDAD_RESUELTA,
+        rol: 'Administrador',
+      });
+      expect(destinos(crearYRenderizar())).toContain('/administracion');
+
+      // Feature 017 (AC-15): la API tenant de administración niega al
+      // Superadmin, así que su navegación no ofrece una pantalla muerta.
+      autenticacionFalsa.identidad.set({
+        ...IDENTIDAD_RESUELTA,
+        rol: 'Superadmin',
+        institucion: null,
+      });
+      expect(destinos(crearYRenderizar())).not.toContain('/administracion');
+    });
+
+    /**
+     * Feature 012, AC-3 y Feature 017, AC-15: el Superadmin solo conserva
+     * `/control` como superficie. Dashboard, inventario, tickets y
+     * administración se retiran de la navegación; las rutas siguen protegidas
+     * por el guard de rol.
+     */
+    it('deja al Superadmin únicamente /control en la navegación', () => {
+      autenticacionFalsa.identidad.set({
+        ...IDENTIDAD_RESUELTA,
+        rol: 'Superadmin',
+        institucion: null,
+      });
+      const compilado = crearYRenderizar();
+
+      for (const retirada of ['/dashboard', '/inventario', '/tickets', '/administracion']) {
+        expect(destinos(compilado)).withContext(retirada).not.toContain(retirada);
+      }
+      expect(destinos(compilado)).toContain('/control');
+    });
+
+    it('mantiene el enlace de tickets a los roles de negocio', () => {
+      for (const rol of ['Administrador', 'Bodeguero', 'Solicitante']) {
         autenticacionFalsa.identidad.set({ ...IDENTIDAD_RESUELTA, rol });
         const compilado = crearYRenderizar();
 
-        expect(destinos(compilado)).withContext(rol).toContain('/administracion');
+        expect(destinos(compilado)).withContext(rol).toContain('/tickets');
       }
     });
   });

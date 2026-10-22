@@ -51,6 +51,21 @@ describe('LoginComponent', () => {
     httpMock.match(() => true).forEach((peticion) => peticion.flush({}));
   }
 
+  /** Responde `/auth/me` con la identidad local de un rol concreto. */
+  function responderIdentidadComo(rol: string): void {
+    httpMock.match(() => true).forEach((peticion) =>
+      peticion.flush({
+        usuario_id: 1,
+        sub: 'user_prueba',
+        nombre: 'Sonda',
+        apellido: 'Rol',
+        correo: 'sonda@example.com',
+        rol,
+        institucion: null,
+      }),
+    );
+  }
+
   it('monta la UI prebuilt de inicio de sesión de Clerk', async () => {
     const fixture = await montar();
 
@@ -87,7 +102,7 @@ describe('LoginComponent', () => {
     const raiz = fixture.nativeElement as HTMLElement;
 
     const titulo = raiz.querySelector('h1');
-    expect(titulo?.textContent).toContain('CompuStock ERP');
+    expect(titulo?.textContent).toContain('CompuStock');
     expect((raiz.textContent ?? '').toLowerCase()).toContain('inicia sesión');
   });
 
@@ -130,6 +145,41 @@ describe('LoginComponent', () => {
     expect(router.navigateByUrl).toHaveBeenCalledWith('/dashboard');
   });
 
+  it('un Superadmin sin ruta de retorno aterriza en /control (AC-18)', async () => {
+    const fixture = await montar(null);
+
+    clerk.firmarSesion();
+    responderIdentidadComo('Superadmin');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/control');
+    expect(router.navigateByUrl).not.toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('un retorno local válido sigue prevaleciendo para Superadmin', async () => {
+    const fixture = await montar('/control/instituciones');
+
+    clerk.firmarSesion();
+    responderIdentidadComo('Superadmin');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/control/instituciones');
+    expect(router.navigateByUrl).not.toHaveBeenCalledWith('/control');
+  });
+
+  it('los roles de negocio sin retorno siguen yendo a /dashboard', async () => {
+    const fixture = await montar(null);
+
+    clerk.firmarSesion();
+    responderIdentidadComo('Administrador');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/dashboard');
+  });
+
   it('desmonta la UI de Clerk al destruirse', async () => {
     const fixture = await montar();
 
@@ -150,6 +200,22 @@ describe('LoginComponent', () => {
       expect(resolverDestinoRetorno('https://evil.example')).toBe('/dashboard');
       expect(resolverDestinoRetorno('//evil.example')).toBe('/dashboard');
       expect(resolverDestinoRetorno('/login')).toBe('/dashboard');
+    });
+
+    it('sin retorno, el Superadmin va a /control y el resto a /dashboard', () => {
+      expect(resolverDestinoRetorno(null, 'Superadmin')).toBe('/control');
+      expect(resolverDestinoRetorno('', 'Superadmin')).toBe('/control');
+      expect(resolverDestinoRetorno(null, 'Administrador')).toBe('/dashboard');
+      expect(resolverDestinoRetorno(null, 'Bodeguero')).toBe('/dashboard');
+      expect(resolverDestinoRetorno(null, 'Solicitante')).toBe('/dashboard');
+      expect(resolverDestinoRetorno(null, null)).toBe('/dashboard');
+    });
+
+    it('una ruta local válida prevalece sobre el fallback de rol', () => {
+      expect(resolverDestinoRetorno('/control/instituciones', 'Superadmin')).toBe(
+        '/control/instituciones',
+      );
+      expect(resolverDestinoRetorno('/tickets', 'Administrador')).toBe('/tickets');
     });
   });
 });

@@ -28,6 +28,7 @@ from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.api import dependencies
@@ -41,6 +42,8 @@ from app.models import (
     Inventario,
     Producto,
     Rol,
+    Sede,
+    StockSede,
     Ticket,
     Usuario,
 )
@@ -48,7 +51,6 @@ from app.services.auth_service import IdentidadAutenticada
 
 RUTA_TICKETS = "/api/v1/tickets/"
 RUTA_CATALOGOS = "/api/v1/tickets/catalogos"
-RUTA_STOCK = "/api/v1/inventario/stock"
 
 
 # ---------------------------------------------------------------------------
@@ -92,12 +94,29 @@ def ambito_tickets(motor, datos_base):
         db.add(solicitante)
         db.flush()
 
+        # Feature 011 (T9): el departamento de INST01 y sus tickets necesitan sede;
+        # el despacho rebaja `stock_sede` (no el inventario departamental legado).
+        sede_propia = Sede(
+            nombre="Sede Operaciones", institucion_id=datos_base["institucion_id"]
+        )
+        db.add(sede_propia)
+        db.flush()
+        departamento_propio = db.get(Departamento, datos_base["departamento_id"])
+        departamento_propio.sede_id = sede_propia.sede_id
+        db.add(
+            StockSede(
+                sede_id=sede_propia.sede_id,
+                producto_id=datos_base["producto_id"],
+                stock_actual=50,
+                institucion_id=datos_base["institucion_id"],
+            )
+        )
+        db.flush()
+
         # Institucion ajena INST02.
         institucion_ajena = Institucion(
             institucion_id="INST02",
             nombre="Instituto Ajeno",
-            rut="2-9",
-            direccion="Otra Calle 456",
         )
         db.add(institucion_ajena)
         db.flush()
@@ -152,6 +171,16 @@ def ambito_tickets(motor, datos_base):
                 institucion_id=datos_base["institucion_id"],
             )
         )
+        # Feature 011 (M2): el catalogo agrega el saldo por sede, no el inventario
+        # departamental legado.
+        db.add(
+            StockSede(
+                sede_id=sede_propia.sede_id,
+                producto_id=producto_institucional.producto_id,
+                stock_actual=40,
+                institucion_id=datos_base["institucion_id"],
+            )
+        )
 
         producto_homonimo_ajeno = Producto(
             nombre="Insumo Compartido",
@@ -180,11 +209,13 @@ def ambito_tickets(motor, datos_base):
             asunto: str,
             producto_id: int,
             institucion_id: str,
+            sede_id: int | None = None,
         ) -> int:
             # Feature 008 (T9): token institucional coherente. El detalle referencia
             # un producto de la misma institucion que el ticket, de modo que se
             # satisfacen las claves compuestas (detalle -> ticket y detalle ->
             # producto) y el esquema endurecido a NOT NULL (AC-4).
+            # Feature 011 (T9): los tickets de INST01 llevan la instantanea de sede.
             ticket = Ticket(
                 usuario_id=usuario_id,
                 prioridad_id=datos_base["prioridad_id"],
@@ -192,6 +223,7 @@ def ambito_tickets(motor, datos_base):
                 asunto=asunto,
                 descripcion="Sembrado para pruebas de alcance.",
                 institucion_id=institucion_id,
+                sede_id=sede_id,
             )
             db.add(ticket)
             db.flush()
@@ -215,6 +247,7 @@ def ambito_tickets(motor, datos_base):
             "usuario_ajeno_id": usuario_ajeno.usuario_id,
             "producto_institucional_id": producto_institucional.producto_id,
             "producto_homonimo_ajeno_id": producto_homonimo_ajeno.producto_id,
+            "sede_id": sede_propia.sede_id,
             "estado_pendiente_id": estados["Pendiente"],
             "estado_en_revision_id": estados["EnRevision"],
             "estado_en_curso_id": estados["EnCurso"],
@@ -225,6 +258,7 @@ def ambito_tickets(motor, datos_base):
                 "Propio Pendiente",
                 datos_base["producto_id"],
                 datos_base["institucion_id"],
+                sede_propia.sede_id,
             ),
             "ticket_ajeno_id": nuevo_ticket(
                 usuario_ajeno.usuario_id,
@@ -239,6 +273,7 @@ def ambito_tickets(motor, datos_base):
                 "Propio EnRevision",
                 datos_base["producto_id"],
                 datos_base["institucion_id"],
+                sede_propia.sede_id,
             ),
             "ticket_estado_ajeno_id": nuevo_ticket(
                 usuario_ajeno.usuario_id,
@@ -253,6 +288,7 @@ def ambito_tickets(motor, datos_base):
                 "Propio EnCurso",
                 datos_base["producto_id"],
                 datos_base["institucion_id"],
+                sede_propia.sede_id,
             ),
             "ticket_despacho_ajeno_id": nuevo_ticket(
                 usuario_ajeno.usuario_id,
@@ -321,12 +357,16 @@ def _ids(coleccion) -> set[int]:
     return {t["ticket_id"] for t in coleccion}
 
 
-def _stock(cliente, inventario_id: int) -> int:
-    respuesta = cliente.get(RUTA_STOCK)
-    assert respuesta.status_code == 200, respuesta.text
-    return next(
-        i for i in respuesta.json() if i["inventario_id"] == inventario_id
-    )["stock_actual"]
+def _stock_sede(motor, sede_id: int, producto_id: int) -> int:
+    """Saldo persistido de un producto en una sede (Feature 011)."""
+    with sessionmaker(bind=motor)() as db:
+        fila = db.execute(
+            select(StockSede).where(
+                StockSede.sede_id == sede_id,
+                StockSede.producto_id == producto_id,
+            )
+        ).scalar_one()
+        return fila.stock_actual
 
 
 def _payload(datos: dict, usuario_id: int) -> dict:
@@ -381,16 +421,12 @@ def test_bodeguero_lista_solo_su_institucion(motor, ambito_tickets):
     assert ambito_tickets["ticket_ajeno_id"] not in ids
 
 
-def test_superadmin_lista_global(motor, ambito_tickets):
+def test_superadmin_recibe_403_en_listado_ac_15(motor, ambito_tickets):
+    """Feature 017 (D-9/AC-15): el listado de tickets se retira al Superadmin."""
     with _cliente(motor, "Superadmin", None) as cliente:
         respuesta = cliente.get(RUTA_TICKETS)
-    assert respuesta.status_code == 200, respuesta.text
-
-    ids = _ids(respuesta.json())
-    assert {
-        ambito_tickets["ticket_propio_id"],
-        ambito_tickets["ticket_ajeno_id"],
-    } <= ids
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
 
 
 # ---------------------------------------------------------------------------
@@ -419,16 +455,16 @@ def test_catalogo_administrador_solo_su_institucion(motor, ambito_tickets):
     assert ambito_tickets["usuario_ajeno_id"] not in solicitantes
 
 
-def test_catalogo_superadmin_es_global(motor, ambito_tickets):
+def test_catalogo_superadmin_recibe_403_ac_15(motor, ambito_tickets):
+    """Feature 017 (D-9/AC-15, T10): el catalogo del modal es lectura de negocio.
+
+    Superadmin gobernaba el SaaS y no inspecciona productos, stock ni
+    solicitantes del tenant; los roles institucionales conservan el permiso.
+    """
     with _cliente(motor, "Superadmin", None) as cliente:
         respuesta = cliente.get(RUTA_CATALOGOS)
-    assert respuesta.status_code == 200, respuesta.text
-
-    solicitantes = {s["usuario_id"] for s in respuesta.json()["solicitantes"]}
-    assert {
-        ambito_tickets["solicitante_id"],
-        ambito_tickets["usuario_ajeno_id"],
-    } <= solicitantes
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
 
 
 def test_catalogo_productos_y_stock_son_institucionales(motor, ambito_tickets):
@@ -456,10 +492,10 @@ def test_catalogo_productos_y_stock_son_institucionales(motor, ambito_tickets):
 
 
 def test_administrador_patch_ticket_ajeno_404_sin_mutar(motor, ambito_tickets):
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        antes = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), ambito_tickets["ticket_estado_ajeno_id"]
-        )["estado_id"]
+    # Feature 017 (D-9/AC-15): el Superadmin ya no lista tickets; el estado se
+    # observa por ORM antes y despues.
+    with sessionmaker(bind=motor)() as db:
+        antes = db.get(Ticket, ambito_tickets["ticket_estado_ajeno_id"]).estado_id
 
     with _cliente(motor, "Administrador", ambito_tickets["departamento_id"]) as cliente:
         respuesta = cliente.patch(
@@ -467,10 +503,8 @@ def test_administrador_patch_ticket_ajeno_404_sin_mutar(motor, ambito_tickets):
             json={"estado_id": ambito_tickets["estado_en_curso_id"]},
         )
 
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        despues = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), ambito_tickets["ticket_estado_ajeno_id"]
-        )["estado_id"]
+    with sessionmaker(bind=motor)() as db:
+        despues = db.get(Ticket, ambito_tickets["ticket_estado_ajeno_id"]).estado_id
 
     assert respuesta.status_code == 404, respuesta.text
     assert despues == antes
@@ -486,7 +520,14 @@ def test_administrador_patch_ticket_inexistente_404(motor, ambito_tickets):
 
 
 def test_administrador_patch_ticket_propio_200(motor, ambito_tickets):
-    with _cliente(motor, "Administrador", ambito_tickets["departamento_id"]) as cliente:
+    # Actor persistido: el cambio de estado registra su fila de historial con
+    # FK a `usuario` (013, AC-9); la sonda sintetica 9999 no existe en la BD.
+    with _cliente(
+        motor,
+        "Administrador",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+    ) as cliente:
         respuesta = cliente.patch(
             f"{RUTA_TICKETS}{ambito_tickets['ticket_estado_propio_id']}/estado",
             json={"estado_id": ambito_tickets["estado_en_curso_id"]},
@@ -496,10 +537,8 @@ def test_administrador_patch_ticket_propio_200(motor, ambito_tickets):
 
 
 def test_bodeguero_despacho_ticket_ajeno_404_sin_mutar(motor, ambito_tickets):
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        antes = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), ambito_tickets["ticket_despacho_ajeno_id"]
-        )["estado_id"]
+    with sessionmaker(bind=motor)() as db:
+        antes = db.get(Ticket, ambito_tickets["ticket_despacho_ajeno_id"]).estado_id
 
     with _cliente(motor, "Bodeguero", ambito_tickets["departamento_id"]) as cliente:
         respuesta = cliente.post(
@@ -507,10 +546,8 @@ def test_bodeguero_despacho_ticket_ajeno_404_sin_mutar(motor, ambito_tickets):
             json={"usuario_id": ambito_tickets["usuario_id"]},
         )
 
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        despues = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), ambito_tickets["ticket_despacho_ajeno_id"]
-        )["estado_id"]
+    with sessionmaker(bind=motor)() as db:
+        despues = db.get(Ticket, ambito_tickets["ticket_despacho_ajeno_id"]).estado_id
 
     assert respuesta.status_code == 404, respuesta.text
     assert despues == antes
@@ -527,13 +564,27 @@ def test_bodeguero_despacho_ticket_inexistente_404(motor, ambito_tickets):
 
 def test_bodeguero_despacho_propio_200_sigue_transaccional(motor, ambito_tickets):
     """El despacho del ticket propio no se rompe y sigue rebajando stock."""
-    with _cliente(motor, "Bodeguero", ambito_tickets["departamento_id"]) as cliente:
-        stock_antes = _stock(cliente, ambito_tickets["inventario_id"])
+    # Actor persistido: el despacho registra su fila de historial (013, AC-9).
+    with _cliente(
+        motor,
+        "Bodeguero",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+    ) as cliente:
+        stock_antes = _stock_sede(
+            motor,
+            ambito_tickets["sede_id"],
+            ambito_tickets["producto_id"],
+        )
         respuesta = cliente.post(
             f"{RUTA_TICKETS}{ambito_tickets['ticket_despacho_propio_id']}/despacho",
             json={"usuario_id": ambito_tickets["usuario_id"]},
         )
-        stock_despues = _stock(cliente, ambito_tickets["inventario_id"])
+        stock_despues = _stock_sede(
+            motor,
+            ambito_tickets["sede_id"],
+            ambito_tickets["producto_id"],
+        )
         ticket = _ticket(
             cliente.get(RUTA_TICKETS).json(), ambito_tickets["ticket_despacho_propio_id"]
         )
@@ -581,7 +632,13 @@ def test_administrador_crea_para_solicitante_de_otra_institucion_404_sin_mutar(
 
 
 def test_administrador_crea_para_solicitante_propio_201(motor, ambito_tickets):
-    with _cliente(motor, "Administrador", ambito_tickets["departamento_id"]) as cliente:
+    # Actor persistido: la creacion registra su fila de historial (013, AC-9).
+    with _cliente(
+        motor,
+        "Administrador",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+    ) as cliente:
         respuesta = cliente.post(
             RUTA_TICKETS, json=_payload(ambito_tickets, ambito_tickets["solicitante_id"])
         )

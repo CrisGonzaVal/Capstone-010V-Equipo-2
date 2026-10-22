@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *$py.class
 venv/
@@ -15,6 +16,9 @@ dist/
 
 # Logs
 *.log
+
+# Respaldos de base de datos (pg_dump)
+*.dump
 
 # IDEs
 .vscode/

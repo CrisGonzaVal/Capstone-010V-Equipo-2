@@ -46,6 +46,12 @@ router = APIRouter(prefix="/auth", tags=["Autenticacion"])
 )
 def leer_identidad_autenticada(
     identidad: dependencies.IdentidadAutenticada = Depends(dependencies.get_current_user),
-    db: Session = Depends(dependencies.get_db),
+    db: Session = Depends(dependencies.get_db_negocio),
 ) -> IdentidadAutenticadaRespuesta:
+    # `get_db_negocio` (no `get_db`): la identidad local de un rol limitado vive
+    # en el esquema de **su** institucion (Feature 010), no en `control`. La
+    # releida del usuario y de su institucion efectiva debe ocurrir en el mismo
+    # tenant que resolvio el correo verificado; en control no habria fila y la
+    # respuesta seria un 401 espurio. Para Superadmin la sesion sigue siendo la
+    # de control. En SQLite (contexto logico unico) ambas sesiones coinciden.
     return auth_service.construir_identidad_autenticada(db, identidad)

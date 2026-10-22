@@ -26,7 +26,7 @@
       justify-content: center;
       padding: 3rem 2rem;
     }
-    .frame { max-width: 1184px; width: 100%; }
+    .frame { max-width: 1120px; width: 100%; }
     .diagram-container { width: 100%; overflow-x: auto; margin-top: 1.5rem; }
     .eyebrow {
       font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
@@ -38,7 +38,7 @@
       font-weight: 400; letter-spacing: -0.02em; line-height: 1.15;
       color: var(--color-ink); margin-bottom: 0.35rem;
     }
-    .subtitle { color: var(--color-muted); font-size: 0.95rem; }
+    .subtitle { color: var(--color-muted); font-size: 0.95rem; max-width: 78ch; }
     svg { width: 100%; min-width: 1120px; display: block; }
     .note {
       margin-top: 1.75rem; padding-top: 1rem; border-top: 1px solid rgba(30,41,59,0.12);
@@ -53,62 +53,75 @@
       .diagram-container { overflow-x: visible; }
       svg { min-width: 0; }
     }
-  </style>
+      </style>
 </head>
 <body>
   <div class="frame">
     <p class="eyebrow">UML · casos de uso</p>
     <h1>Casos de uso · Superadmin</h1>
-    <p class="subtitle">Diagrama UML de casos de uso de CompuStock ERP para el actor Superadmin: 11 casos de uso dentro de la frontera del sistema.</p>
+    <p class="subtitle">5 casos de uso de control SaaS: instituciones, capacidades, plataforma y Administradores institucionales.</p>
     <div class="diagram-container">
-      <svg viewBox="0 0 1120 1358" xmlns="http://www.w3.org/2000/svg"
+      <svg viewBox="0 0 1120 535" xmlns="http://www.w3.org/2000/svg"
            role="img" aria-labelledby="casos-uso-superadmin-title casos-uso-superadmin-desc">
         <title id="casos-uso-superadmin-title">Casos de uso · Superadmin</title>
-        <desc id="casos-uso-superadmin-desc">Diagrama UML de casos de uso de CompuStock ERP para el actor Superadmin: 11 casos de uso dentro de la frontera del sistema.</desc>
-        <defs>
-          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#475569"/>
-          </marker>
-          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#2563eb"/>
-          </marker>
-          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#1d4ed8"/>
-          </marker>
-        </defs>
-        <rect width="100%" height="100%" fill="#f8fafc"/>
-        <rect x="300" y="32" width="780" height="1226" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.30)" stroke-width="1"/>
-        <text x="320" y="56" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">SISTEMA · COMPUSTOCK ERP</text>
-        <line x1="168" y1="599" x2="410" y2="104" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="608" x2="410" y2="212" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="617" x2="410" y2="320" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="626" x2="410" y2="428" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="635" x2="410" y2="536" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="644" x2="410" y2="644" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="653" x2="410" y2="752" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="662" x2="410" y2="860" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="671" x2="410" y2="968" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="680" x2="410" y2="1076" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="689" x2="410" y2="1184" stroke="#475569" stroke-width="1"/>
-        <ellipse cx="690" cy="104" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="97" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="107" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">A1</text><text x="702" y="103" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Gestionar instituciones</text><text x="702" y="118" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">alta · edición · estado</text>
-        <ellipse cx="690" cy="212" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="205" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="215" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">A2</text><text x="702" y="211" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Gestionar sedes</text><text x="702" y="226" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">estructura de la institución</text>
-        <ellipse cx="690" cy="320" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="313" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="323" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">A3</text><text x="702" y="319" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Gestionar departamentos</text><text x="702" y="334" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">estructura de la institución</text>
-        <ellipse cx="690" cy="428" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="421" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="431" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">A4</text><text x="702" y="427" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Gestionar usuarios y roles</text><text x="702" y="442" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">altas y cambios de rol</text>
-        <ellipse cx="690" cy="536" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="529" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="539" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C2</text><text x="702" y="535" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Ver existencias y stock</text><text x="702" y="550" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">disponibilidad en tiempo real</text>
-        <ellipse cx="690" cy="644" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="637" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="647" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C4</text><text x="702" y="643" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Ver alertas de stock crítico</text><text x="702" y="658" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">bajo mínimo por sede</text>
-        <ellipse cx="690" cy="752" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="745" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="755" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C5</text><text x="702" y="751" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Auditar movimientos</text><text x="702" y="766" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">trazabilidad inmutable</text>
-        <ellipse cx="690" cy="860" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="853" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="863" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T5</text><text x="702" y="859" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Ver detalle del ticket</text><text x="702" y="874" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">solicitante · historial</text>
-        <ellipse cx="690" cy="968" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="961" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="971" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">R1</text><text x="702" y="967" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Descargar informes</text><text x="702" y="982" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">PDF · Excel</text>
-        <ellipse cx="690" cy="1076" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="1069" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="1079" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">R2</text><text x="702" y="1075" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Recibir notificaciones</text><text x="702" y="1090" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">hitos y recordatorios</text>
-        <ellipse cx="690" cy="1184" rx="280" ry="34" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><rect x="422" y="1177" width="26" height="14" rx="2" fill="none" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/><text x="435" y="1187" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">R3</text><text x="702" y="1183" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Ver dashboard analítico</text><text x="702" y="1198" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">KPIs y alertas</text>
-        <circle cx="140" cy="610" r="12" fill="none" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="622" x2="140" y2="662" stroke="#1e293b" stroke-width="1.2"/><line x1="118" y1="638" x2="162" y2="638" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="662" x2="124" y2="690" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="662" x2="156" y2="690" stroke="#1e293b" stroke-width="1.2"/>
-        <text x="140" y="716" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Superadmin</text>
-        <text x="140" y="732" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ámbito global · SaaS</text>
-        <line x1="300" y1="1278" x2="1080" y2="1278" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/><text x="300" y="1302" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">LEYENDA</text><ellipse cx="410" cy="1298" rx="14" ry="8" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><text x="432" y="1302" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">caso de uso</text><line x1="538" y1="1298" x2="566" y2="1298" stroke="#475569" stroke-width="1"/><text x="574" y="1302" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">asociación — el actor participa</text><text x="836" y="1302" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">A admin · C catálogo · T tickets · R informes</text>
+        <desc id="casos-uso-superadmin-desc">Diagrama UML de casos de uso de CompuStock para el actor Superadmin: 5 casos de uso dentro de la frontera del sistema.</desc>
+        <rect width="1120" height="535" fill="#f8fafc"/>
+        <rect x="300" y="32" width="780" height="431" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.30)" stroke-width="1"/>
+        <text x="320" y="56" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">SISTEMA · COMPUSTOCK</text>
+        <line x1="162" y1="282" x2="390" y2="130" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="282" x2="390" y2="192" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="282" x2="390" y2="254" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="282" x2="390" y2="316" stroke="#475569" stroke-width="1"/>
+        <line x1="162" y1="282" x2="390" y2="378" stroke="#475569" stroke-width="1"/>
+        <text x="1032" y="80" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="end">CONTROL SAAS · 5 CASOS</text>
+        <line x1="900" y1="88" x2="1032" y2="88" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/>
+        <ellipse cx="690" cy="130" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="123" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="133" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C1</text>
+        <text x="690" y="127" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Gestionar instituciones</text>
+        <text x="690" y="142" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">alta · edición</text>
+
+        <ellipse cx="690" cy="192" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="185" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="195" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C2</text>
+        <text x="690" y="189" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Cambiar estado de institución</text>
+        <text x="690" y="204" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">activa · inactiva</text>
+
+        <ellipse cx="690" cy="254" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="247" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="257" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C3</text>
+        <text x="690" y="251" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Gestionar capacidades</text>
+        <text x="690" y="266" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">seis funciones</text>
+
+        <ellipse cx="690" cy="316" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="309" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="319" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C4</text>
+        <text x="690" y="313" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Supervisar la plataforma</text>
+        <text x="690" y="328" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">dashboard técnico</text>
+
+        <ellipse cx="690" cy="378" rx="300" ry="25" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <rect x="406" y="371" width="26" height="14" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="419" y="381" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C5</text>
+        <text x="690" y="375" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Gestionar administradores</text>
+        <text x="690" y="390" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">invitación · estado</text>
+
+        <circle cx="140" cy="254" r="12" fill="none" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="140" y1="266" x2="140" y2="304" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="118" y1="282" x2="162" y2="282" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="140" y1="304" x2="124" y2="332.0" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="140" y1="304" x2="156" y2="332.0" stroke="#1e293b" stroke-width="1.2"/>
+        <text x="140" y="358.0" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Superadmin</text>
+        <text x="140" y="374.0" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ámbito global · SaaS</text>
+        <line x1="300" y1="499" x2="1080" y2="499" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/>
+        <text x="300" y="519" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">LEYENDA</text>
+        <ellipse cx="412" cy="516" rx="14" ry="8" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <text x="434" y="519" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">caso de uso</text>
+        <line x1="556" y1="516" x2="584" y2="516" stroke="#475569" stroke-width="1"/>
+        <text x="592" y="519" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">asociación — el actor participa</text>
       </svg>
     </div>
-    <p class="note"><strong>Restricción.</strong> No opera datos de una institución concreta: crea y administra la plataforma. No escribe catálogo, no ajusta stock y no despacha.</p>
-    <p class="colophon">CompuStock ERP · diagrama de casos de uso UML · paleta del producto (slate + blue)</p>
+    <p class="note"><strong>Restricción.</strong> No opera datos de una institución concreta: aprovisiona la plataforma, gobierna sus capacidades y administra a sus Administradores. No escribe catálogo, no ajusta stock y no despacha tickets.</p>
+    <p class="colophon">CompuStock · diagrama de casos de uso UML · paleta del producto (slate + blue)</p>
   </div>
 </body>
 </html>

@@ -33,7 +33,357 @@
     </div>
   }
 
-  <div class="grid gap-6 xl:grid-cols-[220px_1fr]">
+  <!--
+    Conmutador de pestañas (enmienda de AC-11). Solo el Administrador tiene una
+    segunda pestaña: Bodeguero y Solicitante reciben la vista operativa sin
+    conmutador, no una pestaña vacía ni bloqueada.
+  -->
+  @if (gestionVisible()) {
+    <div
+      role="tablist"
+      aria-label="Vistas de inventario"
+      class="flex flex-wrap gap-1 border-b border-slate-200"
+      (keydown)="alNavegarPestanas($event)"
+    >
+      <button
+        type="button"
+        role="tab"
+        id="pestana-existencias"
+        aria-controls="panel-existencias"
+        [attr.aria-selected]="pestanaActiva() === 'existencias'"
+        [attr.tabindex]="pestanaActiva() === 'existencias' ? 0 : -1"
+        class="-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+        [class.border-blue-600]="pestanaActiva() === 'existencias'"
+        [class.text-blue-700]="pestanaActiva() === 'existencias'"
+        [class.border-transparent]="pestanaActiva() !== 'existencias'"
+        [class.text-slate-600]="pestanaActiva() !== 'existencias'"
+        (click)="seleccionarPestana('existencias')"
+      >
+        Existencias
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="pestana-gestion"
+        aria-controls="panel-gestion"
+        [attr.aria-selected]="pestanaActiva() === 'gestion'"
+        [attr.tabindex]="pestanaActiva() === 'gestion' ? 0 : -1"
+        class="-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+        [class.border-blue-600]="pestanaActiva() === 'gestion'"
+        [class.text-blue-700]="pestanaActiva() === 'gestion'"
+        [class.border-transparent]="pestanaActiva() !== 'gestion'"
+        [class.text-slate-600]="pestanaActiva() !== 'gestion'"
+        (click)="seleccionarPestana('gestion')"
+      >
+        Gestión del catálogo
+      </button>
+    </div>
+  }
+
+  @if (gestionPestanaVisible()) {
+    <div role="tabpanel" id="panel-gestion" aria-labelledby="pestana-gestion">
+      <section
+        aria-label="Ciclo de vida del catálogo"
+        class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      >
+      <header
+        class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/80 px-6 py-4"
+      >
+        <div>
+          <h3 class="text-lg font-semibold text-slate-800">Ciclo de vida del catálogo</h3>
+          <p class="max-w-xl text-sm text-slate-500">
+            Productos y categorías en ambos estados. Dar de baja o reactivar exige un motivo,
+            que queda registrado en el historial del recurso.
+          </p>
+        </div>
+
+        <dl class="flex gap-6 text-right">
+          <div>
+            <dt class="text-xs uppercase tracking-wider text-slate-500">Activos</dt>
+            <dd class="text-xl font-bold text-slate-800">{{ totalActivosGestion() }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wider text-slate-500">Inactivos</dt>
+            <dd class="text-xl font-bold text-slate-500">{{ totalInactivosGestion() }}</dd>
+          </div>
+        </dl>
+      </header>
+
+      <div class="space-y-4 p-6">
+        @if (errorGestion(); as mensaje) {
+          <div role="alert" class="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+            {{ mensaje }}
+          </div>
+        }
+
+        @if (errorOperacion(); as mensaje) {
+          <div role="alert" class="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+            {{ mensaje }}
+          </div>
+        }
+
+        @if (mensajeOperacion(); as mensaje) {
+          <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+            {{ mensaje }}
+          </div>
+        }
+
+        @if (transicion(); as pendiente) {
+          <form
+            class="space-y-3 rounded-xl border border-blue-200 bg-blue-50/60 p-4"
+            (submit)="$event.preventDefault(); confirmarTransicion()"
+          >
+            <p class="text-sm font-medium text-slate-800">
+              {{ pendiente.activo ? 'Reactivar' : 'Dar de baja' }} «{{ pendiente.nombre }}»
+            </p>
+
+            <div>
+              <label for="motivo-transicion" class="mb-1 block text-sm text-slate-600">
+                Motivo (obligatorio, hasta 500 caracteres)
+              </label>
+              <textarea
+                #motivoTransicion
+                id="motivo-transicion"
+                rows="2"
+                maxlength="500"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                [value]="motivo()"
+                (input)="motivo.set(motivoTransicion.value)"
+              ></textarea>
+              <div class="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span class="text-slate-500">{{ motivo().length }}/500</span>
+                @if (errorMotivo(); as error) {
+                  <span role="alert" class="font-medium text-rose-700">{{ error }}</span>
+                }
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-2">
+              <button
+                type="button"
+                class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                (click)="cancelarTransicion()"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                [disabled]="enOperacion()"
+              >
+                {{ enOperacion() ? 'Guardando...' : 'Confirmar' }}
+              </button>
+            </div>
+          </form>
+        }
+
+        @if (cargandoGestion()) {
+          <p class="rounded-xl border border-slate-100 bg-white p-6 text-center text-sm text-slate-500">
+            Cargando el listado de gestión...
+          </p>
+        } @else {
+          <div class="grid gap-6 xl:grid-cols-2">
+            <div>
+              <h4 class="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">
+                Categorías
+              </h4>
+              <ul class="divide-y divide-slate-100 rounded-xl border border-slate-100">
+                @for (categoria of categoriasGestion(); track categoria.categoria_id) {
+                  <li class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <p class="truncate text-sm font-medium text-slate-800">
+                        {{ categoria.nombre_cat }}
+                      </p>
+                      @if (categoria.activo) {
+                        <span class="mt-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                          Activa
+                        </span>
+                      } @else {
+                        <span class="mt-1 inline-block rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                          Inactiva
+                        </span>
+                      }
+                    </div>
+                    <div class="flex gap-2">
+                      <button
+                        type="button"
+                        class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                        [attr.aria-label]="
+                          (categoria.activo ? 'Dar de baja' : 'Reactivar') +
+                          ' la categoría ' +
+                          categoria.nombre_cat
+                        "
+                        (click)="
+                          solicitarTransicion(
+                            'categoria',
+                            categoria.categoria_id,
+                            categoria.nombre_cat,
+                            !categoria.activo
+                          )
+                        "
+                      >
+                        {{ categoria.activo ? 'Dar de baja' : 'Reactivar' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                        [attr.aria-label]="'Ver el historial de la categoría ' + categoria.nombre_cat"
+                        (click)="
+                          alternarHistorial('categoria', categoria.categoria_id, categoria.nombre_cat)
+                        "
+                      >
+                        Historial
+                      </button>
+                    </div>
+                  </li>
+                } @empty {
+                  <li class="px-4 py-6 text-center text-sm text-slate-500">
+                    No hay categorías registradas.
+                  </li>
+                }
+              </ul>
+            </div>
+
+            <div>
+              <h4 class="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-500">
+                Productos
+              </h4>
+              <ul class="divide-y divide-slate-100 rounded-xl border border-slate-100">
+                @for (producto of productosGestion(); track producto.producto_id) {
+                  <li class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <!-- Entrada al detalle desde Gestión (Feature 019, D-2/AC-8):
+                           lleva `?tab=gestion` para restaurar esta pestaña al volver. -->
+                      <a
+                        [routerLink]="['/inventario', producto.producto_id]"
+                        [queryParams]="{ tab: 'gestion' }"
+                        class="block truncate text-sm font-medium text-slate-800 underline-offset-2 hover:text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                      >
+                        {{ producto.nombre }}
+                      </a>
+                      <p class="text-xs text-slate-500">
+                        {{ producto.categoria_nombre }}
+                        @if (!producto.categoria_activa) {
+                          <span class="ml-1 font-medium text-amber-700">(categoría inactiva)</span>
+                        }
+                      </p>
+                      @if (producto.activo) {
+                        <span class="mt-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                          Activo
+                        </span>
+                      } @else {
+                        <span class="mt-1 inline-block rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                          Inactivo
+                        </span>
+                      }
+                    </div>
+                    <div class="flex gap-2">
+                      <button
+                        type="button"
+                        class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                        [attr.aria-label]="
+                          (producto.activo ? 'Dar de baja' : 'Reactivar') +
+                          ' el producto ' +
+                          producto.nombre
+                        "
+                        (click)="
+                          solicitarTransicion(
+                            'producto',
+                            producto.producto_id,
+                            producto.nombre,
+                            !producto.activo
+                          )
+                        "
+                      >
+                        {{ producto.activo ? 'Dar de baja' : 'Reactivar' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                        [attr.aria-label]="'Ver el historial del producto ' + producto.nombre"
+                        (click)="
+                          alternarHistorial('producto', producto.producto_id, producto.nombre)
+                        "
+                      >
+                        Historial
+                      </button>
+                    </div>
+                  </li>
+                } @empty {
+                  <li class="px-4 py-6 text-center text-sm text-slate-500">
+                    No hay productos registrados.
+                  </li>
+                }
+              </ul>
+            </div>
+          </div>
+        }
+
+        @if (historialVisible(); as abierto) {
+          <section
+            aria-label="Historial del recurso"
+            class="rounded-xl border border-slate-200 bg-slate-50/60 p-4"
+          >
+            <header class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h4 class="text-sm font-semibold text-slate-800">
+                Historial de «{{ abierto.nombre }}»
+              </h4>
+              <button
+                type="button"
+                class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                (click)="alternarHistorial(abierto.tipo, abierto.id, abierto.nombre)"
+              >
+                Cerrar historial
+              </button>
+            </header>
+
+            @if (errorHistorial(); as mensaje) {
+              <div role="alert" class="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                {{ mensaje }}
+              </div>
+            } @else if (cargandoHistorial()) {
+              <p class="text-sm text-slate-500">Cargando historial...</p>
+            } @else if (!historial().length) {
+              <p class="text-sm text-slate-500">
+                Este recurso no tiene transiciones registradas.
+              </p>
+            } @else {
+              <ol class="space-y-2">
+                @for (fila of historial(); track fila.id) {
+                  <li class="rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <span class="font-medium text-slate-800">
+                        {{ fila.origen }} → {{ fila.destino }}
+                      </span>
+                      <span class="text-xs text-slate-500">
+                        {{ fila.fecha | date: 'dd/MM/yyyy HH:mm' }}
+                      </span>
+                    </div>
+                    <p class="text-xs text-slate-500">Por {{ fila.actor }}</p>
+                    <p class="mt-1 text-slate-700">{{ fila.motivo }}</p>
+                  </li>
+                }
+              </ol>
+            }
+          </section>
+        }
+      </div>
+    </section>
+    </div>
+  }
+
+  <!--
+    Pestaña operativa «Existencias» (predeterminada). Para Bodeguero y
+    Solicitante es la única vista: `existenciasVisibles()` es verdadero siempre
+    que no exista conmutador.
+  -->
+  @if (existenciasVisibles()) {
+    <div
+      role="tabpanel"
+      id="panel-existencias"
+      [attr.aria-labelledby]="gestionVisible() ? 'pestana-existencias' : null"
+      class="grid gap-6 xl:grid-cols-[220px_1fr]"
+    >
     <nav
       aria-label="Categorías de insumos"
       class="flex gap-2 overflow-x-auto pb-2 xl:flex-col xl:overflow-visible xl:pb-0"
@@ -74,6 +424,85 @@
     </nav>
 
     <section class="space-y-4">
+      <!--
+        Filtros organizacionales (Feature 018). Son visibilidad de presentación:
+        el servidor sigue siendo quien autoriza y acota. El Administrador elige
+        sede y departamento; el Bodeguero solo departamento, con la nota de
+        saldo compartido de D-3. Solicitante y Superadmin no los ven.
+      -->
+      @if (filtrosVisibles() && !errorAmbito()) {
+        <div class="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div class="flex flex-wrap items-end gap-4">
+            @if (sedeVisible()) {
+              <div class="flex min-w-[12rem] flex-col gap-1">
+                <label
+                  for="filtro-sede"
+                  class="text-xs font-medium uppercase tracking-wider text-slate-500"
+                >
+                  Sede
+                </label>
+                <select
+                  id="filtro-sede"
+                  name="sede"
+                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  [value]="sedeSeleccionada() ?? ''"
+                  [disabled]="cargandoAmbito() || !sedesDisponibles().length"
+                  (change)="alCambiarSede($event)"
+                >
+                  <option value="">Todas las sedes</option>
+                  @for (sede of sedesDisponibles(); track sede.sede_id) {
+                    <option [value]="sede.sede_id">{{ sede.sede_nombre }}</option>
+                  }
+                </select>
+              </div>
+            }
+
+            <div class="flex min-w-[12rem] flex-col gap-1">
+              <label
+                for="filtro-departamento"
+                class="text-xs font-medium uppercase tracking-wider text-slate-500"
+              >
+                Departamento
+              </label>
+              <select
+                id="filtro-departamento"
+                name="departamento"
+                class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                [value]="departamentoSeleccionado() ?? ''"
+                [disabled]="cargandoAmbito() || !departamentosDisponibles().length"
+                (change)="alCambiarDepartamento($event)"
+              >
+                <option value="">Todos los departamentos</option>
+                @for (departamento of departamentosDisponibles(); track departamento.departamento_id) {
+                  <option [value]="departamento.departamento_id">
+                    {{ departamento.departamento_nombre }}
+                  </option>
+                }
+              </select>
+            </div>
+
+            @if (cargandoAmbito()) {
+              <p class="text-xs text-slate-500">Cargando filtros...</p>
+            }
+          </div>
+
+          @if (notaStockCompartido()) {
+            <p class="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              {{ textoNotaStockCompartido }}
+            </p>
+          }
+        </div>
+      }
+
+      @if (errorAmbito(); as mensaje) {
+        <div
+          role="alert"
+          class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+        >
+          {{ mensaje }}
+        </div>
+      }
+
       <div
         class="flex flex-wrap items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm"
       >
@@ -142,7 +571,14 @@
                 <tr class="hover:bg-slate-50">
                   <td class="py-4 px-6">
                     <div class="flex items-center gap-2">
-                      <span class="font-medium text-slate-900">{{ insumo.nombre }}</span>
+                      <!-- Entrada al detalle desde Existencias (Feature 019, D-2/AC-8):
+                           sin query, para volver a esta pestaña por defecto. -->
+                      <a
+                        [routerLink]="['/inventario', insumo.producto_id]"
+                        class="font-medium text-slate-900 underline-offset-2 hover:text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                      >
+                        {{ insumo.nombre }}
+                      </a>
                       @if (insumo.unidad_medida) {
                         <span
                           class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
@@ -158,10 +594,9 @@
                   <td class="py-4 px-6 text-slate-600">{{ insumo.categoria_nombre }}</td>
                   <td class="py-4 px-6">
                     @if (insumo.sedes.length) {
-                      @for (sede of insumo.sedes; track sede.inventario_id) {
+                      @for (sede of insumo.sedes; track sede.sede_id) {
                         <div>
-                          <span class="font-medium text-slate-800">{{ sede.departamento_nombre }}</span>
-                          <span class="text-slate-500"> · {{ sede.ubicacion ?? 'Sin ubicación' }}</span>
+                          <span class="font-medium text-slate-800">{{ sede.sede_nombre }}</span>
                           <span class="ml-1 font-semibold">{{ sede.stock_actual }}</span>
                         </div>
                       }
@@ -199,5 +634,6 @@
         </div>
       }
     </section>
-  </div>
+    </div>
+  }
 </div>

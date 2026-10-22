@@ -1,0 +1,49 @@
+<div class="grid grid-cols-1 gap-3 md:col-span-2 md:grid-cols-2">
+  <div class="flex flex-col gap-1">
+    <label [attr.for]="idPrefijo() + '-motivo'" class="text-sm font-medium text-slate-700">
+      Motivo <span aria-hidden="true" class="text-rose-600">*</span>
+    </label>
+    <select
+      [id]="idPrefijo() + '-motivo'"
+      [formControl]="codigo()"
+      class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+    >
+      <option value="">Selecciona un motivo</option>
+      @for (opcion of opciones; track opcion.codigo) {
+        <option [value]="opcion.codigo">{{ opcion.etiqueta }}</option>
+      }
+    </select>
+    @if (faltaCodigo) {
+      <p class="text-xs text-rose-600">Selecciona un motivo del catálogo.</p>
+    }
+  </div>
+
+  <div class="flex flex-col gap-1">
+    <label
+      [attr.for]="idPrefijo() + '-motivo-texto'"
+      class="text-sm font-medium text-slate-700"
+    >
+      Texto explicativo {{ esOtro ? '(obligatorio)' : '(opcional)' }}
+    </label>
+    <textarea
+      [id]="idPrefijo() + '-motivo-texto'"
+      [formControl]="texto()"
+      rows="2"
+      [attr.maxlength]="maxTexto"
+      class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+    ></textarea>
+    @if (textoVacio) {
+      <p class="text-xs text-rose-600">
+        El motivo «Otro» exige un texto explicativo no vacío.
+      </p>
+    } @else if (textoExcedido) {
+      <p class="text-xs text-rose-600">
+        El texto admite como máximo {{ maxTexto }} caracteres.
+      </p>
+    } @else {
+      <p class="text-xs text-slate-500">
+        Máximo {{ maxTexto }} caracteres. El motivo queda registrado en control.
+      </p>
+    }
+  </div>
+</div>

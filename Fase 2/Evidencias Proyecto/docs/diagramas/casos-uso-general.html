@@ -26,7 +26,7 @@
       justify-content: center;
       padding: 3rem 2rem;
     }
-    .frame { max-width: 1504px; width: 100%; }
+    .frame { max-width: 1440px; width: 100%; }
     .diagram-container { width: 100%; overflow-x: auto; margin-top: 1.5rem; }
     .eyebrow {
       font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
@@ -38,7 +38,7 @@
       font-weight: 400; letter-spacing: -0.02em; line-height: 1.15;
       color: var(--color-ink); margin-bottom: 0.35rem;
     }
-    .subtitle { color: var(--color-muted); font-size: 0.95rem; }
+    .subtitle { color: var(--color-muted); font-size: 0.95rem; max-width: 78ch; }
     svg { width: 100%; min-width: 1440px; display: block; }
     .note {
       margin-top: 1.75rem; padding-top: 1rem; border-top: 1px solid rgba(30,41,59,0.12);
@@ -53,129 +53,197 @@
       .diagram-container { overflow-x: visible; }
       svg { min-width: 0; }
     }
-  </style>
+      </style>
 </head>
 <body>
   <div class="frame">
     <p class="eyebrow">UML · casos de uso</p>
     <h1>Casos de uso · vista general</h1>
-    <p class="subtitle">Diagrama general de casos de uso de CompuStock ERP: los cuatro actores y los cuatro paquetes de casos de uso (administración, catálogo e inventario, tickets y despacho, informes y avisos).</p>
+    <p class="subtitle">Vista general: 26 casos de uso en cinco paquetes y los cuatro actores que participan en ellos.</p>
     <div class="diagram-container">
-      <svg viewBox="0 0 1440 1164" xmlns="http://www.w3.org/2000/svg"
+      <svg viewBox="0 0 1440 1144" xmlns="http://www.w3.org/2000/svg"
            role="img" aria-labelledby="casos-uso-general-title casos-uso-general-desc">
         <title id="casos-uso-general-title">Casos de uso · vista general</title>
-        <desc id="casos-uso-general-desc">Diagrama general de casos de uso de CompuStock ERP: los cuatro actores y los cuatro paquetes de casos de uso (administración, catálogo e inventario, tickets y despacho, informes y avisos).</desc>
-        <defs>
-          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#475569"/>
-          </marker>
-          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#2563eb"/>
-          </marker>
-          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#1d4ed8"/>
-          </marker>
-        </defs>
-        <rect width="100%" height="100%" fill="#f8fafc"/>
-        <rect x="300" y="64" width="980" height="1000" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.30)" stroke-width="1"/>
-        <text x="320" y="92" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">SISTEMA · COMPUSTOCK ERP</text>
-        <line x1="168" y1="220" x2="336" y2="185" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="220" x2="336" y2="421" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="220" x2="336" y2="657" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="220" x2="336" y2="893" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="470" x2="336" y2="251" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="470" x2="336" y2="487" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="470" x2="336" y2="723" stroke="#475569" stroke-width="1"/>
-        <line x1="168" y1="470" x2="336" y2="959" stroke="#475569" stroke-width="1"/>
-        <line x1="1332" y1="700" x2="1244" y2="421" stroke="#475569" stroke-width="1"/>
-        <line x1="1332" y1="700" x2="1244" y2="657" stroke="#475569" stroke-width="1"/>
-        <line x1="1332" y1="700" x2="1244" y2="893" stroke="#475569" stroke-width="1"/>
-        <line x1="1332" y1="940" x2="1244" y2="487" stroke="#475569" stroke-width="1"/>
-        <line x1="1332" y1="940" x2="1244" y2="723" stroke="#475569" stroke-width="1"/>
-        <line x1="1332" y1="940" x2="1244" y2="959" stroke="#475569" stroke-width="1"/>
-        <rect x="336" y="120" width="908" height="196" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
-        <text x="356" y="150" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">Administración y organización</text>
-        <text x="1224" y="150" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">paquete A · 4 casos de uso</text>
-        <rect x="356" y="172" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="193" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">A1</text>
-        <text x="400" y="193" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Gestionar instituciones</text>
-        <rect x="356" y="214" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="235" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">A2</text>
-        <text x="400" y="235" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Gestionar sedes</text>
-        <rect x="356" y="256" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="277" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">A3</text>
-        <text x="400" y="277" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Gestionar departamentos</text>
-        <rect x="796" y="172" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="808" y="193" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">A4</text>
-        <text x="840" y="193" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Gestionar usuarios y roles</text>
-        <rect x="336" y="356" width="908" height="196" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
-        <text x="356" y="386" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">Catálogo e inventario</text>
-        <text x="1224" y="386" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">paquete C · 5 casos de uso</text>
-        <rect x="356" y="408" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="429" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">C1</text>
-        <text x="400" y="429" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Gestionar catálogo</text>
-        <rect x="356" y="450" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="471" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">C2</text>
-        <text x="400" y="471" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Ver existencias y stock</text>
-        <rect x="356" y="492" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="513" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">C3</text>
-        <text x="400" y="513" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Ajustar stock</text>
-        <rect x="796" y="408" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="808" y="429" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">C4</text>
-        <text x="840" y="429" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Ver alertas de stock crítico</text>
-        <rect x="796" y="450" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="808" y="471" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">C5</text>
-        <text x="840" y="471" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Auditar movimientos</text>
-        <rect x="336" y="592" width="908" height="196" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
-        <text x="356" y="622" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">Tickets y despacho</text>
-        <text x="1224" y="622" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">paquete T · 6 casos de uso</text>
-        <rect x="356" y="644" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="665" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">T1</text>
-        <text x="400" y="665" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Crear ticket</text>
-        <rect x="356" y="686" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="707" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">T2</text>
-        <text x="400" y="707" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Ver tablero Kanban</text>
-        <rect x="356" y="728" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="749" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">T3</text>
-        <text x="400" y="749" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Despachar / cambiar estado</text>
-        <rect x="796" y="644" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="808" y="665" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">T4</text>
-        <text x="840" y="665" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Asignar encargado</text>
-        <rect x="796" y="686" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="808" y="707" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">T5</text>
-        <text x="840" y="707" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Ver detalle del ticket</text>
-        <rect x="796" y="728" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="808" y="749" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">T6</text>
-        <text x="840" y="749" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Cancelar ticket</text>
-        <rect x="336" y="828" width="908" height="196" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
-        <text x="356" y="858" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">Informes y avisos</text>
-        <text x="1224" y="858" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">paquete R · 3 casos de uso</text>
-        <rect x="356" y="880" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="901" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">R1</text>
-        <text x="400" y="901" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Descargar informes</text>
-        <rect x="356" y="922" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="943" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">R2</text>
-        <text x="400" y="943" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Recibir notificaciones</text>
-        <rect x="356" y="964" width="420" height="34" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
-        <text x="368" y="985" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">R3</text>
-        <text x="400" y="985" fill="#1e293b" font-size="11" font-family="'Geist', system-ui, sans-serif">Ver dashboard analítico</text>
-        <circle cx="140" cy="186" r="12" fill="none" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="198" x2="140" y2="238" stroke="#1e293b" stroke-width="1.2"/><line x1="118" y1="214" x2="162" y2="214" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="238" x2="124" y2="266" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="238" x2="156" y2="266" stroke="#1e293b" stroke-width="1.2"/>
-        <text x="140" y="292" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Superadmin</text>
-        <text x="140" y="308" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ámbito global · SaaS</text>
-        <circle cx="140" cy="436" r="12" fill="none" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="448" x2="140" y2="488" stroke="#1e293b" stroke-width="1.2"/><line x1="118" y1="464" x2="162" y2="464" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="488" x2="124" y2="516" stroke="#1e293b" stroke-width="1.2"/><line x1="140" y1="488" x2="156" y2="516" stroke="#1e293b" stroke-width="1.2"/>
-        <text x="140" y="542" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Administrador Institucional</text>
-        <text x="140" y="558" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">su institución</text>
-        <circle cx="1360" cy="666" r="12" fill="none" stroke="#1e293b" stroke-width="1.2"/><line x1="1360" y1="678" x2="1360" y2="718" stroke="#1e293b" stroke-width="1.2"/><line x1="1338" y1="694" x2="1382" y2="694" stroke="#1e293b" stroke-width="1.2"/><line x1="1360" y1="718" x2="1344" y2="746" stroke="#1e293b" stroke-width="1.2"/><line x1="1360" y1="718" x2="1376" y2="746" stroke="#1e293b" stroke-width="1.2"/>
-        <text x="1360" y="772" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Bodeguero</text>
-        <text x="1360" y="788" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">su sede</text>
-        <circle cx="1360" cy="906" r="12" fill="none" stroke="#1e293b" stroke-width="1.2"/><line x1="1360" y1="918" x2="1360" y2="958" stroke="#1e293b" stroke-width="1.2"/><line x1="1338" y1="934" x2="1382" y2="934" stroke="#1e293b" stroke-width="1.2"/><line x1="1360" y1="958" x2="1344" y2="986" stroke="#1e293b" stroke-width="1.2"/><line x1="1360" y1="958" x2="1376" y2="986" stroke="#1e293b" stroke-width="1.2"/>
-        <text x="1360" y="1012" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Solicitante</text>
-        <text x="1360" y="1028" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">su departamento</text>
-        <line x1="300" y1="1092" x2="1280" y2="1092" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/><text x="300" y="1116" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">LEYENDA</text><ellipse cx="410" cy="1112" rx="14" ry="8" fill="#ffffff" stroke="#1e293b" stroke-width="1"/><text x="432" y="1116" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">paquete de casos de uso</text><line x1="610" y1="1112" x2="638" y2="1112" stroke="#475569" stroke-width="1"/><text x="646" y="1116" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">asociación — el actor participa en el paquete</text><text x="992" y="1116" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">A admin · C catálogo · T tickets · R informes</text>
+        <desc id="casos-uso-general-desc">Vista general de los casos de uso de CompuStock: cuatro actores, cinco paquetes y veintiséis casos, con los actores que participan en cada paquete.</desc>
+        <rect width="1440" height="1144" fill="#f8fafc"/>
+        <rect x="120" y="44" width="1200" height="154" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <text x="140" y="66" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">ACTORES</text>
+        <circle cx="270" cy="90" r="9" fill="none" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="270" y1="99" x2="270" y2="128" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="254" y1="112" x2="286" y2="112" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="270" y1="128" x2="258" y2="148.16" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="270" y1="128" x2="282" y2="148.16" stroke="#1e293b" stroke-width="1.2"/>
+        <text x="270" y="174.16" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Superadmin</text>
+        <text x="270" y="190.16" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ámbito global · SaaS</text>
+        <circle cx="570" cy="90" r="9" fill="none" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="570" y1="99" x2="570" y2="128" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="554" y1="112" x2="586" y2="112" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="570" y1="128" x2="558" y2="148.16" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="570" y1="128" x2="582" y2="148.16" stroke="#1e293b" stroke-width="1.2"/>
+        <text x="570" y="174.16" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Administrador Institucional</text>
+        <text x="570" y="190.16" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">su institución</text>
+        <circle cx="870" cy="90" r="9" fill="none" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="870" y1="99" x2="870" y2="128" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="854" y1="112" x2="886" y2="112" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="870" y1="128" x2="858" y2="148.16" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="870" y1="128" x2="882" y2="148.16" stroke="#1e293b" stroke-width="1.2"/>
+        <text x="870" y="174.16" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Bodeguero · Encargado</text>
+        <text x="870" y="190.16" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">su sede</text>
+        <circle cx="1170" cy="90" r="9" fill="none" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="1170" y1="99" x2="1170" y2="128" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="1154" y1="112" x2="1186" y2="112" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="1170" y1="128" x2="1158" y2="148.16" stroke="#1e293b" stroke-width="1.2"/>
+        <line x1="1170" y1="128" x2="1182" y2="148.16" stroke="#1e293b" stroke-width="1.2"/>
+        <text x="1170" y="174.16" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Solicitante · Funcionario</text>
+        <text x="1170" y="190.16" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">su departamento</text>
+        <rect x="120" y="218" width="1200" height="850" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.30)" stroke-width="1"/>
+        <text x="140" y="242" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">SISTEMA · COMPUSTOCK</text>
+        <text x="1300" y="242" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">26 CASOS · 5 PAQUETES</text>
+        <rect x="156" y="260" width="1128" height="150" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <rect x="168" y="268" width="24" height="18" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="180" y="281" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">C</text>
+        <text x="200" y="282" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Control SaaS<tspan dx="14" fill="#64748b" font-size="9" font-weight="400" font-family="'Geist Mono', ui-monospace, monospace">5 casos de uso</tspan></text>
+        <text x="1272" y="282" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">actores · Superadmin</text>
+        <rect x="172" y="296" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="305" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="315" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">C1</text>
+        <text x="216" y="316" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Gestionar instituciones</text>
+        <rect x="732" y="296" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="305" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="315" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">C2</text>
+        <text x="776" y="316" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Cambiar estado de institución</text>
+        <rect x="172" y="334" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="343" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="353" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">C3</text>
+        <text x="216" y="354" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Gestionar capacidades</text>
+        <rect x="732" y="334" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="343" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="353" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">C4</text>
+        <text x="776" y="354" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Supervisar la plataforma</text>
+        <rect x="450" y="372" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="460" y="381" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="472" y="391" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">C5</text>
+        <text x="494" y="392" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Gestionar administradores</text>
+        <rect x="156" y="428" width="1128" height="150" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <rect x="168" y="436" width="24" height="18" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="180" y="449" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">A</text>
+        <text x="200" y="450" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Administración institucional<tspan dx="14" fill="#64748b" font-size="9" font-weight="400" font-family="'Geist Mono', ui-monospace, monospace">6 casos de uso</tspan></text>
+        <text x="1272" y="450" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">actores · Administrador</text>
+        <rect x="172" y="464" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="473" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="483" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">A1</text>
+        <text x="216" y="484" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Gestionar sedes</text>
+        <rect x="732" y="464" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="473" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="483" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">A2</text>
+        <text x="776" y="484" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Gestionar departamentos</text>
+        <rect x="172" y="502" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="511" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="521" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">A3</text>
+        <text x="216" y="522" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Asignar encargados</text>
+        <rect x="732" y="502" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="511" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="521" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">A4</text>
+        <text x="776" y="522" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Gestionar usuarios</text>
+        <rect x="172" y="540" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="549" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="559" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">A5</text>
+        <text x="216" y="560" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Gestionar catálogo</text>
+        <rect x="732" y="540" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="549" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="559" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">A6</text>
+        <text x="776" y="560" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Administrar ciclo del catálogo</text>
+        <rect x="156" y="596" width="1128" height="112" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <rect x="168" y="604" width="24" height="18" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="180" y="617" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">I</text>
+        <text x="200" y="618" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Inventario y existencias<tspan dx="14" fill="#64748b" font-size="9" font-weight="400" font-family="'Geist Mono', ui-monospace, monospace">4 casos de uso</tspan></text>
+        <text x="1272" y="618" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">actores · Administrador · Bodeguero · Solicitante</text>
+        <rect x="172" y="632" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="641" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="651" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">I1</text>
+        <text x="216" y="652" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Consultar existencias y stock</text>
+        <rect x="732" y="632" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="641" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="651" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">I2</text>
+        <text x="776" y="652" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Registrar movimientos</text>
+        <rect x="172" y="670" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="679" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="689" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">I3</text>
+        <text x="216" y="690" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Consultar alertas de stock</text>
+        <rect x="732" y="670" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="679" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="689" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">I4</text>
+        <text x="776" y="690" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Auditar movimientos</text>
+        <rect x="156" y="726" width="1128" height="188" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <rect x="168" y="734" width="24" height="18" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="180" y="747" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">T</text>
+        <text x="200" y="748" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Tickets y despacho<tspan dx="14" fill="#64748b" font-size="9" font-weight="400" font-family="'Geist Mono', ui-monospace, monospace">8 casos de uso</tspan></text>
+        <text x="1272" y="748" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">actores · Administrador · Bodeguero · Solicitante</text>
+        <rect x="172" y="762" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="771" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="781" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">T1</text>
+        <text x="216" y="782" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Emitir ticket</text>
+        <rect x="732" y="762" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="771" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="781" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">T2</text>
+        <text x="776" y="782" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Consultar tablero</text>
+        <rect x="172" y="800" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="809" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="819" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">T3</text>
+        <text x="216" y="820" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Despachar ticket</text>
+        <rect x="732" y="800" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="809" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="819" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">T4</text>
+        <text x="776" y="820" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Cambiar estado</text>
+        <rect x="172" y="838" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="847" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="857" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">T5</text>
+        <text x="216" y="858" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Consultar detalle</text>
+        <rect x="732" y="838" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="847" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="857" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">T6</text>
+        <text x="776" y="858" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Editar ticket</text>
+        <rect x="172" y="876" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="182" y="885" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="895" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">T7</text>
+        <text x="216" y="896" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Anular ticket</text>
+        <rect x="732" y="876" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="742" y="885" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="895" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">T8</text>
+        <text x="776" y="896" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Rechazar ticket</text>
+        <rect x="156" y="932" width="1128" height="112" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <rect x="168" y="940" width="24" height="18" rx="2" fill="#f8fafc" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="180" y="953" fill="#64748b" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">R</text>
+        <text x="200" y="954" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Informes y avisos<tspan dx="14" fill="#64748b" font-size="9" font-weight="400" font-family="'Geist Mono', ui-monospace, monospace">3 casos de uso</tspan></text>
+        <text x="1272" y="954" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">actores · Administrador · Bodeguero · Solicitante</text>
+        <rect x="172" y="968" width="540" height="32" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1.1" stroke-dasharray="4,3"/>
+        <rect x="644" y="977" width="60" height="14" rx="2" fill="#ffffff" stroke="#2563eb" stroke-width="0.8"/>
+        <text x="674" y="987" fill="#2563eb" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">PLAN · 015</text>
+        <rect x="182" y="977" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="194" y="987" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">R1</text>
+        <text x="216" y="988" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Descargar informes</text>
+        <rect x="732" y="968" width="540" height="32" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1.1" stroke-dasharray="4,3"/>
+        <rect x="1204" y="977" width="60" height="14" rx="2" fill="#ffffff" stroke="#2563eb" stroke-width="0.8"/>
+        <text x="1234" y="987" fill="#2563eb" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">PLAN · 016</text>
+        <rect x="742" y="977" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="754" y="987" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">R2</text>
+        <text x="776" y="988" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Recibir notificaciones</text>
+        <rect x="450" y="1006" width="540" height="32" rx="6" fill="#f8fafc" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="460" y="1015" width="24" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.8"/>
+        <text x="472" y="1025" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">R3</text>
+        <text x="494" y="1026" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">Ver dashboard analítico</text>
+        <line x1="120" y1="1098" x2="1320" y2="1098" stroke="rgba(30,41,59,0.12)" stroke-width="0.8"/>
+        <text x="120" y="1118" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">LEYENDA</text>
+        <rect x="224" y="1107" width="16" height="12" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="0.9"/>
+        <text x="250" y="1118" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">paquete de casos de uso</text>
+        <ellipse cx="440" cy="1115" rx="14" ry="8" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <text x="462" y="1118" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">caso de uso</text>
+        <ellipse cx="590" cy="1115" rx="14" ry="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.1" stroke-dasharray="4,3"/>
+        <text x="612" y="1118" fill="#475569" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">planificado · feature 015/016</text>
       </svg>
     </div>
-    <p class="note"><strong>Restricción.</strong> El detalle de cada caso de uso, con su actor y su ámbito, está en los cuatro diagramas por actor. El general agrupa por paquete para mantenerse legible.</p>
-    <p class="colophon">CompuStock ERP · diagrama de casos de uso UML · paleta del producto (slate + blue)</p>
+    <p class="note"><strong>Restricción.</strong> Es un mapa de paquetes, no el detalle UML: las asociaciones actor-caso, elipse por elipse, están en los cuatro diagramas por actor. Los casos planificados corresponden a las features 015 y 016, aún en backlog.</p>
+    <p class="colophon">CompuStock · diagrama de casos de uso UML · paleta del producto (slate + blue)</p>
   </div>
 </body>
 </html>

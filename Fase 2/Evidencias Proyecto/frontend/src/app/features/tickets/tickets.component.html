@@ -1,7 +1,7 @@
 <div class="space-y-6">
   <div class="flex justify-between items-center">
     <div>
-      <h2 class="text-2xl font-bold text-slate-800">Sistema de Tickets y Kanban</h2>
+      <h2 class="text-2xl font-bold text-slate-800">Sistema de Tickets</h2>
       <p class="text-sm text-slate-500">
         Gestión de solicitudes e insumos entre departamentos
       </p>
@@ -14,13 +14,6 @@
       + Crear Ticket
     </button>
   </div>
-
-  @if (!puedeGestionarKanban() && rolActual() !== null) {
-    <p class="bg-slate-50 border border-slate-200 text-slate-600 text-sm px-4 py-3 rounded-lg">
-      Vista de solo consulta: tu perfil no puede mover tickets de estado ni
-      realizar despachos.
-    </p>
-  }
 
   @if (ticketCreado() !== null) {
     <div role="alert" class="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-4 py-3 rounded-lg">
@@ -111,7 +104,9 @@
                 formControlName="estado_id"
                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
               >
-                @for (estado of estados(); track estado.estado_id) {
+                <!-- D-11 (013): `Anulado` queda fuera de la elección; el
+                     backend además responde 409 si llegara. -->
+                @for (estado of estadosAlta(); track estado.estado_id) {
                   <option [ngValue]="estado.estado_id">{{ estado.nombre }}</option>
                 }
               </select>
@@ -248,15 +243,6 @@
       </button>
     </div>
   } @else {
-    @if (errorMovimiento(); as mensajeMovimiento) {
-      <p
-        role="alert"
-        class="bg-rose-50 border border-rose-200 text-rose-800 text-sm px-4 py-3 rounded-lg"
-      >
-        {{ mensajeMovimiento }}
-      </p>
-    }
-
     <div
       class="flex flex-col sm:flex-row sm:items-end gap-4 bg-white border border-slate-200 rounded-xl px-4 py-3"
     >
@@ -287,7 +273,9 @@
       </label>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+    <!-- Cinco columnas para el catálogo canónico de la 013 (cuatro operativos
+         + `Anulado`); la cantidad real sale del catálogo, no de aqui. -->
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
       @for (columna of columnas(); track columna.estado_id) {
         <div class="bg-slate-200/60 p-4 rounded-xl flex flex-col space-y-4">
           <div class="flex justify-between items-center">
@@ -320,32 +308,17 @@
                   Cerrado: {{ tarjeta.fechaCierre | date: 'short' }}
                 </p>
               }
-              @if (puedeGestionarKanban() && (tarjeta.puedeRetroceder || tarjeta.puedeAvanzar)) {
-                <div class="flex items-center gap-2 pt-1">
-                  @if (tarjeta.puedeRetroceder) {
-                    <button
-                      type="button"
-                      (click)="moverAnterior(tarjeta)"
-                      [disabled]="tarjeta.enProceso"
-                      [attr.aria-label]="'Retroceder ticket #' + tarjeta.ticket.ticket_id"
-                      class="text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:hover:bg-slate-100 px-2.5 py-1.5 rounded-lg transition"
-                    >
-                      ← Retroceder
-                    </button>
-                  }
-                  @if (tarjeta.puedeAvanzar) {
-                    <button
-                      type="button"
-                      (click)="moverSiguiente(tarjeta)"
-                      [disabled]="tarjeta.enProceso"
-                      [attr.aria-label]="'Avanzar ticket #' + tarjeta.ticket.ticket_id"
-                      class="ml-auto text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-2.5 py-1.5 rounded-lg transition"
-                    >
-                      Avanzar →
-                    </button>
-                  }
-                </div>
-              }
+              <!-- D-14 (013): única acción de la tarjeta. Abre la vista de
+                   detalle, donde vive todo el ciclo de vida (AC-24). -->
+              <div class="flex justify-end pt-1">
+                <a
+                  [routerLink]="['/tickets', tarjeta.ticket.ticket_id]"
+                  [attr.aria-label]="'Gestionar ticket #' + tarjeta.ticket.ticket_id"
+                  class="inline-block text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg transition"
+                >
+                  Gestionar
+                </a>
+              </div>
             </div>
           } @empty {
             <p class="text-xs text-slate-500 text-center py-4">

@@ -2,7 +2,7 @@
 
 El seam principal bajo prueba es la **interfaz HTTP** (`TestClient`), como en el
 resto de la suite: el ticket (estado, `fecha_cierre`, cantidades entregadas) y el
-stock se observan releyendo la API (`GET /tickets/`, `GET /inventario/stock`).
+stock se observan releyendo la API (`GET /tickets/`, `GET /inventario/existencias`).
 
 Las salidas de auditoría se leen de la base con el motor de la fixture `motor`
 por una razón de alcance, no de comodidad: el endpoint de historial
@@ -29,7 +29,36 @@ from app.models import (
     Inventario,
     MovimientoInventario,
     Producto,
+    Sede,
+    StockSede,
 )
+
+from ._soporte_sede_011 import asegurar_sede_de_departamento
+
+#: Sede del departamento de `datos_base`, fijada por el fixture autouse. Los tests
+#: observan el saldo por sede a traves de `leer_stock`, que necesita saber cual es
+#: (Feature 011: el saldo vigente vive en `stock_sede`, no en el inventario legado).
+_SEDE_BASE_ID: int | None = None
+
+#: Motor de la fixture, fijado por el fixture autouse. Sin el no se puede
+#: resolver por ORM el producto de una fila de inventario legado, porque desde la
+#: Feature 011 (B1) `GET /inventario/stock` ya no expone el inventario
+#: departamental.
+_MOTOR = None
+
+
+@pytest.fixture(autouse=True)
+def _sede_de_datos_base(motor, datos_base):
+    """Feature 011 (T9): toda alta/despacho exige la sede del departamento.
+
+    Se siembra una sede de INST01 para el departamento de `datos_base` con stock
+    para su producto. `datos_despacho` anade despues el stock del producto escaso.
+    """
+    global _SEDE_BASE_ID, _MOTOR
+    _MOTOR = motor
+    _SEDE_BASE_ID = asegurar_sede_de_departamento(
+        motor, datos_base, stocks={datos_base["producto_id"]: 50}
+    )["sede_id"]
 
 
 def _instalar_catalogo(motor, nombres):
@@ -117,6 +146,18 @@ def datos_despacho(motor, datos_base):
             institucion_id=datos_base["institucion_id"],
         )
         db.add(inventario_escaso)
+        db.flush()
+
+        # Feature 011 (T9): el saldo vigente del producto escaso vive en la sede
+        # del departamento (el inventario legado de arriba solo da el id/mapa).
+        db.add(
+            StockSede(
+                sede_id=_SEDE_BASE_ID,
+                producto_id=producto_escaso.producto_id,
+                stock_actual=4,
+                institucion_id=datos_base["institucion_id"],
+            )
+        )
         db.commit()
 
         datos = {**datos_base}
@@ -226,12 +267,13 @@ def datos_minusculas(motor, datos_base):
 
 @pytest.fixture
 def datos_inventario_invalido(motor, datos_base):
-    """Catalogo canónico + dos productos que rompen la unicidad de inventario.
+    """Catalogo canónico + dos productos sin saldo en la sede del ticket.
 
-    `producto_sin_inventario_id` no tiene ninguna fila; `producto_dos_filas_id`
-    tiene dos, porque la unicidad de `inventario` es por pareja
-    (departamento, producto) y la ambigüedad que el despacho rechaza (D-5) solo
-    aparece repartida entre dos depósitos.
+    Feature 011 (T9): el despacho lee solo `stock_sede` de la sede almacenada. Los
+    casos de "inventario ausente/ambiguo" pasan a ser "sin saldo en la sede":
+    `producto_sin_inventario_id` no tiene ninguna fila de `stock_sede`;
+    `producto_dos_filas_id` solo tiene saldo en **otra** sede (la del segundo
+    departamento), de modo que el despacho no lo usa y responde 409.
     """
     ids = _instalar_catalogo(motor, ("Pendiente", "EnRevision", "EnCurso", "Cerrado"))
 
@@ -240,15 +282,22 @@ def datos_inventario_invalido(motor, datos_base):
         primer_departamento = db.get(Departamento, datos_base["departamento_id"])
         segundo_departamento = Departamento(
             nombre_dep="Logistica",
-            descripcion="Segundo deposito para el caso de inventario ambiguo",
+            descripcion="Segundo deposito para el caso de saldo en otra sede",
             institucion_id=primer_departamento.institucion_id,
         )
         db.add(segundo_departamento)
         db.flush()
 
+        sede_alterna = Sede(
+            nombre="Sede Logistica", institucion_id=datos_base["institucion_id"]
+        )
+        db.add(sede_alterna)
+        db.flush()
+        segundo_departamento.sede_id = sede_alterna.sede_id
+
         sin_inventario = Producto(
             nombre="Producto sin inventario",
-            descripcion="No tiene ninguna fila en inventario",
+            descripcion="No tiene ninguna fila de stock_sede",
             unidad_medida="UNIDAD",
             stock_minimo=0,
             categoria_id=datos_base["categoria_id"],
@@ -256,7 +305,7 @@ def datos_inventario_invalido(motor, datos_base):
         )
         dos_filas = Producto(
             nombre="Producto en dos depositos",
-            descripcion="Tiene una fila de inventario por deposito",
+            descripcion="Solo tiene saldo en una sede distinta a la del ticket",
             unidad_medida="UNIDAD",
             stock_minimo=0,
             categoria_id=datos_base["categoria_id"],
@@ -265,24 +314,13 @@ def datos_inventario_invalido(motor, datos_base):
         db.add_all([sin_inventario, dos_filas])
         db.flush()
 
-        db.add_all(
-            [
-                Inventario(
-                    stock_actual=10,
-                    ubicacion="Deposito A",
-                    departamento_id=datos_base["departamento_id"],
-                    producto_id=dos_filas.producto_id,
-                    institucion_id=datos_base["institucion_id"],
-                ),
-                Inventario(
-                    stock_actual=10,
-                    ubicacion="Deposito B",
-                    departamento_id=segundo_departamento.departamento_id,
-                    producto_id=dos_filas.producto_id,
-                    institucion_id=datos_base["institucion_id"],
-                ),
-            ]
+        stock_alterno = StockSede(
+            sede_id=sede_alterna.sede_id,
+            producto_id=dos_filas.producto_id,
+            stock_actual=10,
+            institucion_id=datos_base["institucion_id"],
         )
+        db.add(stock_alterno)
         db.commit()
 
         datos = _quitar_estados_base(datos_base)
@@ -294,6 +332,7 @@ def datos_inventario_invalido(motor, datos_base):
                 "estado_cerrado_id": ids["Cerrado"],
                 "producto_sin_inventario_id": sin_inventario.producto_id,
                 "producto_dos_filas_id": dos_filas.producto_id,
+                "sede_alterna_id": sede_alterna.sede_id,
             }
         )
         return datos
@@ -369,13 +408,27 @@ def leer_ticket(cliente, ticket_id: int) -> dict:
 
 
 def leer_stock(cliente, inventario_id: int) -> int:
-    """Lee el `stock_actual` persistido de una fila de inventario por HTTP."""
-    respuesta = cliente.get("/api/v1/inventario/stock")
-    assert respuesta.status_code == 200, respuesta.text
-    fila = next(
-        i for i in respuesta.json() if i["inventario_id"] == inventario_id
+    """Saldo por sede del producto de una fila de inventario legado.
+
+    Feature 011 (T9/B1): el despacho ya no rebaja el inventario departamental sino
+    `stock_sede`. La fila legada se usa solo para localizar su producto (por ORM:
+    `GET /inventario/stock` dejo de exponer el inventario departamental), y el
+    saldo se lee en la sede del departamento (la unica que el despacho toca en
+    esta suite). Asi los casos previos siguen midiendo el efecto real del despacho.
+    """
+    with sessionmaker(bind=_MOTOR)() as db:
+        producto_id = db.get(Inventario, inventario_id).producto_id
+
+    existencias = cliente.get("/api/v1/inventario/existencias")
+    assert existencias.status_code == 200, existencias.text
+    producto = next(
+        e for e in existencias.json() if e["producto_id"] == producto_id
     )
-    return fila["stock_actual"]
+    return next(
+        s["stock_actual"]
+        for s in producto["sedes"]
+        if s["sede_id"] == _SEDE_BASE_ID
+    )
 
 
 def salidas_persistidas(motor) -> list[dict]:
@@ -521,7 +574,9 @@ def test_despacho_registra_una_salida_con_observacion_literal(
     salida = salidas[0]
     assert salida["tipo_movimiento"] == "SALIDA"
     assert salida["cantidad"] == 3
-    assert salida["inventario_id"] == datos_despacho["inventario_id"]
+    assert salida["inventario_id"] is None, (
+        "Feature 011: el movimiento nuevo se enlaza por stock_sede_id"
+    )
     assert salida["observacion"] == observacion_esperada
 
 
@@ -556,7 +611,9 @@ def test_despacho_de_dos_lineas_del_mismo_producto_suma_stock_y_deja_una_por_lin
     salidas = salidas_del_ticket(motor, ticket_id)
     assert len(salidas) == 2, "cada línea conserva su propio movimiento (D-7)"
     assert sorted(m["cantidad"] for m in salidas) == [3, 4]
-    assert {m["inventario_id"] for m in salidas} == {datos_despacho["inventario_id"]}
+    assert {m["inventario_id"] for m in salidas} == {None}, (
+        "Feature 011: los movimientos nuevos dejan inventario_id nulo"
+    )
     assert {m["tipo_movimiento"] for m in salidas} == {"SALIDA"}
 
     persistido = leer_ticket(cliente, ticket_id)
@@ -974,7 +1031,7 @@ def test_despacho_resuelve_los_nombres_sin_distinguir_mayusculas(
 def test_despacho_rechaza_producto_sin_fila_de_inventario(
     cliente, motor, datos_inventario_invalido
 ):
-    """AC-9: un detalle sin ninguna fila de inventario → 409 sin efectos."""
+    """AC-9: un detalle sin saldo en la sede del ticket → 409 sin efectos."""
     stock = leer_stock(cliente, datos_inventario_invalido["inventario_id"])
     ticket_id = abrir_ticket_en_curso(
         cliente,
@@ -992,7 +1049,7 @@ def test_despacho_rechaza_producto_sin_fila_de_inventario(
     )
 
     assert respuesta.status_code == 409, respuesta.text
-    assert "inventario" in respuesta.json()["detail"].lower()
+    assert "stock" in respuesta.json()["detail"].lower()
     verificar_sin_efectos(
         cliente,
         motor,
@@ -1002,10 +1059,15 @@ def test_despacho_rechaza_producto_sin_fila_de_inventario(
     )
 
 
-def test_despacho_rechaza_producto_con_dos_filas_de_inventario(
+def test_despacho_rechaza_producto_con_saldo_solo_en_otra_sede(
     cliente, motor, datos_inventario_invalido
 ):
-    """AC-9: un detalle con dos filas de inventario → 409 y no elige depósito."""
+    """AC-9: el despacho no usa el saldo de otra sede; 409 sin elegir bodega.
+
+    Feature 011 (T9): la unicidad `(sede_id, producto_id)` hace imposible el caso
+    de "dos filas del mismo producto" del modelo departamental; su equivalente es
+    un producto con saldo **solo en otra sede**, que el despacho no debe tocar.
+    """
     stock = leer_stock(cliente, datos_inventario_invalido["inventario_id"])
     ticket_id = abrir_ticket_en_curso(
         cliente,
@@ -1023,7 +1085,7 @@ def test_despacho_rechaza_producto_con_dos_filas_de_inventario(
     )
 
     assert respuesta.status_code == 409, respuesta.text
-    assert "inventario" in respuesta.json()["detail"].lower()
+    assert "stock" in respuesta.json()["detail"].lower()
     verificar_sin_efectos(
         cliente,
         motor,

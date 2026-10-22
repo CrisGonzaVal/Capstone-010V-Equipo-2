@@ -10,7 +10,15 @@ reemplazarla, para no duplicar el catalogo minimo ni modificar `conftest.py`.
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Departamento, EstadoTicket, Institucion, Producto, Prioridad
+from app.models import (
+    Departamento,
+    EstadoTicket,
+    Institucion,
+    Producto,
+    Prioridad,
+    Sede,
+    StockSede,
+)
 
 
 @pytest.fixture
@@ -44,6 +52,26 @@ def datos_catalogo_ticket(motor, datos_base):
             institucion_id=datos_base["institucion_id"],
         )
         db.add(producto_sin_stock)
+        db.flush()
+
+        # Feature 011 (T8): el saldo vigente vive en `stock_sede`. Se siembra la
+        # sede del cuaderno (50) para que `GET /inventario/existencias` y el
+        # catalogo de tickets coincidan (la comparacion de AC-3 los contrasta).
+        sede = Sede(
+            nombre="Sede Ticket", institucion_id=datos_base["institucion_id"]
+        )
+        db.add(sede)
+        db.flush()
+        departamento = db.get(Departamento, datos_base["departamento_id"])
+        departamento.sede_id = sede.sede_id
+        db.add(
+            StockSede(
+                sede_id=sede.sede_id,
+                producto_id=datos_base["producto_id"],
+                stock_actual=50,
+                institucion_id=datos_base["institucion_id"],
+            )
+        )
         db.commit()
 
         prioridades = db.query(Prioridad).order_by(Prioridad.prioridad_id).all()
@@ -231,8 +259,6 @@ def test_catalogos_vacios_responden_listas_vacias(cliente, motor):
         institucion = Institucion(
             institucion_id="INST01",
             nombre="Instituto de Prueba",
-            rut="1-9",
-            direccion="Calle Falsa 123",
         )
         db.add(institucion)
         db.flush()

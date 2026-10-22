@@ -1,0 +1,28 @@
+<div class="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+  <p class="font-semibold">{{ titulo() }}</p>
+  <p class="mt-1">
+    Copia y comparte este enlace ahora: por seguridad no se guarda ni vuelve a mostrarse
+    en el listado.
+  </p>
+  <div class="mt-3 flex flex-wrap items-center gap-2">
+    <code class="max-w-full overflow-x-auto rounded bg-white px-2 py-1 font-mono text-xs text-slate-700">
+      {{ url() }}
+    </code>
+    <button
+      type="button"
+      class="rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-800 transition hover:bg-sky-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+      (click)="copiar()"
+    >
+      Copiar enlace
+    </button>
+  </div>
+  @if (copiado()) {
+    <p role="status" aria-live="polite" class="mt-2 text-xs text-emerald-700">
+      Enlace copiado al portapapeles.
+    </p>
+  } @else if (errorCopia()) {
+    <p role="alert" class="mt-2 text-xs text-rose-700">
+      No se pudo copiar automáticamente; selecciona el enlace y cópialo manualmente.
+    </p>
+  }
+</div>

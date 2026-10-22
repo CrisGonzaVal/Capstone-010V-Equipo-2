@@ -30,7 +30,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api import dependencies
 from app.main import app
-from app.models import Rol, Usuario
+from app.models import Rol, Sede, StockSede, Usuario
 from app.services.auth_service import IdentidadAutenticada
 
 RUTA_CATALOGOS = "/api/v1/tickets/catalogos"
@@ -111,18 +111,54 @@ def test_catalogos_de_flujo_son_compartidos_por_ambas_instituciones(
 # ---------------------------------------------------------------------------
 
 
+def _sembrar_stock_sede(motor, institucion_id: str, producto_id: int, stock: int) -> None:
+    """Siembra el saldo vigente de un producto en una sede nueva (Feature 011, D-2)."""
+    db = sessionmaker(bind=motor)()
+    try:
+        sede = Sede(nombre=f"Sede {institucion_id}", institucion_id=institucion_id)
+        db.add(sede)
+        db.flush()
+        db.add(
+            StockSede(
+                sede_id=sede.sede_id,
+                producto_id=producto_id,
+                stock_actual=stock,
+                institucion_id=institucion_id,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
 def test_homonimos_son_registros_independientes_con_stock_propio(
     motor, dos_instituciones
 ):
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        existencias = supervisor.get(RUTA_EXISTENCIAS).json()
+    # Feature 011 (T8): el saldo vigente sale de `stock_sede`, no del inventario
+    # departamental legado. Se siembra una sede con saldo por institucion.
+    _sembrar_stock_sede(motor, "INST01", dos_instituciones["producto_id"], 50)
+    _sembrar_stock_sede(
+        motor, "INST02", dos_instituciones["producto_homonimo_ajeno_id"], 5
+    )
+
+    # Feature 017 (D-9/AC-15): el Superadmin ya no lee existencias; cada
+    # institucion observa su propio catalogo con su Administrador.
+    with _cliente(
+        motor, "Administrador", dos_instituciones["departamento_id"]
+    ) as cliente_propio:
+        existencias_propias = cliente_propio.get(RUTA_EXISTENCIAS).json()
+    with _cliente(
+        motor, "Administrador", dos_instituciones["departamento_ajeno_id"]
+    ) as cliente_ajeno:
+        existencias_ajenas = cliente_ajeno.get(RUTA_EXISTENCIAS).json()
 
     propio = next(
-        e for e in existencias if e["producto_id"] == dos_instituciones["producto_id"]
+        e for e in existencias_propias
+        if e["producto_id"] == dos_instituciones["producto_id"]
     )
     ajeno = next(
         e
-        for e in existencias
+        for e in existencias_ajenas
         if e["producto_id"] == dos_instituciones["producto_homonimo_ajeno_id"]
     )
 

@@ -1,0 +1,199 @@
+<div class="mx-auto max-w-3xl space-y-6">
+  <header>
+    <h2 class="text-2xl font-bold text-slate-800">Alta de institución</h2>
+    <p class="text-sm text-slate-500">
+      Aprovisiona una institución y su primer Administrador. El nombre de esquema, la
+      versión y el estado los deriva el servidor.
+    </p>
+  </header>
+
+  @if (exito(); as resultado) {
+    <div
+      role="status"
+      aria-live="polite"
+      class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+    >
+      <p class="font-semibold">{{ resultado.mensaje }}</p>
+      <p class="mt-1">
+        Institución: <strong>{{ resultado.nombre }}</strong> ({{ resultado.institucion_id }})
+      </p>
+      <p class="mt-1">
+        Esquema: <code class="font-mono">{{ resultado.nombre_esquema }}</code> · versión
+        {{ resultado.version_esquema }} · estado {{ resultado.estado }}
+      </p>
+    </div>
+
+    @if (resultado.url_invitacion) {
+      <app-enlace-invitacion
+        [url]="resultado.url_invitacion"
+        [titulo]="'Invitación del primer Administrador'"
+      />
+    }
+  }
+
+  @if (error(); as mensaje) {
+    <p
+      role="alert"
+      class="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+    >
+      {{ mensaje }}
+    </p>
+  }
+
+  <form
+    [formGroup]="formulario"
+    (ngSubmit)="aprovisionar()"
+    novalidate
+    class="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2"
+  >
+    <div class="flex flex-col gap-1">
+      <label for="institucion_id" class="text-sm font-medium text-slate-700">
+        Identificador de institución <span aria-hidden="true" class="text-rose-600">*</span>
+      </label>
+      <input
+        id="institucion_id"
+        type="text"
+        formControlName="institucion_id"
+        autocomplete="off"
+        class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      />
+      @if (
+        formulario.controls.institucion_id.invalid &&
+        formulario.controls.institucion_id.touched
+      ) {
+        <p class="text-xs text-rose-600">El identificador es obligatorio.</p>
+      }
+    </div>
+
+    <div class="flex flex-col gap-1">
+      <label for="nombre" class="text-sm font-medium text-slate-700">
+        Nombre <span aria-hidden="true" class="text-rose-600">*</span>
+      </label>
+      <input
+        id="nombre"
+        type="text"
+        formControlName="nombre"
+        class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      />
+      @if (formulario.controls.nombre.invalid && formulario.controls.nombre.touched) {
+        <p class="text-xs text-rose-600">El nombre es obligatorio.</p>
+      }
+    </div>
+
+    <div class="flex flex-col gap-1">
+      <label for="rut" class="text-sm font-medium text-slate-700">RUT (opcional)</label>
+      <input
+        id="rut"
+        type="text"
+        formControlName="rut"
+        class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      />
+    </div>
+
+    <div class="flex flex-col gap-1">
+      <label for="direccion" class="text-sm font-medium text-slate-700">
+        Dirección (opcional)
+      </label>
+      <input
+        id="direccion"
+        type="text"
+        formControlName="direccion"
+        class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      />
+    </div>
+
+    <div class="flex flex-col gap-1 md:col-span-2">
+      <label for="correo_administrador" class="text-sm font-medium text-slate-700">
+        Correo del Administrador (debe existir en Clerk)
+        <span aria-hidden="true" class="text-rose-600">*</span>
+      </label>
+      <input
+        id="correo_administrador"
+        type="email"
+        formControlName="correo_administrador"
+        autocomplete="off"
+        class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      />
+      @if (
+        formulario.controls.correo_administrador.invalid &&
+        formulario.controls.correo_administrador.touched
+      ) {
+        <p class="text-xs text-rose-600">Ingresa un correo válido.</p>
+      }
+    </div>
+
+    <div class="flex flex-col gap-1">
+      <label for="nombre_administrador" class="text-sm font-medium text-slate-700">
+        Nombre del Administrador <span aria-hidden="true" class="text-rose-600">*</span>
+      </label>
+      <input
+        id="nombre_administrador"
+        type="text"
+        formControlName="nombre_administrador"
+        class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      />
+      @if (
+        formulario.controls.nombre_administrador.invalid &&
+        formulario.controls.nombre_administrador.touched
+      ) {
+        <p class="text-xs text-rose-600">El nombre es obligatorio.</p>
+      }
+    </div>
+
+    <div class="flex flex-col gap-1">
+      <label for="apellido_administrador" class="text-sm font-medium text-slate-700">
+        Apellido del Administrador <span aria-hidden="true" class="text-rose-600">*</span>
+      </label>
+      <input
+        id="apellido_administrador"
+        type="text"
+        formControlName="apellido_administrador"
+        class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      />
+      @if (
+        formulario.controls.apellido_administrador.invalid &&
+        formulario.controls.apellido_administrador.touched
+      ) {
+        <p class="text-xs text-rose-600">El apellido es obligatorio.</p>
+      }
+    </div>
+
+    <div class="flex flex-col gap-1 md:col-span-2">
+      <label
+        for="departamento_nombre_administrativo"
+        class="text-sm font-medium text-slate-700"
+      >
+        Departamento administrativo
+        <span aria-hidden="true" class="text-rose-600">*</span>
+      </label>
+      <input
+        id="departamento_nombre_administrativo"
+        type="text"
+        formControlName="departamento_nombre_administrativo"
+        class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      />
+      @if (
+        formulario.controls.departamento_nombre_administrativo.invalid &&
+        formulario.controls.departamento_nombre_administrativo.touched
+      ) {
+        <p class="text-xs text-rose-600">El departamento es obligatorio.</p>
+      }
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3 md:col-span-2">
+      <button
+        type="submit"
+        [disabled]="enviando()"
+        class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
+      >
+        Aprovisionar institución
+      </button>
+
+      @if (enviando()) {
+        <span role="status" aria-live="polite" class="text-sm text-slate-500">
+          Aprovisionando institución...
+        </span>
+      }
+    </div>
+  </form>
+</div>

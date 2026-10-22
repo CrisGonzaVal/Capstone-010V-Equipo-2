@@ -29,6 +29,7 @@ from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.api import dependencies
@@ -43,6 +44,8 @@ from app.models import (
     MovimientoInventario,
     Producto,
     Rol,
+    Sede,
+    StockSede,
     Ticket,
     Usuario,
 )
@@ -50,7 +53,6 @@ from app.services.auth_service import IdentidadAutenticada
 
 RUTA_TICKETS = "/api/v1/tickets/"
 RUTA_CATALOGOS = "/api/v1/tickets/catalogos"
-RUTA_STOCK = "/api/v1/inventario/stock"
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +98,19 @@ def particion(motor, datos_base):
             db.flush()
             estados[nombre] = estado.estado_id
 
+        # Feature 011 (T9): la sede de INST01 sostiene la instantanea del ticket y
+        # el stock que el despacho rebaja. Se anade una fila de `stock_sede` del
+        # producto propio (40) y otra **cruzada** (misma sede, `institucion_id`
+        # INST02) para ejercer la defensa en profundidad del servicio, sembrada
+        # con las FK desactivadas como el resto de cruces de esta fixture.
+        sede_propia = Sede(
+            nombre="Sede Operaciones", institucion_id="INST01"
+        )
+        db.add(sede_propia)
+        db.flush()
+        departamento_propio = db.get(Departamento, datos_base["departamento_id"])
+        departamento_propio.sede_id = sede_propia.sede_id
+
         # Solicitante propio (INST01), persistido para la autoatribucion.
         solicitante = Usuario(
             nombre="Sofi",
@@ -111,8 +126,6 @@ def particion(motor, datos_base):
         institucion_ajena = Institucion(
             institucion_id="INST02",
             nombre="Instituto Ajeno",
-            rut="2-9",
-            direccion="Otra Calle 456",
         )
         db.add(institucion_ajena)
         db.flush()
@@ -201,13 +214,51 @@ def particion(motor, datos_base):
         db.add(inventario_cruzado)
         db.flush()
 
-        def nuevo_ticket(usuario_id, estado_id, asunto, producto_id, institucion_id=None):
+        # Feature 011 (T9): existencias por sede de INST01. La del producto propio
+        # sostiene el despacho valido y el de falta de stock; la del producto
+        # cruzado declara `institucion_id` INST02 (cruce, FK desactivada) para que
+        # el servicio la rechace al no pertenecer a la institucion del ticket.
+        db.add(
+            StockSede(
+                sede_id=sede_propia.sede_id,
+                producto_id=producto_propio.producto_id,
+                stock_actual=40,
+                institucion_id="INST01",
+            )
+        )
+        db.add(
+            StockSede(
+                sede_id=sede_propia.sede_id,
+                producto_id=producto_cruce_inventario.producto_id,
+                stock_actual=5,
+                institucion_id="INST02",
+            )
+        )
+        # Feature 011 (M2): el catalogo de INST02 agrega su saldo por sede, no el
+        # inventario departamental legado. Se siembra el homonimo ajeno con su sede.
+        sede_ajena = Sede(nombre="Bodega Sur", institucion_id="INST02")
+        db.add(sede_ajena)
+        db.flush()
+        db.add(
+            StockSede(
+                sede_id=sede_ajena.sede_id,
+                producto_id=producto_ajeno.producto_id,
+                stock_actual=7,
+                institucion_id="INST02",
+            )
+        )
+        db.flush()
+
+        def nuevo_ticket(
+            usuario_id, estado_id, asunto, producto_id, institucion_id=None, sede_id=None
+        ):
             ticket = Ticket(
                 usuario_id=usuario_id,
                 prioridad_id=datos_base["prioridad_id"],
                 estado_id=estado_id,
                 asunto=asunto,
                 institucion_id=institucion_id,
+                sede_id=sede_id,
             )
             db.add(ticket)
             db.flush()
@@ -240,6 +291,7 @@ def particion(motor, datos_base):
             "estado_en_revision_id": estados["EnRevision"],
             "estado_en_curso_id": estados["EnCurso"],
             "estado_cerrado_id": estados["Cerrado"],
+            "sede_propia_id": sede_propia.sede_id,
             "ticket_ajeno_estado_id": nuevo_ticket(
                 usuario_ajeno.usuario_id,
                 estados["EnRevision"],
@@ -253,6 +305,7 @@ def particion(motor, datos_base):
                 "Cruce de producto",
                 producto_ajeno.producto_id,
                 institucion_id="INST01",
+                sede_id=sede_propia.sede_id,
             ),
             "ticket_cruce_inventario_id": nuevo_ticket(
                 solicitante.usuario_id,
@@ -260,6 +313,7 @@ def particion(motor, datos_base):
                 "Cruce de inventario",
                 producto_cruce_inventario.producto_id,
                 institucion_id="INST01",
+                sede_id=sede_propia.sede_id,
             ),
             "ticket_falta_stock_id": nuevo_ticket(
                 solicitante.usuario_id,
@@ -267,6 +321,7 @@ def particion(motor, datos_base):
                 "Falta de stock",
                 producto_propio.producto_id,
                 institucion_id="INST01",
+                sede_id=sede_propia.sede_id,
             ),
         }
         # El ticket de falta de stock pide 100 sobre un stock de 40.
@@ -336,17 +391,21 @@ def _ticket(listado, ticket_id):
     return next(t for t in listado if t["ticket_id"] == ticket_id)
 
 
-def _stock(cliente, inventario_id: int) -> int:
-    respuesta = cliente.get(RUTA_STOCK)
-    assert respuesta.status_code == 200, respuesta.text
-    return next(
-        i for i in respuesta.json() if i["inventario_id"] == inventario_id
-    )["stock_actual"]
+def _stock_sede(motor, sede_id: int, producto_id: int) -> int:
+    """Saldo persistido de un producto en una sede (Feature 011)."""
+    with sessionmaker(bind=motor)() as db:
+        fila = db.execute(
+            select(StockSede).where(
+                StockSede.sede_id == sede_id,
+                StockSede.producto_id == producto_id,
+            )
+        ).scalar_one()
+        return fila.stock_actual
 
 
 def _stock_persistido(motor, inventario_id: int) -> int:
-    """`stock_actual` leido de la fila: sirve para inventarios fuera del alcance del
-    actor, que no aparecen en `GET /inventario/stock`."""
+    """`stock_actual` leido de la fila: sirve para inventarios fuera del alcance
+    del actor, que el endpoint de saldo por sede no expone."""
     db = sessionmaker(bind=motor)()
     try:
         return db.get(Inventario, inventario_id).stock_actual
@@ -364,6 +423,7 @@ def _salidas_del_ticket(motor, ticket_id: int) -> list[dict]:
                 "tipo_movimiento": m.tipo_movimiento,
                 "cantidad": m.cantidad,
                 "inventario_id": m.inventario_id,
+                "stock_sede_id": m.stock_sede_id,
                 "observacion": m.observacion,
             }
             for m in db.query(MovimientoInventario).all()
@@ -467,14 +527,16 @@ def test_catalogos_bodeguero_ajeno_no_suma_stock_propio(motor, particion):
     assert particion["producto_propio_id"] not in productos
 
 
-def test_catalogos_superadmin_global_atribuye_institucion(motor, particion):
+def test_catalogos_superadmin_recibe_403_ac_15(motor, particion):
+    """Feature 017 (D-9/AC-15, T10): no hay lectura global del catalogo.
+
+    El catalogo del modal expone productos y stock de una institucion, asi que
+    se retira al Superadmin igual que el resto de lecturas de negocio.
+    """
     with _cliente(motor, "Superadmin", None) as cliente:
         respuesta = cliente.get(RUTA_CATALOGOS)
-    assert respuesta.status_code == 200, respuesta.text
-
-    productos = {p["producto_id"]: p for p in respuesta.json()["productos"]}
-    assert productos[particion["producto_propio_id"]]["institucion_id"] == "INST01"
-    assert productos[particion["producto_ajeno_id"]]["institucion_id"] == "INST02"
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +577,12 @@ def test_crear_ticket_con_solicitante_ajeno_404_sin_parcial(motor, particion):
 
 
 def test_crear_ticket_puebla_institucion_en_ticket_y_detalle(motor, particion):
-    with _cliente(motor, "Administrador", particion["departamento_id"]) as cliente:
+    # El actor autenticado debe ser un usuario persistido: desde la 013 cada
+    # mutacion del ciclo de vida inserta su fila de historial con FK a
+    # `usuario` (AC-9), y la identidad sintetica 9999 no existe en la BD.
+    with _cliente(
+        motor, "Administrador", particion["departamento_id"], particion["usuario_id"]
+    ) as cliente:
         respuesta = cliente.post(
             RUTA_TICKETS,
             json=_payload(
@@ -552,10 +619,10 @@ def test_solicitante_ignora_usuario_ajeno_y_conserva_autoatribucion(motor, parti
 
 
 def test_patch_ticket_ajeno_404_sin_cambiar(motor, particion):
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        antes = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), particion["ticket_ajeno_estado_id"]
-        )["estado_id"]
+    # Feature 017 (D-9/AC-15): el Superadmin ya no lista tickets; el estado se
+    # observa por ORM antes y despues.
+    with sessionmaker(bind=motor)() as db:
+        antes = db.get(Ticket, particion["ticket_ajeno_estado_id"]).estado_id
 
     with _cliente(motor, "Bodeguero", particion["departamento_id"]) as cliente:
         respuesta = cliente.patch(
@@ -563,10 +630,8 @@ def test_patch_ticket_ajeno_404_sin_cambiar(motor, particion):
             json={"estado_id": particion["estado_en_curso_id"]},
         )
 
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        despues = _ticket(
-            supervisor.get(RUTA_TICKETS).json(), particion["ticket_ajeno_estado_id"]
-        )["estado_id"]
+    with sessionmaker(bind=motor)() as db:
+        despues = db.get(Ticket, particion["ticket_ajeno_estado_id"]).estado_id
 
     assert respuesta.status_code == 404, respuesta.text
     assert despues == antes
@@ -629,8 +694,14 @@ def test_despacho_falta_stock_409_sin_efectos(motor, particion):
 
 
 def test_despacho_valido_actualiza_stock_entrega_estado_y_auditoria(motor, particion):
-    with _cliente(motor, "Bodeguero", particion["departamento_id"]) as cliente:
-        stock_inicial = _stock(cliente, particion["inventario_propio_id"])
+    # Actor persistido: el despacho registra su fila de historial con FK a
+    # `usuario` (013, AC-9); la sonda sintetica 9999 no existe en la BD.
+    with _cliente(
+        motor, "Bodeguero", particion["departamento_id"], particion["usuario_id"]
+    ) as cliente:
+        stock_inicial = _stock_sede(
+            motor, particion["sede_propia_id"], particion["producto_propio_id"]
+        )
         ticket_id = _abrir_ticket_en_curso(
             cliente,
             particion,
@@ -647,13 +718,19 @@ def test_despacho_valido_actualiza_stock_entrega_estado_y_auditoria(motor, parti
         cuerpo = respuesta.json()
         assert cuerpo["estado_id"] == particion["estado_cerrado_id"]
         assert [d["cantidad_entregada"] for d in cuerpo["detalles"]] == [3]
-        assert _stock(cliente, particion["inventario_propio_id"]) == stock_inicial - 3
+        assert (
+            _stock_sede(
+                motor, particion["sede_propia_id"], particion["producto_propio_id"]
+            )
+            == stock_inicial - 3
+        )
 
         salidas = _salidas_del_ticket(motor, ticket_id)
         assert len(salidas) == 1
         assert salidas[0]["tipo_movimiento"] == "SALIDA"
         assert salidas[0]["cantidad"] == 3
-        assert salidas[0]["inventario_id"] == particion["inventario_propio_id"]
+        assert salidas[0]["inventario_id"] is None
+        assert salidas[0]["stock_sede_id"] is not None
 
 
 def test_despacho_revierte_todo_si_el_commit_falla(motor, particion):
@@ -665,8 +742,16 @@ def test_despacho_revierte_todo_si_el_commit_falla(motor, particion):
     """
     from sqlalchemy.orm import Session
 
-    with _cliente(motor, "Bodeguero", particion["departamento_id"]) as cliente_previo:
-        stock_inicial = _stock(cliente_previo, particion["inventario_propio_id"])
+    # Actor persistido para la fila de historial del despacho (013, AC-9).
+    with _cliente(
+        motor,
+        "Bodeguero",
+        particion["departamento_id"],
+        particion["usuario_id"],
+    ) as cliente_previo:
+        stock_inicial = _stock_sede(
+            motor, particion["sede_propia_id"], particion["producto_propio_id"]
+        )
         ticket_id = _abrir_ticket_en_curso(
             cliente_previo,
             particion,
@@ -698,5 +783,11 @@ def test_despacho_revierte_todo_si_el_commit_falla(motor, particion):
             motor,
             ticket_id,
             particion["estado_en_curso_id"],
-            {particion["inventario_propio_id"]: stock_inicial},
+            {particion["inventario_propio_id"]: 40},
         )
+        assert (
+            _stock_sede(
+                motor, particion["sede_propia_id"], particion["producto_propio_id"]
+            )
+            == stock_inicial
+        ), "el rollback debe conservar el saldo por sede"

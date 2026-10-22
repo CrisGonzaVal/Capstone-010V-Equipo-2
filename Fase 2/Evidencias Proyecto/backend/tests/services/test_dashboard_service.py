@@ -41,6 +41,8 @@ from app.models import (
     Prioridad,
     Producto,
     Rol,
+    Sede,
+    StockSede,
     Ticket,
     Usuario,
 )
@@ -93,8 +95,8 @@ def escenario(motor):
     """
     db = sessionmaker(bind=motor)()
     try:
-        inst_a = Institucion(institucion_id="INSTA", nombre="Instituto Alfa", rut="11-1")
-        inst_b = Institucion(institucion_id="INSTB", nombre="Instituto Beta", rut="22-2")
+        inst_a = Institucion(institucion_id="INSTA", nombre="Instituto Alfa")
+        inst_b = Institucion(institucion_id="INSTB", nombre="Instituto Beta")
         db.add_all([inst_a, inst_b])
         db.flush()
 
@@ -186,6 +188,40 @@ def escenario(motor):
         inventario(papel_a, dep_arc_a, M_PAPEL + 1)
         inventario(cero_a, dep_op_a, 0)
         inventario(papel_b, dep_op_b, 3)
+
+        # Feature 011 (spec D-6/AC-11): el saldo vigente vive por sede. Se crea una
+        # sede por departamento y las filas de stock equivalentes; las de
+        # `inventario` quedan como legado para los movimientos historicos.
+        def sede(nombre: str, dep: Departamento, institucion_id: str) -> Sede:
+            fila = Sede(nombre=nombre, institucion_id=institucion_id)
+            db.add(fila)
+            db.flush()
+            dep.sede_id = fila.sede_id
+            db.flush()
+            return fila
+
+        sede_op_a = sede("Operaciones", dep_op_a, "INSTA")
+        sede_bod_a = sede("Bodega", dep_bod_a, "INSTA")
+        sede_arc_a = sede("Archivo", dep_arc_a, "INSTA")
+        sede("Sin Inventario", dep_vacia_a, "INSTA")
+        sede_op_b = sede("Operaciones", dep_op_b, "INSTB")
+
+        def stock_por_sede(prod: Producto, sde: Sede, stock: int) -> StockSede:
+            fila = StockSede(
+                stock_actual=stock,
+                sede_id=sde.sede_id,
+                producto_id=prod.producto_id,
+                institucion_id=prod.institucion_id,
+            )
+            db.add(fila)
+            db.flush()
+            return fila
+
+        stock_por_sede(papel_a, sede_op_a, M_PAPEL - 1)
+        stock_por_sede(papel_a, sede_bod_a, M_PAPEL)
+        stock_por_sede(papel_a, sede_arc_a, M_PAPEL + 1)
+        stock_por_sede(cero_a, sede_op_a, 0)
+        stock_por_sede(papel_b, sede_op_b, 3)
 
         prioridad = Prioridad(nombre="ALTA", descripcion="Prioridad alta")
         db.add(prioridad)
@@ -359,7 +395,7 @@ def test_alertas_por_fila_y_kpi_igual_al_listado(motor, escenario):
         db.close()
 
     claves = {
-        (a.producto_nombre, a.departamento_nombre, a.stock_actual)
+        (a.producto_nombre, a.sede_nombre, a.stock_actual)
         for a in insta.alertas
     }
     assert claves == {

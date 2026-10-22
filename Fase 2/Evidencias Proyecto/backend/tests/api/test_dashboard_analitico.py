@@ -43,6 +43,8 @@ from app.models import (
     Prioridad,
     Producto,
     Rol,
+    Sede,
+    StockSede,
     Ticket,
     Usuario,
 )
@@ -67,19 +69,19 @@ CAMPOS_KPI = {
     "total_departamentos",
     "total_alertas",
 }
-#: Campos de cada fila del log de alertas (plan §1).
+#: Campos de cada fila del log de alertas (Feature 011: la alerta es por sede).
 CAMPOS_ALERTA = {
-    "inventario_id",
+    "sede_id",
+    "sede_nombre",
     "producto_id",
     "producto_nombre",
-    "departamento_id",
-    "departamento_nombre",
     "stock_actual",
     "stock_minimo",
     "institucion_id",
     "institucion_nombre",
 }
-#: Campos de cada fila de la actividad reciente (plan §1).
+#: Campos de cada fila de la actividad reciente (Feature 011: proyeccion unica;
+#: `sede` para movimientos nuevos y `departamento`/`ubicacion` para los legados).
 CAMPOS_ACTIVIDAD = {
     "movimiento_id",
     "tipo_movimiento",
@@ -87,6 +89,8 @@ CAMPOS_ACTIVIDAD = {
     "fecha_movimiento",
     "producto_id",
     "producto_nombre",
+    "sede_id",
+    "sede_nombre",
     "departamento_id",
     "departamento_nombre",
     "ubicacion",
@@ -203,37 +207,26 @@ def test_dashboard_consolidado_responde_200_con_el_contrato(motor, datos_base):
     assert isinstance(cuerpo["actividad_movimientos"], list)
 
 
-def test_dashboard_sin_datos_devuelve_ceros_y_listas_vacias(motor):
-    """AC-13/AC-1: sin filas el dashboard responde 200 con KPI en cero y listas vacias.
+def test_dashboard_superadmin_recibe_403_sin_datos_ac_15(motor):
+    """Feature 017 (D-9/AC-15): el Superadmin ya no consulta el dashboard.
 
-    Superadmin sobre una base vacia (solo el fixture `motor`): el alcance global no
-    requiere sembrar instituciones. En rojo falla con 404.
+    La semantica de ceros sin filas queda cubierta por el servicio; aqui se fija
+    la frontera HTTP: 403 y ningun campo de negocio.
     """
     with _cliente(motor, "Superadmin", departamento_id=None) as cliente:
-        cuerpo = _leer_dashboard(cliente)
+        respuesta = cliente.get(RUTA_DASHBOARD)
 
-    assert cuerpo["kpi"] == {
-        "unidades_en_stock": 0,
-        "tickets_activos": 0,
-        "total_departamentos": 0,
-        "total_alertas": 0,
-    }, "los KPI sin filas devuelven cero"
-    assert cuerpo["alertas"] == []
-    assert cuerpo["actividad_disponible"] is True
-    assert cuerpo["actividad_movimientos"] == []
+    assert respuesta.status_code == 403, respuesta.text
+    assert respuesta.json() == {"detail": "Permiso insuficiente para la operacion"}
+    assert "kpi" not in respuesta.json()
 
 
-@pytest.mark.parametrize("rol", _ROLES)
-def test_dashboard_permite_a_los_cuatro_roles(motor, datos_base, rol):
-    """AC-14: los cuatro roles literales consultan el dashboard con 200.
-
-    Superadmin con alcance global; los tres roles limitados con el departamento
-    sembrado de INST01. En rojo falla con 404 para cada rol.
-    """
-    departamento_id = (
-        None if rol == "Superadmin" else datos_base["departamento_id"]
-    )
-    with _cliente(motor, rol, departamento_id=departamento_id) as cliente:
+@pytest.mark.parametrize("rol", ["Administrador", "Bodeguero", "Solicitante"])
+def test_dashboard_permite_a_los_tres_roles_institucionales(motor, datos_base, rol):
+    """Feature 017 (D-9/AC-15): los tres roles institucionales conservan el 200."""
+    with _cliente(
+        motor, rol, departamento_id=datos_base["departamento_id"]
+    ) as cliente:
         respuesta = cliente.get(RUTA_DASHBOARD)
 
     assert respuesta.status_code == 200, (rol, respuesta.text)
@@ -344,8 +337,8 @@ def escenario_kpi(motor):
     """
     db = sessionmaker(bind=motor)()
     try:
-        inst_a = Institucion(institucion_id="INSTA", nombre="Instituto Alfa", rut="11-1")
-        inst_b = Institucion(institucion_id="INSTB", nombre="Instituto Beta", rut="22-2")
+        inst_a = Institucion(institucion_id="INSTA", nombre="Instituto Alfa")
+        inst_b = Institucion(institucion_id="INSTB", nombre="Instituto Beta")
         db.add_all([inst_a, inst_b])
         db.flush()
 
@@ -434,6 +427,41 @@ def escenario_kpi(motor):
         inv_cero = _inventario(cero_a, dep_op_a, 0)
         inv_papel_b = _inventario(papel_b, dep_op_b, STOCK_PAPEL_B)
 
+        # Feature 011 (spec D-6/AC-11): la fuente vigente de saldo es `stock_sede`.
+        # Se crea una sede por departamento (con su denominacion) y las filas de
+        # stock equivalentes a las de `inventario`; esas filas legadas quedan para
+        # los movimientos historicos de la actividad.
+        def _sede(nombre, dep, institucion_id):
+            sede = Sede(nombre=nombre, institucion_id=institucion_id)
+            db.add(sede)
+            db.flush()
+            dep.sede_id = sede.sede_id
+            db.flush()
+            return sede
+
+        sede_op_a = _sede("Operaciones", dep_op_a, "INSTA")
+        sede_bod_a = _sede("Bodega", dep_bod_a, "INSTA")
+        sede_arc_a = _sede("Archivo", dep_arc_a, "INSTA")
+        _sede("Sin Inventario", dep_vacia_a, "INSTA")
+        sede_op_b = _sede("Operaciones", dep_op_b, "INSTB")
+
+        def _stock_sede(prod, sede, stock):
+            fila = StockSede(
+                stock_actual=stock,
+                sede_id=sede.sede_id,
+                producto_id=prod.producto_id,
+                institucion_id=prod.institucion_id,
+            )
+            db.add(fila)
+            db.flush()
+            return fila
+
+        stock_papel_op_a = _stock_sede(papel_a, sede_op_a, STOCK_M_MENOS_1)
+        _stock_sede(papel_a, sede_bod_a, STOCK_M)
+        _stock_sede(papel_a, sede_arc_a, STOCK_M_MAS_1)
+        _stock_sede(cero_a, sede_op_a, 0)
+        _stock_sede(papel_b, sede_op_b, STOCK_PAPEL_B)
+
         prioridad = Prioridad(nombre="ALTA", descripcion="Prioridad alta")
         db.add(prioridad)
         db.flush()
@@ -481,6 +509,8 @@ def escenario_kpi(motor):
             "producto_sin_inventario_a": sin_inv_a.producto_id,
             "inventario_papel_op_a": inv_m_menos_1.inventario_id,
             "inventario_papel_b": inv_papel_b.inventario_id,
+            "sede_papel_op_a": sede_op_a.sede_id,
+            "stock_sede_papel_op_a": stock_papel_op_a.stock_sede_id,
         }
     finally:
         db.close()
@@ -563,17 +593,19 @@ def test_kpi_departamentos_cuenta_por_pk_incluido_sin_inventario(motor, escenari
     assert kpi["total_departamentos"] == 4
 
 
-def test_kpi_departamentos_superadmin_cuenta_homonimos_por_separado(
+def test_kpi_departamentos_superadmin_recibe_403_ac_15(
     motor, escenario_kpi
 ):
-    """AC-3: para Superadmin los homonimos de instituciones distintas cuentan aparte.
+    """Feature 017 (D-9/AC-15): el conteo global de departamentos se retira.
 
-    INSTA (4) + INSTB (1) = 5, aunque "Operaciones" se repita por nombre.
+    La suma entre instituciones queda cubierta por el servicio del dashboard; la
+    API ya no la expone al Superadmin.
     """
     with _cliente(motor, "Superadmin", departamento_id=None) as cliente:
-        kpi = _leer_dashboard(cliente)["kpi"]
+        respuesta = cliente.get(RUTA_DASHBOARD)
 
-    assert kpi["total_departamentos"] == 5
+    assert respuesta.status_code == 403, respuesta.text
+    assert "kpi" not in respuesta.json()
 
 
 # --- AC-4: filas criticas ---------------------------------------------------
@@ -592,7 +624,7 @@ def test_alertas_marca_igual_o_menor_al_minimo_y_excluye_m_mas_1(motor, escenari
         cuerpo = _leer_dashboard(cliente)
 
     claves = {
-        (a["producto_nombre"], a["departamento_nombre"], a["stock_actual"])
+        (a["producto_nombre"], a["sede_nombre"], a["stock_actual"])
         for a in cuerpo["alertas"]
     }
     assert claves == {
@@ -629,9 +661,12 @@ def test_producto_sin_inventario_no_genera_alerta(motor, escenario_kpi):
 def test_alerta_expone_los_campos_del_contrato(motor, escenario_kpi):
     """AC-4: cada fila de alerta trae exactamente los campos del plan §1.
 
-    Con Superadmin las filas requieren atribucion institucional poblada.
+    Feature 017 (D-9/AC-15): se observa con el Administrador de INSTA; el
+    Superadmin ya no tiene esta lectura.
     """
-    with _cliente(motor, "Superadmin", departamento_id=None) as cliente:
+    with _cliente(
+        motor, "Administrador", departamento_id=escenario_kpi["dep_op_a"]
+    ) as cliente:
         alertas = _leer_dashboard(cliente)["alertas"]
 
     assert alertas, "el escenario tiene filas criticas"
@@ -642,29 +677,31 @@ def test_alerta_expone_los_campos_del_contrato(motor, escenario_kpi):
 def test_alertas_homonimos_se_atribuyen_por_institucion(motor, escenario_kpi):
     """AC-4/AC-7: los productos homonimos no se fusionan y cada fila lleva su institucion.
 
-    Superadmin ve "Papel Bond" de INSTA (producto A) y de INSTB (producto B); cada
-    fila conserva el `producto_id` y la institucion del registro de origen.
+    Feature 017 (D-9/AC-15): cada Administrador ve solo su institucion; con dos
+    lecturas se comprueba que "Papel Bond" conserva el `producto_id` de origen y
+    nunca se fusiona entre instituciones.
     """
-    with _cliente(motor, "Superadmin", departamento_id=None) as cliente:
-        alertas = _leer_dashboard(cliente)["alertas"]
+    with _cliente(
+        motor, "Administrador", departamento_id=escenario_kpi["dep_op_a"]
+    ) as cliente_a:
+        alertas_a = _leer_dashboard(cliente_a)["alertas"]
+    with _cliente(
+        motor, "Administrador", departamento_id=escenario_kpi["dep_op_b"]
+    ) as cliente_b:
+        alertas_b = _leer_dashboard(cliente_b)["alertas"]
 
-    papel = [a for a in alertas if a["producto_nombre"] == "Papel Bond"]
-    assert {a["producto_id"] for a in papel} == {
-        escenario_kpi["producto_papel_a"],
-        escenario_kpi["producto_papel_b"],
+    papel_a = [a for a in alertas_a if a["producto_nombre"] == "Papel Bond"]
+    papel_b = [a for a in alertas_b if a["producto_nombre"] == "Papel Bond"]
+    assert {a["producto_id"] for a in papel_a} == {
+        escenario_kpi["producto_papel_a"]
     }
-    assert {a["institucion_id"] for a in papel} == {"INSTA", "INSTB"}
-    assert {a["institucion_nombre"] for a in papel} == {
-        "Instituto Alfa",
-        "Instituto Beta",
+    assert {a["producto_id"] for a in papel_b} == {
+        escenario_kpi["producto_papel_b"]
     }
-    for alerta in papel:
-        institucion_esperada = (
-            "INSTA"
-            if alerta["producto_id"] == escenario_kpi["producto_papel_a"]
-            else "INSTB"
-        )
-        assert alerta["institucion_id"] == institucion_esperada
+    assert {a["institucion_id"] for a in papel_a} == {"INSTA"}
+    assert {a["institucion_id"] for a in papel_b} == {"INSTB"}
+    assert {a["institucion_nombre"] for a in papel_a} == {"Instituto Alfa"}
+    assert {a["institucion_nombre"] for a in papel_b} == {"Instituto Beta"}
 
 
 # ---------------------------------------------------------------------------
@@ -697,6 +734,16 @@ def _cuerpo_movimiento(inventario_id: int, tipo: str, cantidad: int) -> dict:
         "cantidad": cantidad,
         "observacion": f"Movimiento {tipo} del escenario de umbral",
         "inventario_id": inventario_id,
+    }
+
+
+def _cuerpo_movimiento_sede(stock_sede_id: int, tipo: str, cantidad: int) -> dict:
+    """Movimiento nuevo de la Feature 011 (referencia por `stock_sede_id`)."""
+    return {
+        "tipo_movimiento": tipo,
+        "cantidad": cantidad,
+        "observacion": f"Movimiento {tipo} del escenario de umbral por sede",
+        "stock_sede_id": stock_sede_id,
     }
 
 
@@ -756,39 +803,43 @@ def test_ambito_irresoluble_responde_403(motor, escenario_kpi, rol):
 def test_kpi_total_alertas_es_el_mismo_conjunto_que_el_listado(motor, escenario_kpi):
     """AC-5: `total_alertas` cuenta exactamente las filas del listado, sin fusionar.
 
-    Global (Superadmin) 4 filas; INSTA 3 filas; el KPI equivale siempre a
-    `len(alertas)`.
+    Feature 017 (D-9/AC-15): la lectura global ya no se expone; INSTA mantiene
+    tres filas y el KPI equivale siempre a `len(alertas)`.
     """
-    with _cliente(motor, "Superadmin", departamento_id=None) as cliente:
-        global_ = _leer_dashboard(cliente)
     with _cliente(
         motor, "Administrador", departamento_id=escenario_kpi["dep_op_a"]
     ) as cliente:
         insta = _leer_dashboard(cliente)
 
-    assert global_["kpi"]["total_alertas"] == len(global_["alertas"]) == 4
     assert insta["kpi"]["total_alertas"] == len(insta["alertas"]) == 3
+
+    with _cliente(motor, "Superadmin", departamento_id=None) as supervisor:
+        respuesta = supervisor.get(RUTA_DASHBOARD)
+    assert respuesta.status_code == 403, respuesta.text
 
 
 # --- AC-12/AC-13: cruce de umbral por movimiento real, sin persistir alertas --
 
 
 def test_cruce_de_umbral_por_movimiento_real_no_persiste_alertas(motor, escenario_kpi):
-    """AC-5/AC-12: la fila critica entra y sale del log solo por el estado actual.
+    """AC-5/AC-12 (Feature 011): la sede critica entra y sale del log por el estado.
 
-    Se parte de la fila Papel Bond/Operaciones en 9 (minimo 10, critica). Una
-    ENTRADA real de 5 por el endpoint de movimientos la lleva a 14 (no critica) y
-    desaparece del log; una SALIDA real de 5 la devuelve a 9 y reaparece. El unico
-    cambio de auditoria son las dos filas de `movimiento_inventario`; no se crea
-    ninguna fila de alerta (el total de filas del esquema crece exactamente 2).
+    Se parte de la sede Papel Bond/Operaciones en 9 (minimo 10, critica). Una
+    ENTRADA real de 5 por el endpoint de movimientos (referencia nueva
+    `stock_sede_id`) la lleva a 14 (no critica) y desaparece del log; una SALIDA
+    real de 5 la devuelve a 9 y reaparece. El unico cambio de auditoria son las
+    dos filas de `movimiento_inventario`; no se crea ninguna fila de alerta (el
+    total de filas del esquema crece exactamente 2).
     """
-    inventario_id = escenario_kpi["inventario_papel_op_a"]
+    stock_sede_id = escenario_kpi["stock_sede_papel_op_a"]
+    sede_id = escenario_kpi["sede_papel_op_a"]
+    producto_id = escenario_kpi["producto_papel_a"]
 
-    def _alerta_de_la_fila(cliente):
+    def _alerta_de_la_sede(cliente):
         return [
             a
             for a in _leer_dashboard(cliente)["alertas"]
-            if a["inventario_id"] == inventario_id
+            if a["sede_id"] == sede_id and a["producto_id"] == producto_id
         ]
 
     filas_antes = _conteo_filas_por_tabla(motor)
@@ -799,20 +850,22 @@ def test_cruce_de_umbral_por_movimiento_real_no_persiste_alertas(motor, escenari
         departamento_id=escenario_kpi["dep_op_a"],
         usuario_id=escenario_kpi["admin_a"],
     ) as cliente:
-        assert _alerta_de_la_fila(cliente), "la fila 9/10 arranca critica"
+        assert _alerta_de_la_sede(cliente), "la sede 9/10 arranca critica"
 
         entrada = cliente.post(
-            RUTA_MOVIMIENTOS, json=_cuerpo_movimiento(inventario_id, "ENTRADA", 5)
+            RUTA_MOVIMIENTOS,
+            json=_cuerpo_movimiento_sede(stock_sede_id, "ENTRADA", 5),
         )
         assert entrada.status_code == 201, entrada.text
-        assert _alerta_de_la_fila(cliente) == [], "la entrada la saca del umbral"
+        assert _alerta_de_la_sede(cliente) == [], "la entrada la saca del umbral"
         kpi_sin_alerta = _leer_dashboard(cliente)["kpi"]
 
         salida = cliente.post(
-            RUTA_MOVIMIENTOS, json=_cuerpo_movimiento(inventario_id, "SALIDA", 5)
+            RUTA_MOVIMIENTOS,
+            json=_cuerpo_movimiento_sede(stock_sede_id, "SALIDA", 5),
         )
         assert salida.status_code == 201, salida.text
-        assert _alerta_de_la_fila(cliente), "la salida la vuelve a marcar critica"
+        assert _alerta_de_la_sede(cliente), "la salida la vuelve a marcar critica"
         kpi_con_alerta = _leer_dashboard(cliente)["kpi"]
 
     assert kpi_sin_alerta["total_alertas"] == 2
@@ -843,26 +896,26 @@ def test_no_existe_tabla_ni_columna_de_alertas():
 # --- AC-7: escalar global unico y filas con atribucion institucional ----------
 
 
-def test_superadmin_unidades_en_stock_es_un_escalar_global_unico(motor, escenario_kpi):
-    """AC-7/D-4: para Superadmin el KPI de unidades es la suma global, no una serie.
+def test_superadmin_unidades_en_stock_recibe_403_ac_15(motor, escenario_kpi):
+    """Feature 017 (D-9/AC-15): el KPI global de unidades se retira al Superadmin.
 
-    INSTA (30) + INSTB (3) = 33 en un unico entero, no un desglose por institucion.
+    El escalar global sigue verificado en el servicio del dashboard; la API ya no
+    lo expone a Superadmin.
     """
     with _cliente(motor, "Superadmin", departamento_id=None) as cliente:
-        kpi = _leer_dashboard(cliente)["kpi"]
+        respuesta = cliente.get(RUTA_DASHBOARD)
 
-    assert isinstance(kpi["unidades_en_stock"], int)
-    assert kpi["unidades_en_stock"] == 33
+    assert respuesta.status_code == 403, respuesta.text
+    assert "kpi" not in respuesta.json()
 
 
-def test_superadmin_filas_de_alertas_y_actividad_conservan_atribucion(
+def test_superadmin_filas_de_alertas_y_actividad_recibe_403_ac_15(
     motor, escenario_kpi
 ):
-    """AC-7: cada fila global lleva su institucion; los homonimos no se fusionan.
+    """Feature 017 (D-9/AC-15): la atribucion global se retira de la API.
 
-    Se registra un movimiento real por institucion para poblar la actividad; tanto
-    las alertas como los movimientos exponen `institucion_id`/`institucion_nombre`
-    y conservan el `producto_id` de origen (nada de fusion por nombre).
+    Se registra un movimiento real por institucion y se comprueba que el
+    Superadmin recibe 403 sin alertas ni actividad.
     """
     with _cliente(
         motor, "Administrador", departamento_id=escenario_kpi["dep_op_a"]
@@ -882,22 +935,10 @@ def test_superadmin_filas_de_alertas_y_actividad_conservan_atribucion(
     assert entrada_b.status_code == 201, entrada_b.text
 
     with _cliente(motor, "Superadmin", departamento_id=None) as cliente:
-        cuerpo = _leer_dashboard(cliente)
+        respuesta = cliente.get(RUTA_DASHBOARD)
 
-    assert {a["institucion_id"] for a in cuerpo["alertas"]} == {"INSTA", "INSTB"}
-    assert {a["institucion_nombre"] for a in cuerpo["alertas"]} == {
-        "Instituto Alfa",
-        "Instituto Beta",
-    }
-
-    assert cuerpo["actividad_disponible"] is True
-    movimientos = cuerpo["actividad_movimientos"]
-    assert movimientos, "los dos movimientos reales deben aparecer en la actividad"
-    assert {m["institucion_id"] for m in movimientos} == {"INSTA", "INSTB"}
-    assert {m["producto_id"] for m in movimientos} == {
-        escenario_kpi["producto_papel_a"],
-        escenario_kpi["producto_papel_b"],
-    }
+    assert respuesta.status_code == 403, respuesta.text
+    assert set(respuesta.json()) == {"detail"}
 
 
 # ---------------------------------------------------------------------------
@@ -1008,11 +1049,11 @@ def test_actividad_desempata_por_id_descendente_ante_fechas_iguales(motor, escen
 
 
 def test_actividad_expone_campos_ubicacion_y_atribucion(motor, escenario_kpi):
-    """AC-7: cada fila global trae los campos del DTO con su institucion y ubicacion.
+    """AC-7: cada fila trae los campos del DTO con su institucion y ubicacion.
 
-    Un movimiento por institucion; Superadmin los ve atribuidos: `institucion_id` y
-    `institucion_nombre` correctos, `producto_id` de origen (sin fusionar homonimos)
-    y `ubicacion` de la fila de inventario.
+    Feature 017 (D-9/AC-15): cada Administrador lee solo su institucion; con las
+    dos lecturas se verifica `institucion_id`/`institucion_nombre`, el
+    `producto_id` de origen (sin fusionar homonimos) y la `ubicacion`.
     """
     fecha = datetime(2026, 4, 1, 8, 0, 0)
     _sembrar_movimiento(
@@ -1022,25 +1063,32 @@ def test_actividad_expone_campos_ubicacion_y_atribucion(motor, escenario_kpi):
         motor, escenario_kpi["inventario_papel_b"], fecha, observacion="INSTB"
     )
 
-    with _cliente(motor, "Superadmin", departamento_id=None) as cliente:
-        actividad = _leer_dashboard(cliente)["actividad_movimientos"]
+    with _cliente(
+        motor, "Administrador", departamento_id=escenario_kpi["dep_op_a"]
+    ) as cliente_a:
+        actividad_a = _leer_dashboard(cliente_a)["actividad_movimientos"]
+    with _cliente(
+        motor, "Administrador", departamento_id=escenario_kpi["dep_op_b"]
+    ) as cliente_b:
+        actividad_b = _leer_dashboard(cliente_b)["actividad_movimientos"]
 
-    assert actividad, "los movimientos sembrados deben aparecer"
-    for movimiento in actividad:
+    propio = next(
+        m for m in actividad_a if m["producto_id"] == escenario_kpi["producto_papel_a"]
+    )
+    ajeno = next(
+        m for m in actividad_b if m["producto_id"] == escenario_kpi["producto_papel_b"]
+    )
+
+    for movimiento in (propio, ajeno):
         assert set(movimiento) == CAMPOS_ACTIVIDAD
 
-    por_institucion = {m["institucion_id"]: m for m in actividad}
-    assert set(por_institucion) == {"INSTA", "INSTB"}
-
-    propio = por_institucion["INSTA"]
-    assert propio["producto_id"] == escenario_kpi["producto_papel_a"]
+    assert propio["institucion_id"] == "INSTA"
     assert propio["producto_nombre"] == "Papel Bond"
     assert propio["departamento_nombre"] == "Operaciones"
     assert propio["institucion_nombre"] == "Instituto Alfa"
     assert propio["ubicacion"] == "Operaciones (INSTA)"
 
-    ajeno = por_institucion["INSTB"]
-    assert ajeno["producto_id"] == escenario_kpi["producto_papel_b"]
+    assert ajeno["institucion_id"] == "INSTB"
     assert ajeno["institucion_nombre"] == "Instituto Beta"
     assert ajeno["ubicacion"] == "Operaciones (INSTB)"
 

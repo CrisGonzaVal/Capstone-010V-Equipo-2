@@ -2,31 +2,42 @@
 Memoria entre sesiones. Máximo ~50 líneas: resume lo útil y elimina lo que ya no aporte.
 
 ## Estado actual
-- Features 000…009 implementadas y **cerradas** (008 y 009 con veredicto APROBADO). Backend `pytest`: **540 passed, 5 skipped** (los 5 gated pasan con `POSTGRES_TEST_URL`). Frontend `ng test`: **172 SUCCESS**. Matriz de permisos: **21 operaciones**.
-- 009: `GET /api/v1/dashboard/` consolidado (KPIs + alertas por fila + actividad limitada a 10). 008: `institucion_id` en catálogo/inventario/ticket/detalle, claves compuestas y migración `98_` idempotente. 007: autorización por rol (matriz central + `RolGuard`). 006: Clerk. 005: despacho transaccional.
-- No queda ninguna fila `[ ]` en el índice de features; el roadmap apunta al **Hito 2** (despliegue + entrega).
+- Features 000…**019 cerradas**; la **019** el **22/Oct/2026**, la **018** el **21/Oct/2026**, la **014** y la **017** el **20/Oct/2026**, la 013 el **19/Oct/2026**.
+- **019 (detalle de producto por alcance):** lectura aditiva `GET /inventario/existencias/{producto_id}` (producto + stock por sede acotado al rol) y ruta Angular `:productoId` con retorno `?tab=gestion`; matriz **61 → 62**. Cierre: `pytest` SQLite **1391/77/0**, gated PG16 **1468/0/0** (`apt_erp` intacta en `014.1`, 22 tablas, 4 tenants), `ng test` **446**, `ng build` limpio (`main-D6GKPODP.js`); recorrido 4200 y humo 8080 con imagen reconstruida; evidencia en `019-detalle-producto-por-alcance/evidencia/README.md`.
+- **018:** `sede_id` aditivo en existencias (**200/`[]`** para id ajeno), lectura `GET /inventario/ambito` bajo `inventario` y nota de stock compartido del Bodeguero; matriz 60→61. Cierre: pytest 1339/76/0, gated 1415/0, `ng test` 419, bundle `main-7QF7T5XQ.js`. **014:** `activo` reversible e historiales de producto/categoría (16.ª/17.ª entidades), gating `catalogo`, matriz 55→60. **017:** invitaciones Clerk persistidas y gobierno de Administradores, matriz 55.
+- **Enmienda T-17 de la 012 (22/Oct/2026):** `/administracion` se presenta como pestañas ARIA (`tablist`, 4 `tab`, `tabpanel` con `aria-labelledby`, flechas circulares y `tabindex` roving) sin tocar `administracion.routes.ts`, guards, backend ni contratos; **la 012 sigue cerrada**. `ng test` **466** (20 casos nuevos en `administracion-nav.component.spec.ts`), `ng build` limpio (`main-KWQKKL6Q.js`); recorrido 4200 y humo 8080 en `012-gestion-administrativa/evidencia/README.md` §«Enmienda T-17» (capturas 19–28).
+- **Base consolidada:** `database/` tiene solo `01_esquema.sql` (control 22 tablas + 19 por tenant) y `02_datos_semilla.sql` (`014.1` con guardia fail-closed). Sin migraciones: reset = `down -v` + `up -d`.
 
-## Sprint 5 (en análisis, sin spec todavía)
-- Matriz de acciones compartidas por rol **aprobada** por el usuario: **18 casos de uso en 4 módulos** (A administración, C catálogo e inventario, T tickets, R informes y avisos).
-- Cobertura por actor: Superadmin 11 · Administrador 17 · Bodeguero 11 · Solicitante 6.
-- Candidatas a feature: 010 gestión admin real · 011 instituciones y **entidad `sede`** · 012 ciclo de vida del catálogo · 013 ciclo de vida del ticket (asignado + SLA + historial) · 014 informes PDF/Excel · 015 notificaciones in-app · Hito 2 despliegue.
-- **Decisión descartada**: base de datos por institución. Se mantiene la base compartida + `institucion_id` (008); el aislamiento por fila con FK compuestas se argumenta como suficiente.
-- Decisiones abiertas para las specs: `sede` como 13ª entidad (¿inventario por sede o por departamento? ¿alcance del Bodeguero?) y SLA del ticket.
+## Feature 019 — decisiones clave
+- **Ámbito completo, sin heredar filtros:** el detalle ignora sede/departamento de la lista; Admin todas las sedes de su institución, Bodeguero su sede asignada, Solicitante la sede de su departamento. El cliente no elige ámbito.
+- **Sedes inactivas incluidas:** no se filtra `Sede.activo`; sus filas aparecen y suman, y una sede asignada inactiva responde **200**.
+- **Precedencia:** 401 → 403 matriz → 403 capacidad → 403 institución → **409** sede no resoluble → **404** producto → 200. La sede se resuelve **antes** del producto (409 con id inexistente, ajeno o retirado).
+- **Capacidad `inventario`, no `catalogo`:** coexiste con `GET /inventario/productos/{id}` (solo catálogo). Con `catalogo` sí e `inventario` no, Gestión sigue visible y el detalle da 403.
+- **Agregado del ámbito:** `stock_total` = suma de las sedes devueltas; `es_critico` solo con esas sedes (vacío = saldo 0). `stock_sede` es la única fuente; nunca el `inventario` legado.
+- **Retorno `?tab=gestion`:** solo para el Administrador que llega desde Gestión; el query param es navegación, no autorización (`gestionVisible()` manda).
 
-## Entregable: diagramas de casos de uso
-- `docs/diagramas/`: `casos-uso-general` + `casos-uso-{superadmin,administrador,bodeguero,solicitante}`, en **HTML y PNG** (UML clásico compuesto con el skill).
-- Los **5 PNG** se copiaron además a `../Evidencias Grupales/diagramas/` (fuera del proyecto, pedido explícito del usuario) para la entrega grupal; el folder es `Evidencias Grupales` (plural).
-- Skill **`diagram-design`** (cathrynlavery) instalado en `.agents/skills/diagram-design/`.
+## Decisiones vigentes (018/014/012/011)
+- **018:** `sede_id` es filtro dentro de `condicion_stock` (antes del `outerjoin`, sin lookup previo) y no contradice el 404 de recurso de `/inventario/stock`. «departamento = sede»: no hay saldo departamental. Franja de indicadores solo server-side.
+- **014:** nunca producto activo bajo categoría inactiva; baja de categoría → 409 si tiene activos; baja de producto exige saldo cero en `stock_sede`. Idempotencia sin motivo = 200 sin historial, precede a 422/409.
+- **012/011:** `control.institucion.activo` gobierna el routing; 6 capacidades cerradas; `stock_sede` es la única fuente de saldo operativo. **013:** `Anulado` no sella `fecha_cierre` ni toca stock.
 
 ## Aprendizajes y errores a evitar
-- `diagram-design` **no tiene tipo "caso de uso"** entre sus 45: se compone a mano con su sistema de diseño, y ahí se relaja la regla de conectores ortogonales (las asociaciones actor→caso son rectas, como en UML real).
-- Se editó `references/style-guide.md` del skill con la **paleta CompuStock** (slate + blue); `npx skills update` la revierte.
-- `skills-lock.json` **no quedó actualizado** con `diagram-design`: el hash del CLI no es sha256 simple y el comando se interrumpió dos veces. No se inventó un hash.
-- PNG sin Playwright: se capturó el elemento `<svg>` con `chrome-devtools` (`take_screenshot` con `uid` + `filePath`), que da un PNG solo-diagrama.
-- Cierre = verificación (AGENTS §8.5): hacen falta los dos puertos; 8080 exige `docker compose build frontend`; el backend recarga solo.
-- Tests PostgreSQL **gated** (`POSTGRES_TEST_URL`); SQLite no valida FK compuestas.
-- Edge: fijar `CHROME_BIN` y usar `--watch=false --browsers=ChromeHeadless`.
+- **Filtro de lista ≠ recurso:** `sede_id` en `/inventario/existencias` responde 200/`[]`; no añadir lookup previo de sede.
+- **Detalle ≠ producto:** el detalle nuevo usa `inventario` y devuelve stock; `/productos/{id}` sigue bajo `catalogo`. No unificar ni mover el gating.
+- **Criticidad del detalle** se calcula sobre las sedes devueltas; `_es_producto_critico` con `sedes: []` evalúa 0 ≤ mínimo. Nunca sobre saldo fuera de ámbito.
+- Cierre = verificación (AGENTS §8.5–§8.7): los dos puertos; 8080 exige `docker compose build frontend`; el backend recarga solo; grep de coherencia sobre AGENTS/MEMORY/skills.
+- **Contratos externos:** la API real de Clerk `GET /v1/invitations` devuelve lista desnuda, no `{"data":[…]}`; verificar contra la API real.
+- **La semilla limpia no crea al Superadmin:** `control.usuario` queda vacía y el bootstrap no se invoca al arrancar.
+- Tests PostgreSQL **gated** (`POSTGRES_TEST_URL`); SQLite no valida esquemas/namespaces ni FK compuestas. Bases desechables; `apt_erp` nunca se toca.
+- Toda mutación exige actor **persistido** (FK del historial); fixtures con sonda `9999` deben usar un usuario real.
+- Edge: `CHROME_BIN` + `--watch=false --browsers=ChromeHeadless` (nunca `npm test`). PowerShell: `pg_dump` con `cmd /c`; `curl.exe` conserva backslashes (usar archivos de body).
+- Clerk por HTTP sin navegador: dev browser + sign-in ticket BAPI + `Origin: localhost:4200` (exige `azp`); código de prueba `424242`. Tokens ~60 s.
+- `resolver_contexto_solicitud` sin `abrir_sesion_tenant` lee la versión de **control**; el gated debe cablear `abrir_sesion_tenant=crear_sesion_esquema`.
+- Specs Angular: con `provideRouter([])` el click de un `routerLink` no actualiza `router.url`; probar el `href` con espía a `navigateByUrl`.
+- **Pestañas ARIA sobre Router:** derivar la pestaña activa de `Router.url` (sin query/fragmento) y activar el anchor destino con su propio `RouterLink` (`click()`), nunca con `navigateByUrl`: así se conservan href real, clic central y apertura en pestaña nueva.
+- **Carreras gated:** el `Barrier` de arranque no fija el orden del lock; la poseedora confirma la adquisición (`threading.Event`) y la contendiente espera a bloquear.
 
 ## Próximos pasos
-- Cerrar el inventario de casos de uso y abrir `docs/spec/features/010-…` (spec → plan → tasks).
-- La rama `dev` ya está fusionada en `main` (Feature 009). Los diagramas, el skill y las notas se commitearon y subieron a `origin/main` en `955280a`.
+- Backlog posterior al Sprint 6: **015** informes PDF/Excel y **016** notificaciones in-app. **Hito 2:** 11/Dic/2026.
+- **Diagramas de casos de uso (21/Oct/2026):** 5 HTML en `docs/diagramas/` y 5 PNG a 2x; 26 casos en 5 paquetes; 015/016 marcados `PLAN`.
+- Hallazgo abierto: la semilla no trae Administrador `+clerk_test`. Aviso de accesibilidad preexistente en el buscador operativo de inventario (input sin `id`/`name`).

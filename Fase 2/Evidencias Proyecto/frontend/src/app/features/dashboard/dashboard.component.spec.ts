@@ -32,7 +32,7 @@ import { DashboardComponent } from './dashboard.component';
  *   - cuatro KPI con las etiquetas exactas «Unidades en Stock», «Tickets Activos»,
  *     «Departamentos» y «Alertas de Stock», con los valores del DTO;
  *   - sin el placeholder «Estado de Sedes Descentralizadas» ni cifras de ejemplo;
- *   - un listado de alertas con producto, departamento, stock actual y minimo;
+ *   - un listado de alertas con producto, sede, stock actual y minimo;
  *   - seccion «Actividad Reciente» solo si `actividad_disponible` es `true`; con
  *     `actividad_disponible=false` (Solicitante) no se pinta y **no** se consulta
  *     `/inventario/movimientos`;
@@ -59,22 +59,20 @@ describe('DashboardComponent', () => {
       },
       alertas: [
         {
-          inventario_id: 11,
+          sede_id: 11,
+          sede_nombre: 'Sede Central',
           producto_id: 101,
           producto_nombre: 'Papel Bond',
-          departamento_id: 21,
-          departamento_nombre: 'Operaciones',
           stock_actual: 2,
           stock_minimo: 10,
           institucion_id: 'INSTA',
           institucion_nombre: 'Instituto Alfa',
         },
         {
-          inventario_id: 12,
+          sede_id: 12,
+          sede_nombre: 'Bodega Norte',
           producto_id: 202,
           producto_nombre: 'Toner HP',
-          departamento_id: 22,
-          departamento_nombre: 'Bodega',
           stock_actual: 1,
           stock_minimo: 5,
           institucion_id: 'INSTB',
@@ -90,9 +88,11 @@ describe('DashboardComponent', () => {
           fecha_movimiento: '2026-04-01T08:00:00',
           producto_id: 101,
           producto_nombre: 'Papel Bond',
-          departamento_id: 21,
-          departamento_nombre: 'Operaciones',
-          ubicacion: 'Operaciones (INSTA)',
+          sede_id: 11,
+          sede_nombre: 'Sede Central',
+          departamento_id: null,
+          departamento_nombre: null,
+          ubicacion: null,
           institucion_id: 'INSTA',
           institucion_nombre: 'Instituto Alfa',
         },
@@ -127,11 +127,10 @@ describe('DashboardComponent', () => {
       },
       alertas: [
         {
-          inventario_id: 31,
+          sede_id: 31,
+          sede_nombre: 'Sede Sur',
           producto_id: 301,
           producto_nombre: 'Resma Carta',
-          departamento_id: 41,
-          departamento_nombre: 'Docencia',
           stock_actual: 1,
           stock_minimo: 8,
           institucion_id: 'INSTA',
@@ -281,14 +280,14 @@ describe('DashboardComponent', () => {
   // AC-5: log de alertas
   // -------------------------------------------------------------------------
 
-  it('AC-5: lista las alertas con producto, departamento, stock actual y mínimo', () => {
+  it('AC-5: lista las alertas con producto, sede, stock actual y mínimo', () => {
     montar();
 
     const visible = texto();
     expect(visible).toContain('Papel Bond');
-    expect(visible).toContain('Operaciones');
+    expect(visible).toContain('Sede Central');
     expect(visible).toContain('Toner HP');
-    expect(visible).toContain('Bodega');
+    expect(visible).toContain('Bodega Norte');
   });
 
   // -------------------------------------------------------------------------

@@ -1,52 +1,37 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Router, RouterOutlet } from '@angular/router';
 
-interface PermisoRol {
-  etiqueta: string;
-  activo: boolean;
-}
-
-interface FichaRol {
-  nombre: string;
-  descripcion: string;
-  permisos: PermisoRol[];
-}
+import {
+  AdministracionNavComponent,
+  resolverEnlaceActivo,
+  urlActivaDelRouter,
+} from './administracion-nav.component';
 
 /**
- * Matriz de roles del sistema multi-tenant.
+ * Layout del área administrativa institucional (Feature 012, T10; panel de
+ * pestañas en la enmienda T-17).
  *
- * **Es documental, no funcional.** Refleja los cuatro actores de `AGENTS.md` §2
- * pero no consulta la tabla `rol`: las casillas no persisten y el toggle no
- * dispara nada. Convertirlo en administration real de permisos pertenece a la
- * feature de administracion de usuarios.
+ * Contiene la navegación entre las vistas de sedes, departamentos, usuarios y
+ * encargados mediante `AdministracionNavComponent` y el `RouterOutlet`, envuelto
+ * en el `tabpanel` que lo asocia con la pestaña activa. La sección activa se
+ * deriva de la **misma** resolución de `Router.url` que usa la barra, para que
+ * `aria-labelledby` nunca apunte a una pestaña distinta de la seleccionada. Es
+ * la sección de tenant del Administrador Institucional; el Superadmin administra
+ * la plataforma desde `/control`, no desde aquí. Solo presenta: el guard de rol
+ * de `app.routes.ts` y la matriz central del backend siguen siendo la autoridad.
  */
 @Component({
   selector: 'app-administracion',
   standalone: true,
+  imports: [AdministracionNavComponent, RouterOutlet],
   templateUrl: './administracion.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AdministracionComponent {
-  readonly roles: FichaRol[] = [
-    {
-      nombre: 'Super Administrador',
-      descripcion: 'Acceso total al sistema multi-tenant y creación de instituciones.',
-      permisos: [{ etiqueta: 'Crear Instancias (Instituciones)', activo: true }],
-    },
-    {
-      nombre: 'Administrador de Institución',
-      descripcion: 'Gestión de usuarios y asignación de roles dentro de la sede.',
-      permisos: [
-        { etiqueta: 'Gestionar Usuarios', activo: true },
-        { etiqueta: 'Asignar Roles', activo: true },
-      ],
-    },
-    {
-      nombre: 'Bodeguero / Solicitante',
-      descripcion: 'Control de inventario, despacho y creación de tickets de insumos.',
-      permisos: [
-        { etiqueta: 'Acceso Catálogo CRUD', activo: true },
-        { etiqueta: 'Módulo de Tickets', activo: true },
-      ],
-    },
-  ];
+  private readonly router = inject(Router);
+
+  private readonly urlActiva = urlActivaDelRouter(this.router);
+
+  /** Segmento de la sección vigente; compone el `aria-labelledby` del panel. */
+  readonly seccionActiva = computed(() => resolverEnlaceActivo(this.urlActiva()).seccion);
 }

@@ -31,36 +31,42 @@
     </div>
 
     <nav class="flex-1 px-3 py-4 space-y-1" aria-label="Navegacion principal">
-      <a
-        routerLink="/dashboard"
-        routerLinkActive="bg-blue-600 text-white"
-        class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
-      >
-        <span class="text-xl" aria-hidden="true">📊</span>
-        @if (sidebarAbierto()) {
-          <span class="ml-3 font-medium">Dashboard</span>
-        }
-      </a>
-      <a
-        routerLink="/inventario"
-        routerLinkActive="bg-blue-600 text-white"
-        class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
-      >
-        <span class="text-xl" aria-hidden="true">📦</span>
-        @if (sidebarAbierto()) {
-          <span class="ml-3 font-medium">Inventario</span>
-        }
-      </a>
-      <a
-        routerLink="/tickets"
-        routerLinkActive="bg-blue-600 text-white"
-        class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
-      >
-        <span class="text-xl" aria-hidden="true">🎫</span>
-        @if (sidebarAbierto()) {
-          <span class="ml-3 font-medium">Tickets / Kanban</span>
-        }
-      </a>
+      @if (puedeVerDashboard()) {
+        <a
+          routerLink="/dashboard"
+          routerLinkActive="bg-blue-600 text-white"
+          class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+        >
+          <span class="text-xl" aria-hidden="true">📊</span>
+          @if (sidebarAbierto()) {
+            <span class="ml-3 font-medium">Dashboard</span>
+          }
+        </a>
+      }
+      @if (puedeVerInventario()) {
+        <a
+          routerLink="/inventario"
+          routerLinkActive="bg-blue-600 text-white"
+          class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+        >
+          <span class="text-xl" aria-hidden="true">📦</span>
+          @if (sidebarAbierto()) {
+            <span class="ml-3 font-medium">Inventario</span>
+          }
+        </a>
+      }
+      @if (puedeVerTickets()) {
+        <a
+          routerLink="/tickets"
+          routerLinkActive="bg-blue-600 text-white"
+          class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+        >
+          <span class="text-xl" aria-hidden="true">🎫</span>
+          @if (sidebarAbierto()) {
+            <span class="ml-3 font-medium">Tickets</span>
+          }
+        </a>
+      }
       @if (puedeAdministrar()) {
         <a
           routerLink="/administracion"
@@ -70,6 +76,18 @@
           <span class="text-xl" aria-hidden="true">⚙️</span>
           @if (sidebarAbierto()) {
             <span class="ml-3 font-medium">Administración</span>
+          }
+        </a>
+      }
+      @if (puedeControl()) {
+        <a
+          routerLink="/control"
+          routerLinkActive="bg-blue-600 text-white"
+          class="flex items-center px-3 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+        >
+          <span class="text-xl" aria-hidden="true">🛰️</span>
+          @if (sidebarAbierto()) {
+            <span class="ml-3 font-medium">Control de instituciones</span>
           }
         </a>
       }
@@ -108,7 +126,7 @@
 
   <div class="flex-1 flex flex-col overflow-hidden">
     <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10">
-      <h1 class="text-xl font-bold text-slate-800">Sistema ERP - Gestión de Insumos</h1>
+      <h1 class="text-xl font-bold text-slate-800">Sistema de Gestión de Insumos</h1>
       <div class="flex items-center space-x-4">
         <span
           class="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2.5 py-1 rounded-full"
