@@ -102,3 +102,61 @@ verificación fijo `424242`):
 - INST-004: nombre editado a `Municipalidad de Talagante (verif 012)`.
 - `felipe.soto@cfsnorte.cl`: atributos restaurados; `sede_id=2` residual (inerte
   para un Solicitante).
+
+---
+
+# Enmienda T-17 — pestañas ARIA en administración (E17-4, 22/Oct/2026)
+
+Recorrido observado **después** de E17-3, con el mismo backend en contenedor
+(`compustock_backend`, `uvicorn --reload`) y la misma base PostgreSQL `apt_erp`
+(`012.1`). Sin cambios en `administracion.routes.ts`, rutas hijas, guards,
+backend ni contratos: la enmienda afecta solo presentación y semántica de la
+barra de administración.
+
+Sesión usada: `admin017.test+clerk_test@example.com` — **Administrador QA014**,
+institución *Instituto Profesional Los Alpes*, rol `Administrador` (cookie Clerk
+vigente en `localhost:4200` y `localhost:8080`, sin re-login).
+
+## Suites y build (4200)
+
+| Comprobación | Resultado observado |
+|---|---|
+| `ng test --watch=false --browsers=ChromeHeadless` (`CHROME_BIN` a Edge) | **466 ejecutados: 466 SUCCESS / 0 FAILED** (los 20 casos de la enmienda incluidos) |
+| `npx ng build` | **limpio**: `Application bundle generation complete` (29.3 s), inicial **329.56 kB** / 91.66 kB transferido |
+| Bundle de producción generado | `main-KWQKKL6Q.js` |
+| `git diff --stat` de `sedes/departamentos/usuarios/encargados.component.spec.ts` y `administracion.routes.spec.ts` | **vacío**: ninguna expectativa heredada necesitó adaptación |
+| `git status` del feature | modificados solo `administracion-nav.component.ts/.html` y `administracion.component.ts/.html`; nuevo (sin trackear) `administracion-nav.component.spec.ts` |
+
+## Recorrido en 4200 (visual y teclado)
+
+| Comprobación | Resultado observado | Captura |
+|---|---|---|
+| Deep link `/administracion/sedes` | `role="tablist"` con `aria-label="Secciones de administración institucional"`; 4 `role="tab"`; solo `pestana-administracion-sedes` con `aria-selected="true"` y `tabindex="0"`; `role="tabpanel"` con `aria-labelledby="pestana-administracion-sedes"`; vista de sedes con sus 2 sedes | `19` |
+| Deep link `/administracion/departamentos` | seleccionada `…-departamentos`; `aria-labelledby` del panel = `pestana-administracion-departamentos`; listado de departamentos con sede asignada visible | `20` |
+| Deep link `/administracion/usuarios` | seleccionada `…-usuarios`; panel enlazado a su pestaña; 10 usuarios listados | `21` |
+| Deep link `/administracion/encargados` | seleccionada `…-encargados`; panel enlazado a su pestaña; selector de departamento operativo | `22` |
+| `/administracion` sin segmento | redirige a `/administracion/sedes` y la pestaña **Sedes** queda seleccionada (fallback/redirección coherentes) | `24` |
+| Clic en la pestaña `Sedes` desde `Usuarios` | ruta → `/administracion/sedes`, `aria-selected` y `tabpanel` migran a sedes, `document.title` = `Sedes \| CompuStock` | — |
+| `ArrowRight` con foco en **Encargados** | envuelve a `/administracion/sedes`; foco en `pestana-administracion-sedes`; panel = `pestana-administracion-sedes` | — |
+| `ArrowLeft` con foco en **Sedes** | envuelve a `/administracion/encargados`; foco en `pestana-administracion-encargados` | — |
+| `ArrowRight` ×3 desde Sedes | Sedes → Departamentos → Usuarios, con foco, ruta, `aria-selected` y panel correctos en cada paso | `23` |
+| Presentación | pestaña activa `rgb(29,78,216)` (texto azul) con borde inferior `rgb(37,99,235)`; inactivas `rgb(71,85,105)` (slate) y borde inferior transparente; anillo de foco visible en la pestaña enfocada. Ningún `role="tab"` conserva clases de fondo oscuro (`bg-slate-9*`/`bg-gray-9*`): el resaltado de bloque anterior desapareció | `19`, `23` |
+| Consola | única advertencia: `Clerk: … development keys` (preexistente). **Sin errores** | — |
+
+## Humo en 8080 (imagen reconstruida)
+
+`docker compose -f docker-compose.yml build frontend` + `up -d frontend`
+(contenedor `compustock_frontend` recreado, `healthy`). Bundle servido por nginx:
+**`main-KWQKKL6Q.js`** (el anterior era `main-D6GKPODP.js`), por lo que la imagen
+es la recién construida.
+
+| Comprobación | Resultado observado | Captura |
+|---|---|---|
+| `/administracion/sedes` por deep link HTTP | **200** y router Angular (sin 404 de nginx); tablist de 4 pestañas; sedes seleccionada; panel enlazado | `25` |
+| `ArrowRight` desde **Sedes** | `/administracion/departamentos`, foco y selección en la pestaña destino | `26` |
+| `/administracion/usuarios` y `/administracion/encargados` directos | **200** con su pestaña seleccionada y panel enlazado (títulos `Usuarios`/`Encargados`) | `27`, `28` |
+| Consola | sin mensajes de error | — |
+
+> Las capturas `25`–`28` repiten contenido de `19`–`22` porque el recorrido se hizo
+> igual en ambos puertos; sirven como prueba de que el build de producción de la
+> imagen nueva presenta la misma barra y navega igual que el dev server.

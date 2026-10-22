@@ -47,6 +47,11 @@ MAPA_OPERACION_CAPACIDAD: dict[tuple[str, str], str] = {
     # filtro de existencias, la misma capacidad `inventario` que ya existe. El
     # conjunto cerrado de capacidades de la 012 no se amplia.
     ("GET", "/api/v1/inventario/ambito"): "inventario",
+    # Feature 019 (spec D-6/AC-11): el detalle de producto con stock por sede es
+    # lectura de existencias, la misma capacidad `inventario` ya vigente. No se
+    # exige `catalogo` aunque la entrada desde Gestion exista, y el conjunto
+    # cerrado de capacidades de la 012 no se amplia.
+    ("GET", "/api/v1/inventario/existencias/{producto_id}"): "inventario",
     # --- tickets: creacion y gestion del flujo ---
     ("GET", "/api/v1/tickets/catalogos"): "tickets",
     ("GET", "/api/v1/tickets/"): "tickets",

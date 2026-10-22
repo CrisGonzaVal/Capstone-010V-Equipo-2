@@ -151,3 +151,61 @@ Para cierre, ejecutar `pytest` ordinario, suite gated PostgreSQL con `POSTGRES_T
 ## 6. Condición de bloqueo
 
 No iniciar cambios en `models`, `database`, routing o versiones hasta que el texto de la sección 1 esté incorporado y aprobado en `stack.md`. Si la inspección demuestra que la spec aprobada no puede satisfacerse —en especial modelo canónico de institución vs espejo tenant de dos columnas, o la definición de rutas/capacidades sin operación correspondiente— detener la tarea y elevar hallazgo; no ampliar la spec ni corregir el código de forma implícita.
+
+## Enmienda T-17 (presentación): pestañas ARIA en administración — 22/Oct/2026
+
+Esta enmienda posterior al cierre aplica AC-15…AC-19 de `spec.md` §6. Cambia solo la navegación y asociación accesible del panel administrativo. Las cuatro rutas hijas, sus guards, navegación por URL/deep links y el estado cerrado de la Feature 012 no se reabren. `administracion.routes.ts`, backend, servicios, contratos, matriz, datos y dependencias quedan fuera de la modificación.
+
+### Decisiones técnicas
+
+1. **Ruta activa derivada del Router, no de estado local.** Inyectar `Router` en `AdministracionNavComponent` y obtener el índice activo comparando `router.url` (sin query/fragmento) con cada ruta completa de `enlaces`, usando coincidencia exacta o prefijo seguido de `/`. Las rutas actuales son terminales; el prefijo delimitado conserva la semántica `routerLinkActive` no exacta para posibles segmentos anidados y evita falsos positivos entre rutas. La misma resolución determina `aria-selected`, `tabindex` y el `aria-labelledby` del panel. Se descarta mantener un signal que se actualice solo al hacer clic: no reflejaría deep links, navegación atrás/adelante ni cambios disparados desde fuera del componente. También se descarta consultar `ActivatedRoute` relativo, pues la barra necesita comparar las cuatro rutas hermanas completas.
+2. **Enlaces auténticos y navegación con flechas.** Mantener cada `<a [routerLink]>` y la carga de navegación por clic. En `keydown`, atender únicamente `ArrowRight` y `ArrowLeft`, calcular el índice circular en el orden actual `enlaces` mediante módulo, ejecutar `preventDefault()` solo para esas teclas, enfocar el enlace de destino y dejar que su `routerLink` active la ruta. La activación/cambio de foco sigue el modelo de activación automática de tabs; no convertir los enlaces en botones ni interceptar clic central, menú contextual, Ctrl/Cmd+clic o apertura en pestaña nueva. Se descarta invocar `navigateByUrl` de forma independiente porque rompería la semántica nativa del enlace.
+3. **Estado roving y focos estables.** En la lista, el enlace cuya ruta coincide tiene `aria-selected="true"` y `tabindex="0"`; los otros, `false` y `-1`. Mantener `id` estables por ruta: `pestana-administracion-sedes`, `pestana-administracion-departamentos`, `pestana-administracion-usuarios` y `pestana-administracion-encargados`. El panel único que envuelve el `<router-outlet>` lleva `role="tabpanel"`, `id="panel-administracion"` y `aria-labelledby` dirigido al ID activo. La ruta por defecto ya redirige a `sedes`, así que el estado inicial será resoluble; ante URL transitoria sin coincidencia se usa como fallback `sedes` sin modificar ni emitir navegación.
+4. **Replicar patrón, no extraer componente compartido.** Replicar en el componente administrativo el pequeño patrón ARIA de inventario, adaptándolo a rutas. Inventario usa señales locales y botones porque intercambia paneles dentro de una vista; aquí la fuente de verdad debe seguir siendo el Router y enlaces reales. Extraer un componente común añadiría abstracción/configuración de callbacks de navegación y arriesgaría el componente/inventario ya cerrado y validado, sin que exista evidencia de un tercer consumidor. No modificar el inventario ni introducir helper compartido; encapsular la resolución de ruta/índice y el manejador de teclado en `AdministracionNavComponent`.
+5. **Estilo coherente con inventario y Tailwind.** Tablist con `aria-label="Secciones de administración institucional"`, borde inferior gris y flex de pestañas. Enlaces con borde inferior de 2 px, `border-blue-600` + `text-blue-700` para activo y `border-transparent` + `text-slate-600` para inactivo; `hover:text-blue-700`, transición y foco visible `focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2`. Mantener únicamente clases Tailwind; no añadir CSS ni estilos inline. La presentación se alinea a inventario y sustituye el resaltado de bloque oscuro actual.
+
+### Archivos previstos para la enmienda
+
+| Archivo | Responsabilidad | AC |
+|---|---|---|
+| `frontend/src/app/features/administracion/administracion-nav.component.ts` | Resolver ruta/índice activo desde `Router.url`; conservar `enlaces`; exponer atributos/IDs estables y manejar flechas circulares con foco sobre el enlace real. | AC-15, AC-16, AC-18 |
+| `frontend/src/app/features/administracion/administracion-nav.component.html` | Declarar tablist y cuatro enlaces-tab con ARIA, selección y tabindex de ruta; aplicar clases Tailwind alineadas a inventario y foco visible. | AC-15, AC-16 |
+| `frontend/src/app/features/administracion/administracion.component.html` | Contener el `router-outlet` existente en el panel `tabpanel` y relacionarlo por `aria-labelledby` con la pestaña de la ruta actual, sin alterar contenido ni navegación. | AC-17, AC-18 |
+| `frontend/src/app/features/administracion/administracion-nav.component.spec.ts` (nuevo) | Tests de integración de la navegación: las cuatro URLs, selección/atributos ARIA, foco/tabindex, flechas y wraparound; comprobar que los anchors mantienen `href` y el destino de ruta. | AC-15, AC-16, AC-18, AC-19 |
+| `frontend/src/app/features/administracion/administracion.component.spec.ts` (nuevo, solo si el fixture aislado del layout resulta necesario) | Verificar relación `tabpanel` ↔ `aria-labelledby` para las cuatro rutas sin alterar las rutas hijas. Preferencia: cubrir este contrato en el test de navegación con el layout real y omitir este archivo redundante. | AC-17, AC-18, AC-19 |
+| `frontend/src/app/features/administracion/{sedes,departamentos,usuarios,encargados}.component.spec.ts` (sin cambios previstos; solo adaptar una expectativa si se demuestra afectada) | Regresión de vistas. La inspección confirmó que prueban componentes aislados y no asertan el `<nav>` actual. | AC-18, AC-19 |
+| `frontend/src/app/features/administracion/administracion.routes.spec.ts` (sin cambios previstos) | Regresión de destinos; no hay aserciones de markup nav y las rutas no se modifican. | AC-18, AC-19 |
+
+No se modifican `administracion.routes.ts`, `administracion.routes.spec.ts`, vistas hijas, `app.component.spec.ts` (solo cubre enlace global a `/administracion`), `inventario.component.*`, backend ni otros contratos. El test nuevo de navegación cubre tanto nav como panel con el layout real; solo si el harness no lo permite se justifica y añade un spec de layout separado.
+
+### Orden TDD y estrategia de pruebas
+
+1. Añadir primero pruebas rojas del componente de navegación y layout: iniciar cada URL hija y comprobar `role=tablist`, cuatro `role=tab`, exactamente una selección y tab stop, ID activo estable y `tabpanel` con `aria-labelledby` correcto. Verificar que cada tab sigue siendo `<a>` con destino `href`.
+2. Añadir casos rojos de `ArrowRight`/`ArrowLeft`, wraparound en los dos extremos, `preventDefault` en las flechas soportadas, foco DOM en el enlace destino y actualización coherente tras cambio real de ruta. No prevenir comportamiento para otras teclas.
+3. Implementar Router-based active route y atributos ARIA/IDs; añadir `keydown` con recorrido circular y foco, conservando `RouterLink`. Ejecutar los tests nuevos y toda la suite frontend; adaptar solo expectativas efectivamente rotas por el marcado.
+4. Ejecutar `npx ng test --watch=false --browsers=ChromeHeadless` con `CHROME_BIN` configurado a Edge (no `npm test`) y `npx ng build`. Confirmar explícitamente `administracion.routes.ts` y `administracion.routes.spec.ts` sin cambios, las cuatro vistas existentes verdes y ausencia de cambios backend/contratos/dependencias.
+5. Recorrer visual y con teclado las cuatro secciones en 4200; reconstruir frontend y hacer el humo 8080 descritos en tasks.md antes de marcar la enmienda terminada. Registrar evidencia observada, no anticipada.
+
+### Riesgos y mitigación
+
+| Riesgo | Mitigación |
+|---|---|
+| Cambiar el `<nav>`/clases/semántica rompe aserciones existentes o reduce cobertura de vistas. | Buscar aserciones de marcado existentes, añadir tests del componente nav dedicado y correr la suite Angular completa; no alterar los tests de las cuatro vistas salvo expectativa dependiente de marcado probada. |
+| La ruta activa se calcula mal en deep links, navegación back/forward o ante coincidencias de prefijo. | Derivarla siempre de `Router.url`, limpiar query/fragmento y exigir coincidencia de segmento (`ruta` o `ruta + '/'`); probar cada destino y navegar realmente con `provideRouter`/harness. Mantener `administracion.routes.ts` intacto. |
+| La flecha cambia estado/foco sin activar la ruta, o pierde el foco por el rerender. | Usar anchors existentes; enfocar el ID estable destino y dejar que su RouterLink procese click/activación; probar navegación y foco con Router real y wraparound en ambos sentidos. |
+| `aria-labelledby` apunta a pestaña inexistente/incorrecta al cargar deep link o redirigir la raíz. | Compartir la única resolución de índice activo entre nav y panel (host/layout recibe Router o expone la selección), mantener IDs constantes derivados de ruta y comprobar la relación accesible en las cuatro rutas, incluida la redirección vacía a sedes. |
+| Regresión de deep links/guards/rutas al modificar el layout. | No tocar `administracion.routes.ts`; validar `administracion.routes.spec.ts` y recorrido directo a cada hija, conservando guards y destinos. |
+
+### Fuera de alcance de T-17
+
+Sin cambios a rutas hijas, guard, deep links, backend, APIs/contratos, matriz central, DDL/datos, permisos/roles, servicios, Clerk, dependencias, navegación global `/administracion`, vistas de negocio o semántica de inventario. La enmienda no reabre el cierre ni los AC-1…AC-14 de la Feature 012.
+
+### Trazabilidad de la enmienda
+
+| AC de enmienda | Partes previstas |
+|---|---|
+| AC-15 | Router-based route active + tablist/tabs + `aria-selected`: `administracion-nav.component.ts/html`; test nav. |
+| AC-16 | Teclas izquierda/derecha circulares, foco, `tabindex` y anchors: TS/HTML; tests teclado y href. |
+| AC-17 | `tabpanel` y `aria-labelledby` enlazado a la pestaña activa: `administracion.component.html` y test layout/nav. |
+| AC-18 | Integridad de las cuatro rutas/guards/deep links: no modificar `administracion.routes.ts`; tests existentes de rutas/vistas y pruebas nav con Router real. |
+| AC-19 | Tests nuevos + regresión, build, 4200 y humo 8080 con evidencia: tareas E17-1…E17-4 y Cierre E17-C1…C4. |

@@ -12,6 +12,7 @@ import {
   MovimientoCrear,
   Producto,
   ProductoCrear,
+  ProductoDetalle,
   ProductoExistencia,
   RespuestaMovimiento,
   TransicionCatalogo,
@@ -81,6 +82,21 @@ export class InventarioService {
     return this.http.get<ProductoExistencia[]>(
       `${URL_API}/inventario/existencias`,
       { params },
+    );
+  }
+
+  /**
+   * Detalle de un producto por el alcance del rol (Feature 019, AC-1/AC-2/AC-10).
+   *
+   * `GET /inventario/existencias/{producto_id}`: el identificador viaja en la
+   * ruta y el cliente **no** elige ámbito. No admite parámetros de institución,
+   * sede ni departamento: el servidor resuelve el alcance completo del actor y
+   * acota sedes, `stock_total` y `es_critico`. Reutiliza la forma
+   * `SedeExistencia` de la lista de existencias.
+   */
+  obtenerDetalleProducto(productoId: number): Observable<ProductoDetalle> {
+    return this.http.get<ProductoDetalle>(
+      `${URL_API}/inventario/existencias/${productoId}`,
     );
   }
 

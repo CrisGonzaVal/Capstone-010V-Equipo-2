@@ -89,6 +89,34 @@ export interface ProductoExistencia {
 }
 
 /**
+ * Read model de `GET /inventario/existencias/{producto_id}` (Feature 019,
+ * AC-1/AC-2/AC-10).
+ *
+ * Refleja 1:1 el `ProductoDetalleRespuesta` del backend: los 13 campos del
+ * contrato, con las sedes en la misma forma `SedeExistencia` de la lista y ya
+ * ordenadas por `(sede_nombre, sede_id)`. `stock_total` y `es_critico` se
+ * calculan solo con las sedes devueltas por el alcance del rol.
+ *
+ * `producto_id` e `institucion_id` viajan en el contrato pero la vista no los
+ * pinta (spec 019 §8): son datos de identificación, no de presentación.
+ */
+export interface ProductoDetalle {
+  producto_id: number;
+  nombre: string;
+  descripcion: string | null;
+  unidad_medida: string | null;
+  stock_minimo: number;
+  categoria_id: number;
+  categoria_nombre: string;
+  categoria_activa: boolean;
+  activo: boolean;
+  institucion_id: string | null;
+  stock_total: number;
+  es_critico: boolean;
+  sedes: SedeExistencia[];
+}
+
+/**
  * Opción de sede de `GET /inventario/ambito` (`SedeFiltroRespuesta`, Feature
  * 018, AC-4).
  *

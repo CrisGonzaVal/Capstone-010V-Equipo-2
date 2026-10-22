@@ -1,6 +1,7 @@
 import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 
 import { puedeGestionarCatalogo, puedeVerFiltrosInventario } from '../../core/auth/roles';
@@ -113,7 +114,7 @@ export function mensajeDeErrorCatalogo(error: HttpErrorResponse): string {
 @Component({
   selector: 'app-inventario',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, RouterLink],
   templateUrl: './inventario.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -121,6 +122,7 @@ export class InventarioComponent implements OnInit {
   private readonly inventarioService = inject(InventarioService);
   private readonly autenticacion = inject(AutenticacionService);
   private readonly documento = inject(DOCUMENT);
+  private readonly ruta = inject(ActivatedRoute);
 
   readonly categorias = signal<Categoria[]>([]);
   readonly insumos = signal<ProductoExistencia[]>([]);
@@ -328,12 +330,31 @@ readonly totalCriticos = computed(() => this.insumos().filter((insumo) => insumo
   );
 
   ngOnInit(): void {
+    this.restaurarPestanaDeProcedencia();
     if (this.filtrosVisibles()) {
       this.cargarAmbito();
     }
     this.cargarCatalogo();
     if (this.gestionVisible()) {
       this.cargarGestion();
+    }
+  }
+
+  /**
+   * Restaura la pestaña desde la que se abrió el detalle (Feature 019, AC-9).
+   *
+   * El retorno de Gestión llega como `/inventario?tab=gestion` (plan §1.2.4);
+   * Existencias deja la URL limpia y no necesita parámetro. El query param
+   * **no autoriza**: solo Administrador tiene Gestión (`gestionVisible()`), y
+   * la carga de gestión sigue condicionada al mismo predicado. Cualquier otro
+   * valor mantiene «Existencias», la pestaña predeterminada.
+   */
+  private restaurarPestanaDeProcedencia(): void {
+    if (!this.gestionVisible()) {
+      return;
+    }
+    if (this.ruta.snapshot.queryParamMap.get('tab') === 'gestion') {
+      this.pestanaActiva.set('gestion');
     }
   }
 

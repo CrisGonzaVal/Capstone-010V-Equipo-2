@@ -252,9 +252,15 @@
                 @for (producto of productosGestion(); track producto.producto_id) {
                   <li class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                     <div class="min-w-0">
-                      <p class="truncate text-sm font-medium text-slate-800">
+                      <!-- Entrada al detalle desde Gestión (Feature 019, D-2/AC-8):
+                           lleva `?tab=gestion` para restaurar esta pestaña al volver. -->
+                      <a
+                        [routerLink]="['/inventario', producto.producto_id]"
+                        [queryParams]="{ tab: 'gestion' }"
+                        class="block truncate text-sm font-medium text-slate-800 underline-offset-2 hover:text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                      >
                         {{ producto.nombre }}
-                      </p>
+                      </a>
                       <p class="text-xs text-slate-500">
                         {{ producto.categoria_nombre }}
                         @if (!producto.categoria_activa) {
@@ -565,7 +571,14 @@
                 <tr class="hover:bg-slate-50">
                   <td class="py-4 px-6">
                     <div class="flex items-center gap-2">
-                      <span class="font-medium text-slate-900">{{ insumo.nombre }}</span>
+                      <!-- Entrada al detalle desde Existencias (Feature 019, D-2/AC-8):
+                           sin query, para volver a esta pestaña por defecto. -->
+                      <a
+                        [routerLink]="['/inventario', insumo.producto_id]"
+                        class="font-medium text-slate-900 underline-offset-2 hover:text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                      >
+                        {{ insumo.nombre }}
+                      </a>
                       @if (insumo.unidad_medida) {
                         <span
                           class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"

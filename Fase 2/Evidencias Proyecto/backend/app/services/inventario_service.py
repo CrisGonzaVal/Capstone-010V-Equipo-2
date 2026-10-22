@@ -25,6 +25,7 @@ from app.schemas.inventario_schema import (
     HistorialTransicionProductoRespuesta,
     MovimientoCrear,
     MovimientoInventarioRespuesta,
+    ProductoDetalleRespuesta,
     ProductoExistenciaRespuesta,
     SedeExistenciaRespuesta,
     SedeFiltroRespuesta,
@@ -48,6 +49,7 @@ LONGITUD_MAXIMA_MOTIVO = 500
 _DETALLE_PRODUCTO_NO_ENCONTRADO = "Producto no encontrado"
 _DETALLE_CATEGORIA_NO_ENCONTRADA = "Categoria no encontrada"
 
+_ADMINISTRADOR = permisos.RolConocido.ADMINISTRADOR.value
 _SOLICITANTE = permisos.RolConocido.SOLICITANTE.value
 _BODEGUERO = permisos.RolConocido.BODEGUERO.value
 
@@ -569,6 +571,117 @@ def listar_existencias(
         existencias = [existencia for existencia in existencias if existencia.es_critico]
 
     return existencias
+
+
+def obtener_detalle_producto(
+    db: Session,
+    producto_id: int,
+    identidad: IdentidadAutenticada | None = None,
+) -> ProductoDetalleRespuesta:
+    """Detalle de un producto con su existencia por sede (Feature 019, §8).
+
+    Lectura **dedicada y de solo lectura** que reúne el catálogo operativo del
+    producto y su saldo desglosado por sede, acotada al ámbito del rol. Coexiste
+    sin reemplazar a `obtener_producto` (`GET /inventario/productos/{producto_id}`,
+    capacidad `catalogo` y solo producto).
+
+    Precedencia de la parte de negocio (spec §6 regla 1; el 401/403 de
+    autenticación, matriz y capacidad los resuelve el endpoint):
+
+    1. institución no resoluble -> **403** (`alcance_institucional`);
+    2. sede operativa no resoluble -> **409** (`sede_del_alcance_por_rol`), **antes**
+       de mirar el producto: así un id inexistente, ajeno o retirado tampoco
+       revela nada al rol operativo sin sede;
+    3. producto inexistente, ajeno o -para rol operativo- retirado -> **404**
+       idéntico (`_DETALLE_PRODUCTO_NO_ENCONTRADO`);
+    4. **200** con el detalle (aunque no haya filas de stock en el ámbito).
+
+    Ámbito y visibilidad (spec D-3/D-4/D-5/D-7):
+
+    * **Administrador**: todas las filas `stock_sede` de su institución y lectura
+      de productos y categorías **inactivos**.
+    * **Bodeguero / Solicitante**: solo su sede asignada y solo producto activo
+      con categoría activa; cualquier otra combinación es el mismo 404.
+    * Las filas de sedes **inactivas** no se excluyen: no hay predicado sobre
+      `Sede.activo`, y una sede asignada inactiva sigue siendo resoluble (D-3).
+    * `stock_sede` es la única fuente de saldo: no se leen ni suman las filas
+      legadas de `inventario` (D-5).
+    * El total y la criticidad se derivan **solo** de las sedes devueltas: con
+      `sedes` vacío, `_es_producto_critico` evalúa saldo cero frente al mínimo.
+
+    Cruza producto, categoría y stock, así que -igual que `listar_existencias`-
+    usa `select()` de columnas con joins explícitos y ejecuta con `.mappings()`.
+    """
+    institucion_id = ambito_service.alcance_institucional(db, identidad)
+    # Regla 1: la sede se resuelve antes que el recurso (409 precede al 404).
+    sede_rol = sede_del_alcance_por_rol(db, identidad)
+    es_administrador = permisos.nombre_rol_de(identidad) == _ADMINISTRADOR
+
+    consulta = (
+        select(
+            Producto.producto_id,
+            Producto.nombre,
+            Producto.descripcion,
+            Producto.unidad_medida,
+            Producto.stock_minimo,
+            Producto.categoria_id,
+            Categoria.nombre_cat.label("categoria_nombre"),
+            Categoria.activo.label("categoria_activa"),
+            Producto.activo,
+            Producto.institucion_id,
+        )
+        .join(Categoria, Producto.categoria_id == Categoria.categoria_id)
+        .where(Producto.producto_id == producto_id)
+    )
+    # El filtro institucional deja el producto ajeno fuera del resultado, de modo
+    # que comparte el 404 de uno inexistente (spec D-4).
+    consulta = ambito_service.filtrar_por_institucion(
+        consulta, Producto.institucion_id, institucion_id
+    )
+    producto = db.execute(consulta).mappings().first()
+    if producto is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_DETALLE_PRODUCTO_NO_ENCONTRADO,
+        )
+    if not es_administrador and not (
+        producto["activo"] and producto["categoria_activa"]
+    ):
+        # Un retirado es indistinguible de un inexistente para el rol operativo.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_DETALLE_PRODUCTO_NO_ENCONTRADO,
+        )
+
+    # Sin `Sede.activo`: las sedes inactivas forman parte del desglose (D-3/D-5).
+    consulta_stock = (
+        select(
+            Sede.sede_id,
+            Sede.nombre.label("sede_nombre"),
+            StockSede.stock_actual,
+        )
+        .join(StockSede, StockSede.sede_id == Sede.sede_id)
+        .where(StockSede.producto_id == producto_id)
+    )
+    consulta_stock = ambito_service.filtrar_por_institucion(
+        consulta_stock, StockSede.institucion_id, institucion_id
+    )
+    if sede_rol is not None:
+        consulta_stock = consulta_stock.where(StockSede.sede_id == sede_rol)
+    # Orden determinista del contrato §8: (sede_nombre, sede_id).
+    consulta_stock = consulta_stock.order_by(Sede.nombre, Sede.sede_id)
+
+    sedes = [
+        SedeExistenciaRespuesta(**fila)
+        for fila in db.execute(consulta_stock).mappings()
+    ]
+
+    return ProductoDetalleRespuesta(
+        **dict(producto),
+        stock_total=sum(sede.stock_actual for sede in sedes),
+        es_critico=_es_producto_critico(sedes, producto["stock_minimo"]),
+        sedes=sedes,
+    )
 
 
 def _historial_legados():

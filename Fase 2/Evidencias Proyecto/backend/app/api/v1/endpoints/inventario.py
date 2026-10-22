@@ -11,6 +11,7 @@ from app.schemas.inventario_schema import (
     HistorialTransicionProductoRespuesta,
     MovimientoCrear,
     MovimientoInventarioRespuesta,
+    ProductoDetalleRespuesta,
     ProductoExistenciaRespuesta,
     StockSedeRespuesta,
 )
@@ -261,6 +262,66 @@ def listar_existencias(
             identidad=identidad,
         ),
     )
+
+
+@router.get(
+    "/existencias/{producto_id}",
+    response_model=ProductoDetalleRespuesta,
+    status_code=status.HTTP_200_OK,
+    summary="Detalle de un producto con su existencia por sede",
+    description=(
+        "Feature 019: lectura **aditiva y de solo lectura** que devuelve un "
+        "producto del catalogo junto con su existencia desglosada por sede "
+        "(`stock_sede`), acotada al ambito del rol. No sustituye a "
+        "`GET /inventario/productos/{producto_id}`, que sigue devolviendo solo el "
+        "producto bajo la capacidad `catalogo`.\n\n"
+        "**Ambito:** el Administrador recibe todas las filas de su institucion; el "
+        "Bodeguero, su sede asignada; el Solicitante, la sede de su departamento. "
+        "El cliente no elige ni amplia institucion o sede. Las filas de **sedes "
+        "inactivas** se incluyen y suman: no se filtra por `Sede.activo`. "
+        "`stock_total` es la suma de las sedes devueltas y `es_critico` se evalua "
+        "solo sobre ellas; un producto visible sin filas responde **200** con "
+        "`sedes: []` y total cero. `sedes` se ordena por `(sede_nombre, sede_id)` "
+        "ascendente.\n\n"
+        "**Productos:** el Administrador lee activos e inactivos, incluso con "
+        "categoria inactiva; Bodeguero y Solicitante solo producto activo con "
+        "categoria activa. Un producto inexistente, ajeno o -en roles operativos- "
+        "retirado se oculta con **404** indistinguible.\n\n"
+        "**Gating:** solo capacidad institucional `inventario`; si esta apagada "
+        "responde **403**, tambien al abrir desde Gestion aunque `catalogo` este "
+        "habilitada. El **Superadmin** no tiene esta lectura de negocio y recibe "
+        "**403**.\n\n"
+        "**Precedencia:** `401` -> `403` por matriz -> `403` por capacidad -> "
+        "`403` por institucion no resoluble -> `409` por sede operativa no "
+        "resoluble -> `404` por recurso -> `200`. El alcance institucional y la "
+        "sede se resuelven antes de buscar el producto: un rol operativo sin sede "
+        "resoluble recibe **409** incluso con id inexistente, ajeno o retirado. "
+        "Un `producto_id` no entero responde **422** por coercion de tipo; cero y "
+        "negativos responden **404** tras la precedencia aplicable."
+    ),
+    responses={
+        **dependencies.respuestas_de_autorizacion(),
+        **dependencies.respuesta_recurso_oculto(),
+        **dependencies.respuesta_conflicto(),
+    },
+    dependencies=[
+        Depends(
+            dependencies.requiere_capacidad(
+                "GET", "/api/v1/inventario/existencias/{producto_id}"
+            )
+        )
+    ],
+)
+def obtener_existencias_producto(
+    producto_id: int,
+    identidad: IdentidadAutenticada = Depends(
+        dependencies.requiere_operacion(
+            "GET", "/api/v1/inventario/existencias/{producto_id}"
+        )
+    ),
+    db: Session = Depends(dependencies.get_db_negocio),
+):
+    return inventario_service.obtener_detalle_producto(db, producto_id, identidad)
 
 
 @router.get(

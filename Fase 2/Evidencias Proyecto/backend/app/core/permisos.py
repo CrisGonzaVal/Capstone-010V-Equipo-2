@@ -276,6 +276,13 @@ MATRIZ_PERMISOS: dict[tuple[str, str], frozenset[str]] = {
     # 60 -> 61): ninguna entrada previa cambia de roles ni se retira. El gating
     # de la capacidad `inventario` se evalua despues de esta matriz.
     ("GET", "/api/v1/inventario/ambito"): _AMBITO_INVENTARIO,
+    # Feature 019 (spec D-6/AC-4/AC-11): detalle de producto con su stock por
+    # sede, acotado al ambito del rol. Es la **unica** incorporacion de la 019
+    # (matriz 61 -> 62): ninguna entrada previa cambia de roles ni se retira. Se
+    # concede a los tres roles institucionales de lectura de negocio; Superadmin
+    # queda fuera (403 por matriz) y el gating de la capacidad `inventario` se
+    # evalua despues de esta matriz.
+    ("GET", "/api/v1/inventario/existencias/{producto_id}"): _LECTURA_NEGOCIO,
 }
 
 

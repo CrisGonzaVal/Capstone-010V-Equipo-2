@@ -127,6 +127,49 @@ class ProductoExistenciaRespuesta(BaseModel):
     sedes: List[SedeExistenciaRespuesta]
 
 
+class ProductoDetalleRespuesta(BaseModel):
+    """Read model de `GET /inventario/existencias/{producto_id}` (Feature 019, §8).
+
+    Detalle dedicado de solo lectura: los datos del catalogo operativo del
+    producto mas su existencia desglosada por sede, acotada al ambito del rol
+    (Administrador: todas las sedes de su institucion; Bodeguero: su sede
+    asignada; Solicitante: la sede de su departamento). El total y la criticidad
+    se derivan **solo** de las sedes devueltas (spec D-5/D-7), y las filas de
+    sedes inactivas se incluyen y suman.
+
+    El orden de `sedes` es determinista por `(sede_nombre, sede_id)` ascendente y
+    cada elemento reutiliza `SedeExistenciaRespuesta` (identificador, nombre y
+    existencia), que es la misma forma de `GET /inventario/existencias`.
+
+    NO lleva `model_config = ConfigDict(from_attributes=True)`: igual que
+    `ProductoExistenciaRespuesta`, es un read model **agregado** que arma el
+    service a partir de mappings explicitos; con `from_attributes` Pydantic
+    buscaria `categoria_nombre`, `stock_total`, `es_critico` y `sedes` en el
+    objeto ORM y no los encontraria.
+
+    Coexiste sin reemplazar a `GET /inventario/productos/{producto_id}`
+    (capacidad `catalogo`, devuelve solo el producto, sin stock): esta lectura se
+    gatea unicamente por la capacidad `inventario` y retorna producto mas stock
+    (spec §9 y AC-12).
+    """
+
+    producto_id: int
+    nombre: str
+    descripcion: Optional[str] = None
+    unidad_medida: Optional[str] = None
+    stock_minimo: int
+    categoria_id: int
+    categoria_nombre: str
+    categoria_activa: bool
+    activo: bool
+    # Feature 019 (§8): el identificador institucional forma parte del contrato
+    # aunque la vista no lo presente.
+    institucion_id: Optional[str] = None
+    stock_total: int
+    es_critico: bool
+    sedes: List[SedeExistenciaRespuesta]
+
+
 # ---------------------------------------------------------------------------
 # Ambito de filtros de existencias (Feature 018, plan §1.1 y §1.2)
 # ---------------------------------------------------------------------------

@@ -2,6 +2,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { WritableSignal, signal } from '@angular/core';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { of } from 'rxjs';
 
 import { AutenticacionService } from '../../core/services/auth.service';
 import { URL_API } from '../../shared/config/url-api';
@@ -296,16 +298,46 @@ describe('InventarioComponent', () => {
   /** Identidad local (`/auth/me`) que la vista lee para decidir la sección. */
   let identidad: WritableSignal<IdentidadAutenticada | null>;
 
+  /**
+   * Query params de la ruta padre (Feature 019, AC-9). Es mutable para poder
+   * simular la entrada con `?tab=gestion` antes del primer `detectChanges`
+   * —que es cuando corre `ngOnInit`— sin reconfigurar el TestBed.
+   */
+  let parametrosConsulta: Record<string, string>;
+
+  /**
+   * `ActivatedRoute` mínimo de la ruta `/inventario`. El componente lo lee para
+   * restaurar la pestaña de procedencia; el enlace usa `RouterLink`, no la ruta.
+   */
+  function rutaPadre(): ActivatedRoute {
+    return {
+      snapshot: {
+        paramMap: convertToParamMap({}),
+        get queryParamMap() {
+          return convertToParamMap(parametrosConsulta);
+        },
+      },
+      paramMap: of(convertToParamMap({})),
+      get queryParamMap() {
+        return of(convertToParamMap(parametrosConsulta));
+      },
+    } as unknown as ActivatedRoute;
+  }
+
   beforeEach(async () => {
     // Por defecto, un rol operativo: las pruebas heredadas de la vista
     // operativa no deben disparar el listado de gestión.
     identidad = signal<IdentidadAutenticada | null>(crearIdentidad('Bodeguero'));
+    parametrosConsulta = {};
 
     await TestBed.configureTestingModule({
       imports: [InventarioComponent],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        // `RouterLink` (Feature 019, T10) exige el router en el TestBed.
+        provideRouter([]),
+        { provide: ActivatedRoute, useValue: rutaPadre() },
         { provide: AutenticacionService, useValue: { identidad } },
       ],
     }).compileComponents();
@@ -1294,6 +1326,137 @@ describe('InventarioComponent', () => {
       const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
       expect(texto).toContain('Ningún insumo coincide con los filtros aplicados.');
       expect(texto).not.toContain('El catálogo no tiene insumos cargados.');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Entradas al detalle y restauración de pestaña (Feature 019, T10; AC-8/AC-9)
+  //
+  // Dos únicas entradas (D-2): el nombre del producto en «Existencias» para
+  // todos los roles y en «Gestión del catálogo» solo para Administrador. La
+  // procedencia viaja en `?tab=gestion`; Existencias deja la URL limpia.
+  // ---------------------------------------------------------------------------
+
+  /** Enlace cuyo texto visible es exactamente el nombre del producto. */
+  function enlaceDeProducto(nombre: string): HTMLAnchorElement | null {
+    const raiz = fixture.nativeElement as HTMLElement;
+    return (
+      Array.from(raiz.querySelectorAll<HTMLAnchorElement>('a')).find(
+        (enlace) => (enlace.textContent ?? '').replace(/\s+/g, ' ').trim() === nombre,
+      ) ?? null
+    );
+  }
+
+  /** Todos los enlaces a `/inventario/<id>` presentes en la vista. */
+  function enlacesAlDetalle(): HTMLAnchorElement[] {
+    const raiz = fixture.nativeElement as HTMLElement;
+    return Array.from(raiz.querySelectorAll<HTMLAnchorElement>('a')).filter((enlace) =>
+      /^\/inventario\/\d+(?:\?|$)/.test(enlace.getAttribute('href') ?? ''),
+    );
+  }
+
+  describe('entradas al detalle de producto (AC-8/AC-9)', () => {
+    for (const rol of ['Administrador', 'Bodeguero', 'Solicitante'] as const) {
+      it(`enlaza el nombre del producto en Existencias para ${rol} sin query de pestaña`, () => {
+        montarConRol(rol);
+
+        const enlace = enlaceDeProducto('Cuaderno linedado');
+        expect(enlace).withContext(`enlace de «Cuaderno linedado» para ${rol}`).toBeTruthy();
+        expect(enlace!.getAttribute('href')).toBe('/inventario/1');
+        // Existencias es la procedencia por defecto: la URL no lleva `tab`.
+        expect(enlace!.getAttribute('href')).not.toContain('tab=');
+
+        // Cada fila operativa tiene su enlace, con el id de su producto.
+        expect(enlacesAlDetalle().map((candidato) => candidato.getAttribute('href')))
+          .toEqual(['/inventario/1', '/inventario/2', '/inventario/3']);
+      });
+    }
+
+    it('el Administrador enlaza el nombre en Gestión con ?tab=gestion, incluido el inactivo', () => {
+      montarAdmin();
+      abrirGestion();
+
+      const activo = enlaceDeProducto('Cuaderno linedado');
+      expect(activo).withContext('enlace del producto activo en Gestión').toBeTruthy();
+      expect(activo!.getAttribute('href')).toBe('/inventario/1?tab=gestion');
+
+      // AC-8: la entrada de Gestión incluye productos inactivos.
+      const inactivo = enlaceDeProducto('Grapadora retirada');
+      expect(inactivo).withContext('enlace del producto inactivo en Gestión').toBeTruthy();
+      expect(inactivo!.getAttribute('href')).toBe('/inventario/9?tab=gestion');
+
+      // Los botones de ciclo de vida siguen intactos junto al enlace.
+      expect(botonConAria('el producto Cuaderno linedado')).toBeTruthy();
+      expect(botonConAria('el producto Grapadora retirada')).toBeTruthy();
+    });
+
+    for (const rol of ['Bodeguero', 'Solicitante'] as const) {
+      it(`${rol} no tiene enlace de Gestión ni consulta el listado de gestión`, () => {
+        const solicitadas = montarConRol(rol);
+
+        expect(solicitadas).not.toContain(RUTA_GESTION);
+        httpMock.expectNone(RUTA_GESTION);
+        // Ni el panel ni un enlace con la procedencia de Gestión.
+        expect(panelGestion()).toBeNull();
+        const conTab = enlacesAlDetalle().filter((enlace) =>
+          (enlace.getAttribute('href') ?? '').includes('tab=gestion'),
+        );
+        expect(conTab).withContext('enlaces con procedencia Gestión').toEqual([]);
+        // La entrada operativa sigue disponible.
+        expect(enlaceDeProducto('Cuaderno linedado')!.getAttribute('href')).toBe(
+          '/inventario/1',
+        );
+      });
+    }
+
+    it('al entrar con ?tab=gestion el Administrador abre directamente Gestión (AC-9)', () => {
+      parametrosConsulta = { tab: 'gestion' };
+      identidad.set(crearIdentidad('Administrador'));
+
+      fixture.detectChanges();
+
+      const peticiones = {
+        insumos: httpMock.expectOne(RUTA_EXISTENCIAS),
+        categorias: httpMock.expectOne(RUTA_CATEGORIAS),
+        gestion: httpMock.expectOne(RUTA_GESTION),
+        ambito: httpMock.expectOne(RUTA_AMBITO),
+      };
+      peticiones.insumos.flush(INSUMOS);
+      peticiones.categorias.flush(CATEGORIAS);
+      peticiones.gestion.flush(GESTION);
+      peticiones.ambito.flush(AMBITO_ADMIN);
+      fixture.detectChanges();
+
+      // El retorno desde el detalle reabre la pestaña de procedencia.
+      expect(componente.pestanaActiva()).toBe('gestion');
+      expect(panelGestion()).toBeTruthy();
+      expect(panelExistencias()).toBeNull();
+      expect(pestana('Gestión del catálogo').getAttribute('aria-selected')).toBe('true');
+      // La carga de gestión sigue siendo la única y condicionada al rol.
+      expect(componente.gestion()).toEqual(GESTION);
+    });
+
+    it('sin ?tab=gestion el Administrador sigue entrando por Existencias', () => {
+      montarAdmin();
+
+      expect(componente.pestanaActiva()).toBe('existencias');
+      expect(panelExistencias()).toBeTruthy();
+      expect(panelGestion()).toBeNull();
+    });
+
+    it('el query param no concede Gestión a un rol que no la tiene', () => {
+      parametrosConsulta = { tab: 'gestion' };
+      identidad.set(crearIdentidad('Solicitante'));
+
+      fixture.detectChanges();
+      httpMock.expectOne(RUTA_EXISTENCIAS).flush(INSUMOS);
+      httpMock.expectOne(RUTA_CATEGORIAS).flush(CATEGORIAS);
+      fixture.detectChanges();
+
+      // `gestionVisible()` manda: el parámetro es procedencia, no autorización.
+      expect(componente.pestanaActiva()).toBe('existencias');
+      expect(panelGestion()).toBeNull();
+      httpMock.expectNone(RUTA_GESTION);
     });
   });
 });
