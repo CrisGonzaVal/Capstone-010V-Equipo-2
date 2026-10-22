@@ -522,22 +522,27 @@ def crear_ticket(
     de quien lo llama, que es lo que dejaria de ser cierto en cuanto dos
     tickets compartieran transaccion.
 
-    Feature 007 (D-3/AC-6): el Solicitante queda **siempre** atribuido a su
-    identidad autenticada e ignora cualquier `usuario_id` alternativo del
-    payload. Administrador/Bodeguero conservan el contrato vigente con
-    `usuario_id` obligatorio, pero solo pueden elegir un solicitante de su
-    institucion. Superadmin no crea tickets de una institucion concreta (matriz
-    008), pero el servicio mantiene el contrato si se le invocara directamente.
+    Feature 007 (D-3/AC-6), enmendada el 22/Oct/2026 (003 D-33/D-35, 007
+    AC-18/AC-20, 008 D-7/AC-11): **todo rol autorizado** (Administrador,
+    Bodeguero, Solicitante) queda atribuido a `identidad.usuario.usuario_id`, sin
+    excepcion. El `usuario_id` del payload es opcional y se ignora por completo:
+    no se valida como referencia, de modo que un id propio, ajeno o inexistente
+    no produce 404/422. Superadmin no crea tickets (matriz 008), pero el servicio
+    conserva el mismo contrato si se le invocara directamente.
 
-    Feature 008 (D-4/AC-11): el ticket se ancla a la institucion de su
-    solicitante y cada producto del detalle debe pertenecer a esa misma
-    institucion. Un solicitante de otra institucion para un rol limitado y un
-    producto ajeno se **ocultan con 404**, igual que si no existieran; un
-    `usuario_id` inexistente conserva el 404 que nombra la referencia. Todo
-    rechazo ocurre **antes del primer `add()`**, de modo que no quedan ticket ni
-    detalle parciales. Se pueblan `ticket.institucion_id` y
-    `detalle_ticket.institucion_id` con esa institucion, satisfaciendo las
-    claves compuestas del esquema (AC-4).
+    Feature 008 (D-4/AC-11): el ticket se ancla a la institucion de la identidad
+    autenticada y cada producto del detalle debe pertenecer a esa misma
+    institucion. Un producto ajeno se **oculta con 404**, igual que si no
+    existiera. Todo rechazo ocurre **antes del primer `add()`**, de modo que no
+    quedan ticket ni detalle parciales. Se pueblan `ticket.institucion_id` y
+    `detalle_ticket.institucion_id` con esa institucion, satisfaciendo las claves
+    compuestas del esquema (AC-4).
+
+    Orden de validacion de la enmienda (plan 008 §«Enmienda»): autoatribucion ->
+    institucion de la identidad -> prioridad/estado -> productos frente a esa
+    institucion -> sede del departamento de la identidad (409 si no resoluble) ->
+    reglas de estado inicial -> escritura transaccional. La sede se resuelve
+    siempre por `usuario.departamento_id`, nunca como fallback a `usuario.sede_id`.
 
     AC-17: si el estado destino es `Cerrado` (case-insensitive), se sella
     `fecha_cierre` en la propia creacion.
@@ -550,30 +555,25 @@ def crear_ticket(
     `ticket.usuario_id`; decision 9) en la misma transaccion del ticket (AC-9,
     AC-11).
     """
-    if _es_solicitante(identidad):
-        # Se ignora el `usuario_id` recibido y se reescribe al del autenticado:
-        # no es un 422 (el contrato no cambio) ni un 403, es autoatribucion.
+    # Enmienda D-33/D-7: autoatribucion **incondicional y primera**. La autoria es
+    # siempre la identidad autenticada, cualquiera sea el rol y el valor enviado
+    # en `usuario_id` (que ya no es una referencia y no se valida). La invocacion
+    # directa al servicio sin identidad (no observable por HTTP) usa el
+    # `usuario_id` del DTO como solicitante; si ese id viene omitido, el alta
+    # termina en 409 al no poder resolver la sede del departamento.
+    if identidad is not None:
         datos = datos.model_copy(
             update={"usuario_id": identidad.usuario.usuario_id}
         )
+        solicitante = identidad.usuario
+    else:
+        solicitante = db.get(Usuario, datos.usuario_id)
 
-    _verificar_referencia(db, Usuario, datos.usuario_id, "usuario")
-
-    # Institucion efectiva del actor (`None` = Superadmin) y del solicitante
-    # elegido: el ticket hereda la del solicitante (spec §6).
-    institucion_actor = _institucion_efectiva(db, identidad)
-    solicitante = db.get(Usuario, datos.usuario_id)
-    institucion_ticket = _institucion_de_usuario(db, solicitante)
-
-    if institucion_actor is not None:
-        # Rol limitado: el solicitante debe pertenecer a su institucion; uno
-        # ajeno se oculta con 404 (D-4/AC-11), indistinguible de un usuario
-        # inexistente.
-        ambito_service.exigir_pertenencia(
-            institucion_ticket,
-            institucion_actor,
-            detalle=f"No existe usuario indicado: {datos.usuario_id}",
-        )
+    # Institucion efectiva del actor (`None` = Superadmin, que la matriz ya
+    # rechaza) y del usuario de sesion: el ticket y sus detalles se anclan a ella.
+    institucion_ticket = _institucion_efectiva(db, identidad)
+    if institucion_ticket is None:
+        institucion_ticket = _institucion_de_usuario(db, solicitante)
 
     _verificar_referencia(db, Prioridad, datos.prioridad_id, "prioridad")
     _verificar_referencia(db, EstadoTicket, datos.estado_id, "estado")

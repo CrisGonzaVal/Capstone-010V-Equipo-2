@@ -13,6 +13,7 @@ import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angula
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 
+import { AutenticacionService } from '../../core/services/auth.service';
 import {
   CatalogosTicket,
   DetalleTicketCrear,
@@ -218,9 +219,18 @@ export class TicketsComponent {
   }
 
   private readonly servicioTickets = inject(TicketService);
+  private readonly autenticacion = inject(AutenticacionService);
   private readonly fb = inject(NonNullableFormBuilder);
 
   // --- Estado del modal ---
+
+  /**
+   * Identidad de sesión (Feature 003, AC-34): el alta no elige autor. El
+   * servidor atribuye el ticket a esta misma identidad; aquí solo se presenta
+   * como dato informativo de solo lectura. No se consulta departamento porque
+   * `/auth/me` no lo expone.
+   */
+  readonly identidad = this.autenticacion.identidad;
 
   readonly modalAbierto = signal(false);
   readonly catalogos = signal<CatalogosTicket | null>(null);
@@ -272,9 +282,10 @@ export class TicketsComponent {
    * Los validadores del cliente son espejo de `TicketCrear` en el backend. El
    * servidor sigue siendo la fuente de verdad: esto solo evita el viaje de ida
    * y vuelta para descubrir un error que ya se conocia.
+   *
+   * No hay control de autor: la identidad de sesion atribuye el alta (AC-34).
    */
   readonly formulario = this.fb.group({
-    usuario_id: [null as number | null, Validators.required],
     prioridad_id: [null as number | null, Validators.required],
     estado_id: [null as number | null, Validators.required],
     asunto: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(150)]],
@@ -306,16 +317,17 @@ export class TicketsComponent {
   readonly productos = computed<ProductoCatalogo[]>(() =>
     (this.catalogos()?.productos ?? []).filter((producto) => producto.activo !== false)
   );
+  /**
+   * Catálogo de solicitantes conservado como dato de **lectura**: resuelve el
+   * autor de cada tarjeta del tablero (AC-35). El alta ya no lo usa como
+   * selector; la autoría sale de la identidad de sesión.
+   */
   readonly solicitantes = computed<Solicitante[]>(() => this.catalogos()?.solicitantes ?? []);
 
   /** Etiqueta de un producto en el desplegable: nombre, unidad y categoria. */
   etiquetaProducto(producto: ProductoCatalogo): string {
     const unidad = producto.unidad_medida ? ` (${producto.unidad_medida})` : '';
     return `${producto.nombre}${unidad} · ${producto.categoria_nombre}`;
-  }
-
-  etiquetaSolicitante(solicitante: Solicitante): string {
-    return `${solicitante.apellido}, ${solicitante.nombre} · ${solicitante.departamento_nombre}`;
   }
 
   /**
@@ -545,8 +557,9 @@ export class TicketsComponent {
     }
 
     const valor = this.formulario.getRawValue();
+    // AC-34: el cuerpo no lleva `usuario_id`. El backend atribuye el alta a la
+    // identidad de sesión y resuelve institución, productos y sede con ella.
     const cuerpo: TicketCrear = {
-      usuario_id: valor.usuario_id!,
       prioridad_id: valor.prioridad_id!,
       estado_id: valor.estado_id!,
       asunto: valor.asunto,

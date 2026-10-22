@@ -2,9 +2,11 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, UrlTree, provideRouter } from '@angular/router';
+import { WritableSignal, signal } from '@angular/core';
 
+import { AutenticacionService } from '../../core/services/auth.service';
 import { URL_API } from '../../shared/config/url-api';
-import { CatalogosTicket, Ticket } from '../../shared/interfaces';
+import { CatalogosTicket, IdentidadAutenticada, Ticket } from '../../shared/interfaces';
 import { TicketsComponent } from './tickets.component';
 
 const RUTA_CATALOGOS = `${URL_API}/tickets/catalogos`;
@@ -270,6 +272,24 @@ describe('TicketsComponent', () => {
   let componente: TicketsComponent;
   let httpMock: HttpTestingController;
 
+  /**
+   * Identidad local (`/auth/me`) que el modal presenta como autor informativo.
+   * No incluye departamento: el contrato real de `GET /auth/me` tampoco.
+   */
+  let identidad: WritableSignal<IdentidadAutenticada | null>;
+
+  function crearIdentidad(usuario_id = 5): IdentidadAutenticada {
+    return {
+      usuario_id,
+      sub: 'user_tickets',
+      nombre: 'Isabel',
+      apellido: 'Contreras',
+      correo: 'isabel.contreras@losalpes.cl',
+      rol: 'Solicitante',
+      institucion: { institucion_id: '1', nombre: 'Los Alpes' },
+    };
+  }
+
   /** Responde las dos peticiones del arranque del tablero. */
   function responderArranque(
     catalogos: CatalogosTicket = CATALOGOS,
@@ -293,7 +313,6 @@ describe('TicketsComponent', () => {
   /** Deja el formulario valido con un solo detalle. */
   function completarFormulario() {
     const formulario = componente.formulario;
-    formulario.controls.usuario_id.setValue(5);
     formulario.controls.prioridad_id.setValue(1);
     formulario.controls.asunto.setValue('Falta de papel');
     componente.detalles.at(0).controls.producto_id.setValue(1);
@@ -301,14 +320,17 @@ describe('TicketsComponent', () => {
   }
 
   beforeEach(async () => {
-    // El tablero ya no condiciona su UI al rol (D-14: sin controles de
-    // mutación que ocultar), asi que el TestBed no necesita el doble de
-    // `AutenticacionService` que si usaba antes de la 013.
+    // El tablero no condiciona su UI al rol (D-14: sin controles de mutación
+    // que ocultar), pero el modal sí lee la identidad para presentar el autor
+    // informativo (AC-34). Se inyecta un doble con una señal para poder variarla.
+    identidad = signal<IdentidadAutenticada | null>(crearIdentidad());
+
     await TestBed.configureTestingModule({
       imports: [TicketsComponent],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        { provide: AutenticacionService, useValue: { identidad } },
         provideRouter([]),
       ],
     }).compileComponents();
@@ -351,6 +373,8 @@ describe('TicketsComponent', () => {
       expect(componente.prioridades().length).toBe(2);
       expect(componente.estados().length).toBe(3);
       expect(componente.productos().length).toBe(2);
+      // AC-35: `solicitantes` se conserva como catálogo de **lectura** para
+      // resolver el autor de las tarjetas; ya no alimenta ningún selector del alta.
       expect(componente.solicitantes().length).toBe(2);
     });
 
@@ -501,14 +525,16 @@ describe('TicketsComponent', () => {
 
       const peticion = httpMock.expectOne(RUTA_TICKETS);
       expect(peticion.request.method).toBe('POST');
+      // AC-34: el cuerpo no incluye `usuario_id`; el servidor atribuye la
+      // autoría a la identidad de sesión (E22-1).
       expect(peticion.request.body).toEqual({
-        usuario_id: 5,
         prioridad_id: 1,
         estado_id: 1,
         asunto: 'Falta de papel',
         descripcion: null,
         detalles: [{ producto_id: 1, cantidad_solicitada: 3 }],
       });
+      expect('usuario_id' in peticion.request.body).toBe(false);
 
       peticion.flush(ticketRespuesta(42));
       fixture.detectChanges();
@@ -1183,6 +1209,78 @@ describe('TicketsComponent', () => {
   });
 
   /**
+   * AC-34 (enmienda 22/Oct/2026): el autor del ticket es un dato informativo
+   * de la identidad de sesión, no una elección. Sin selector, sin control
+   * editable y sin llamada adicional: todo sale de `AutenticacionService`.
+   */
+  describe('autor informativo de la sesión (AC-34)', () => {
+    beforeEach(() => abrirConCatalogos());
+
+    function bloqueAutor(): HTMLElement | null {
+      return fixture.nativeElement.querySelector('dialog dl');
+    }
+
+    it('muestra nombre, apellido y correo de la identidad, sin departamento', () => {
+      const bloque = bloqueAutor();
+      expect(bloque).not.toBeNull();
+
+      const texto = bloque!.textContent ?? '';
+      expect(texto).toContain('Isabel');
+      expect(texto).toContain('Contreras');
+      expect(texto).toContain('isabel.contreras@losalpes.cl');
+      // `/auth/me` no expone departamento y no se consulta por separado.
+      expect(texto).not.toContain('Docencia');
+      expect(texto).not.toContain('Departamento');
+    });
+
+    it('refleja la identidad vigente sin selector ni control editable', () => {
+      identidad.set({
+        ...crearIdentidad(7),
+        nombre: 'Bruno',
+        apellido: 'Soto',
+        correo: 'bruno.soto@losalpes.cl',
+      });
+      fixture.detectChanges();
+
+      const texto = bloqueAutor()!.textContent ?? '';
+      expect(texto).toContain('Bruno');
+      expect(texto).toContain('Soto');
+
+      // Ni `<select>` ni ningún control de formulario llamado `usuario_id`.
+      expect(
+        fixture.nativeElement.querySelector('dialog select[formcontrolname="usuario_id"]')
+      ).toBeNull();
+      expect(
+        fixture.nativeElement.querySelector('dialog [formcontrolname="usuario_id"]')
+      ).toBeNull();
+      expect('usuario_id' in componente.formulario.controls).toBe(false);
+    });
+
+    it('no hace ninguna llamada adicional para presentar la identidad', () => {
+      // `abrirConCatalogos` ya consumió catálogos y lista del arranque: el
+      // campo informativo no pide `/usuarios/` ni repite `/auth/me`.
+      componente.abrirModal();
+      fixture.detectChanges();
+
+      expect(httpMock.match(() => true).length).toBe(0);
+      expect(
+        httpMock.match((peticion) => peticion.url.includes('/usuarios')).length
+      ).toBe(0);
+    });
+
+    it('sin identidad disponible no inventa un autor ni un control', () => {
+      identidad.set(null);
+      fixture.detectChanges();
+
+      const texto = bloqueAutor()!.textContent ?? '';
+      expect(texto).toContain('No se pudo cargar tu identidad');
+      expect(
+        fixture.nativeElement.querySelector('dialog [formcontrolname="usuario_id"]')
+      ).toBeNull();
+    });
+  });
+
+  /**
    * AC-19: la vista de una institución presenta exactamente el catálogo, el
    * stock y los tickets que el servidor devolvió para su ámbito. El servidor ya
    * aísla (T7); el cliente no agrega ni recombina datos de otra institución, y
@@ -1264,7 +1362,7 @@ describe('TicketsComponent', () => {
       expect(peticion.request.method).toBe('POST');
       const cuerpo = peticion.request.body as Record<string, unknown>;
       expect('institucion_id' in cuerpo).toBe(false);
-      expect('usuario_id' in cuerpo).toBe(true);
+      expect('usuario_id' in cuerpo).toBe(false);
 
       peticion.flush(ticketRespuesta(500));
     });

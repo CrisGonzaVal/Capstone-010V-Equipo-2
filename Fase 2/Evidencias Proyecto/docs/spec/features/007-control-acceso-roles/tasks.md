@@ -133,3 +133,48 @@ Verificación habitual:
 | AC-15 | T1…T11 |
 | AC-16 | T8, T11, C1, C3 |
 | AC-17 | T12, T13, C1…C5 |
+
+---
+
+## Enmienda de autoatribución de tickets (22/Oct/2026)
+
+> Cambio único transversal coordinado por `008/tasks.md` E22-1…E22-4, en este orden: backend → frontend → regresión conjunta → verificación/cierre. Las tareas aquí documentan AC-6 actualizado y AC-18…AC-20 de 007; no reejecutar ni solapar la secuencia común.
+
+- [x] **E22-1 — Backend común: opcionalidad y autoría de sesión** (ejecución en `008/tasks.md` E22-1).
+  - **Archivos:** schema/servicio/endpoint tickets y `test_tickets_alcance.py`, `test_tickets_institucional.py`, `test_modal_ticket.py`, `test_ticket_sede_011.py`, `test_transaccion_ticket.py` según el inventario por grep.
+  - Rojo: reemplazar prueba de `usuario_id` obligatorio; actualizar creación para Administrador/Solicitante/Bodeguero y solicitante ajeno; campo ausente, propio, ajeno e inexistente no cambia autor. La identidad de sesión gobierna autor/institución. Sede departamental faltante → 409 sin datos; producto ajeno conserva 404 sin parcial. No tocar casos de despacho.
+  - **AC:** AC-6, AC-18, AC-20.
+  - **Hecho cuando:** HTTP y OpenAPI confirman opcionalidad/ignorado sin 422/403/404 por usuario; autoría e institución de sesión son observables; matriz y Superadmin 403 idénticos.
+  - **Comando:** `backend\.venv\Scripts\python.exe -m pytest backend\tests\api\test_tickets_alcance.py backend\tests\api\test_tickets_institucional.py backend\tests\api\test_modal_ticket.py backend\tests\api\test_ticket_sede_011.py backend\tests\api\test_transaccion_ticket.py -q`.
+
+- [x] **E22-2 — Frontend común: identidad visible sin selección** (ejecución en `008/tasks.md` E22-2).
+  - **Archivos:** tickets componente/template/spec e interface compartida.
+  - **AC:** AC-19.
+  - **Hecho cuando:** no existe control `usuario_id` ni `<select>`; se ve nombre/apellido/correo de `AutenticacionService.identidad()` sin consulta nueva ni departamento; POST omite el campo; catálogo `solicitantes` permanece para listados/detalle.
+  - **Comando:** `$env:CHROME_BIN = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"; cd frontend; npx ng test --watch=false --browsers=ChromeHeadless` (nunca `npm test`).
+
+- [x] **E22-3 — Regresión de roles, catálogo y payloads** (ejecución en `008/tasks.md` E22-3).
+  - **Archivos:** tests backend/frontend de tickets afectados.
+  - Inventario del grep verificado; tests sustituidos: `test_roles_autorizados_atienden_la_identidad_de_sesion` (parametrizado por rol y por `usuario_id` omitido/propio/ajeno/inexistente), `test_administrador_crea_para_solicitante_propio_201`, `test_solicitante_crea_y_se_atribuye_su_identidad`, `test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion`, `test_departamento_sin_sede_ignora_usuario_sede_id_y_responde_409` y `test_ticket_guarda_la_sede_del_departamento_no_la_del_usuario`; frontend: `formulario.controls.usuario_id.setValue(5)`, aserción de campo en body y pruebas de selector retiradas/reemplazadas. Conservar `test_crear_ticket_con_producto_ajeno_404_sin_parcial`, `test_crear_ticket_puebla_institucion_en_ticket_y_detalle`, pruebas del catálogo y payloads `TicketDespacho.usuario_id`.
+  - **AC:** AC-6, AC-18…AC-20.
+  - **Hecho cuando:** ninguna evidencia de rol atribuye alta a un usuario seleccionado y continúan verdes permisos/matriz, propiedad, catálogo de lectura, productos ajenos, sedes y despacho.
+  - **Comandos:** `backend\.venv\Scripts\python.exe -m pytest`; `$env:CHROME_BIN = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"; cd frontend; npx ng test --watch=false --browsers=ChromeHeadless`.
+
+- [x] **E22-4 — Verificación y evidencia coordinada** (ejecución en `008/tasks.md` E22-4).
+  - **AC:** AC-6, AC-18…AC-20.
+  - **Hecho cuando:** evidencia actualizada bajo AC de las tres specs, suites verdes, recorrido 4200 y humo 8080 tras rebuild frontend, `/openapi.json` revisado, `MEMORY.md` actualizado, grep de coherencia y roadmap solo si corresponde tras verificación; el estado histórico Cerrada de 007 no se altera automáticamente.
+  - **Comandos:** `backend\.venv\Scripts\python.exe -m pytest`; `CHROME_BIN` a Edge + `npx ng test --watch=false --browsers=ChromeHeadless`; si se valida frontend, `docker compose -f docker-compose.yml build frontend` y `docker compose -f docker-compose.yml up -d frontend`.
+
+### Cierre de enmienda
+
+- [x] **E22-C1 — Suites, OpenAPI y dos puertos.** **AC:** AC-6, AC-18…AC-20. **Hecho cuando:** pytest SQLite/gated requerido y ng test pasan, OpenAPI refleja `usuario_id` opcional, 4200 prueba creación real y 8080 tras rebuild prueba humo de la UI; sin `npm test`.
+- [x] **E22-C2 — Evidencia y coherencia.** **AC:** AC-18…AC-20. **Hecho cuando:** evidencia observada está en las tres specs; `MEMORY.md` concisa; grep `AGENTS.md`/`MEMORY.md`/`.agents/skills/` realizado y roadmap no se cambia sin completar gates.
+
+### Matriz de trazabilidad de enmienda AC ↔ tareas
+
+| AC | Tareas |
+|---|---|
+| AC-6 actualizado | E22-1, E22-3, E22-4, E22-C1 |
+| AC-18 | E22-1, E22-3, E22-4, E22-C1, E22-C2 |
+| AC-19 | E22-2, E22-3, E22-4, E22-C1, E22-C2 |
+| AC-20 | E22-1, E22-3, E22-4, E22-C1, E22-C2 |

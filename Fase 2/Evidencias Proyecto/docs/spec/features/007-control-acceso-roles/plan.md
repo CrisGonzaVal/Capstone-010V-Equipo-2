@@ -55,6 +55,59 @@ Crear un script SQL versionado e idempotente bajo `database/` posterior a los sc
 | `database/03_migracion_retiro_password.sql` (nuevo; nombre final sujeto a orden alfabético) | Migración explícita, versionada e idempotente para base ya inicializada. | AC-13, AC-16 |
 | `docs/spec/stack.md`, `docs/spec/roadmap.md`, `docs/spec/features/007-control-acceso-roles/spec.md`, `MEMORY.md`, `AGENTS.md`, `.agents/skills/**` | Solo en cierre: actualizar arquitectura/estado/evidencia, AC y referencias realmente obsoletas; roadmap únicamente tras verificación completa. | AC-11, AC-17 |
 
+## Enmienda de autoatribución de tickets (22/Oct/2026)
+
+> Plan de cambio posterior al cierre, limitado a AC-6 actualizado y AC-18…AC-20. La matriz de permisos y toda la autorización no relacionada con la atribución permanecen cerradas/intactas.
+
+### Decisiones técnicas por capa
+
+- **Schema:** `TicketCrear.usuario_id` se hace opcional. Si se recibe se ignora silenciosamente, incluso si es ajeno o inexistente; no se deja que FastAPI ni servicio lo conviertan en 422/403/404. Mantener `TicketDespacho.usuario_id` requerido porque es otro contrato y no forma parte de la enmienda.
+- **Servicio y precedencia:** identidad ya autenticada y rol autorizado continúan siendo resueltos por los mecanismos existentes. En `crear_ticket`: 1) reemplazar incondicionalmente el usuario de entrada por `identidad.usuario.usuario_id`; 2) resolver institución efectiva de sesión y la institución de ese usuario; 3) validar prioridad/estado; 4) validar productos respecto de esa institución (404 por producto ajeno se mantiene); 5) resolver sede desde `departamento.sede_id` de la identidad (409 si no existe/no resoluble); 6) validar reglas restantes del estado inicial y escribir cabecera/detalles/historial transaccionalmente. Ninguna validación, consulta o autorización toma como fuente `payload.usuario_id`.
+- **Identidades sin sede:** se aplica 409 a cualquier rol con permiso vigente cuyo departamento no tenga sede resoluble, incluyendo Administrador/Bodeguero; no fallback a `usuario.sede_id`. La semilla de `02_datos_semilla.sql` actualmente tiene sede departamental para Admin roles 2 (usuarios 1/3/4/10) y Bodeguero rol 3 (6/7/12); las sedes en `usuario.sede_id` de bodegueros 6/7/12 no sustituyen ese vínculo.
+- **API y matriz:** sin cambio de ruta, permiso, rol autorizado, status exitoso ni contrato de listado. OpenAPI deberá anunciar `usuario_id` opcional/ignorado y no justificar 404 de solicitante payload. Superadmin mantiene 403.
+- **Frontend aunque la feature 007 no era dueña original del modal:** su contrato exige UI congruente; el trabajo compartido se implementa en tickets: `AutenticacionService.identidad()` entrega `IdentidadAutenticada` con `nombre`, `apellido`, `correo` (también `usuario_id`, `sub`, `rol`, `institucion`), sin departamento. Se pinta nombre + apellido y correo como identificador, solo informativo; no llamada adicional. El formulario omite `usuario_id` del body; no usa el catálogo como autoridad. `solicitantes` se conserva en GET catálogo para listados/detalle.
+
+### Archivos de la enmienda
+
+| Archivo | Responsabilidad | AC |
+|---|---|---|
+| `backend/app/schemas/ticket_schema.py` | Opcionalidad del campo de alta, manteniendo intacto DTO de despacho. | AC-6, AC-18 |
+| `backend/app/services/ticket_service.py` | Autoatribución para los roles autorizados y ámbito de sesión; conservar productos/sede/ACID. | AC-6, AC-18, AC-20 |
+| `backend/app/api/v1/endpoints/tickets.py` | Precisión documental en OpenAPI; sin cambio de matriz/ruta/status. | AC-6, AC-18 |
+| `backend/tests/api/test_tickets_alcance.py`, `test_tickets_institucional.py`, `test_modal_ticket.py`, `test_ticket_sede_011.py`, `test_transaccion_ticket.py` y cualquier test de alta encontrado con grep | Reescribir expectativas antiguas de payload autor; mantener test de despacho y casos de producto ajeno. | AC-6, AC-18, AC-20 |
+| `frontend/src/app/features/tickets/tickets.component.ts`, `.html`, `.spec.ts`, `frontend/src/app/shared/interfaces/index.ts` | Campo de autor informativo de identidad, sin selector/control, body omite usuario_id, contrato opcional. | AC-19 |
+
+### TDD, orden y pruebas
+
+La enmienda es un solo cambio transversal; `008/tasks.md` es el único orquestador con las tareas E22-1 backend → E22-2 frontend → E22-3 regresión → E22-4 verificación/cierre. Las secciones E22 de 003 y 007 enlazan esas tareas y registran su AC, no crean ejecución paralela.
+
+1. **Rojo backend:** reemplazar el test histórico del `usuario_id` obligatorio (eliminado); actualizar `test_administrador_crea_para_solicitante_propio_201`, `test_solicitante_crea_y_se_atribuye_su_identidad`, `test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion`. Afirmar ausencia/valor propio/ajeno/inexistente e identidad resultante. Cubrir Administrador y Bodeguero, autoría e institución/sede de sesión, 409 sin sede sin escrituras y producto ajeno 404.
+2. **Verde servicio/schema y OpenAPI:** opcionalidad de entrada y orden de validaciones anterior a escritura; actualizar solo expectativas vencidas. Mantener intactos tests de matriz, Superadmin 403, propiedad/listado, PATCH/despacho 403 y aislamiento de otras operaciones.
+3. **Rojo/verde Angular:** pruebas de `tickets.component.spec.ts`: eliminar `formulario.controls.usuario_id.setValue(5)`, expectativa de cuerpo con campo y expectativas del selector; añadir identidad visible y ausencia de selector/campo, y conservar catálogo de solicitantes para las vistas. No solicitar `/auth/me` desde modal: usar signal existente.
+4. **Tests a conservar explícitamente:** `test_crear_ticket_con_producto_ajeno_404_sin_parcial`; `test_crear_ticket_puebla_institucion_en_ticket_y_detalle` (adaptar solo para afirmar anclas respecto de identidad); despacho sigue requiriendo el campo de actor propio de `TicketDespacho`.
+5. **Verificación:** `pytest` SQLite y gated PG16 pertinente; frontend `ng test --watch=false --browsers=ChromeHeadless` con `CHROME_BIN` configurado a Edge. Inspeccionar `/openapi.json`. Nunca ejecutar `npm test`.
+
+### Riesgos y alcance no tocado
+
+| Riesgo | Mitigación |
+|---|---|
+| AC-11 de 008 sigue esperando 404 por usuario ajeno | La tarea transversal actualiza esas expectativas y confirma 404 para producto ajeno separado. |
+| Pruebas heredadas afirman `usuario_id` obligatorio para Admin/Bodeguero | Buscar todos los POST de alta que mandan el campo; probar omisión y valores inválidos/ajenos ignorados, sin alterar payload de despacho. |
+| Rol autorizado sin sede departamental | 409 de servicio previo a cualquier escritura; pruebas por rol y sin fallback a sede del usuario. |
+| UI aún ofrece autor alternativo o desaparece el catálogo | Test DOM comprueba campo read-only y no-select; GET catálogo conserva `solicitantes`. |
+| Evidencia de AC-6/15 describe semántica antigua | Reescritura de evidencia solo en implementación/cierre, no declarar verificación aquí. |
+
+Sin cambios a la matriz, guards, autenticación Clerk, DDL/modelos, dependencias, catálogo `solicitantes` como read model, Superadmin 403, reglas de producto, prioridad/estado, transacción, historial o despacho.
+
+### Trazabilidad de enmienda AC ↔ componentes
+
+| AC | Componentes |
+|---|---|
+| AC-6 actualizado | schema, servicio, tests backend, OpenAPI; conserva autorización/propiedad/matriz |
+| AC-18 | servicio, tests API por rol/institución y conservación de 404 por producto |
+| AC-19 | UI compartida de tickets y tests Angular |
+| AC-20 | servicio, tests de sede con/sin asignación y no mutación |
+
 Los paths de documentación del cierre son condicionales a que la revisión encuentre referencias obsoletas o cambios de arquitectura permanentes; el implementador no altera requisitos aprobados, salvo registrar evidencia al cierre conforme al flujo SDD.
 
 ## 3. Decisiones técnicas

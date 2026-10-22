@@ -65,6 +65,53 @@ Extender `IdentidadAutenticadaRespuesta` y el tipo Angular `IdentidadAutenticada
 
 Los archivos concretos pueden ajustarse por el implementador si el código revela responsabilidades adicionales, manteniendo arquitectura, AC y límites de edición. No se propone paquete nuevo.
 
+## Enmienda de autoatribución de tickets (22/Oct/2026)
+
+> Se limita a D-7/D-8 y AC-11 reescrita. No reabre las 21 AC originales ni altera el modelo de particionamiento.
+
+### Decisiones técnicas por capa y orden de validación
+
+- **Entrada:** `TicketCrear.usuario_id` se vuelve opcional. Su valor, exista o no, no se usa ni valida. La identidad autenticada ya autorizada es la única fuente del usuario autor y ancla institucional.
+- **Orden final de `crear_ticket`, completo y previo a la primera escritura:** (1) atribuir DTO a `identidad.usuario.usuario_id` incondicionalmente, ignorando campo de payload; (2) resolver institución efectiva de identidad y departamento/institución del usuario autenticado; ámbito limitado no resoluble mantiene denegación 403 conforme a seguridad existente; (3) verificar referencias compartidas prioridad/estado; (4) verificar cada producto contra la institución de identidad, preservando **404 producto ajeno**; (5) resolver sede del departamento de identidad y devolver **409** si no resoluble; (6) conservar reglas posteriores de estado inicial (p. ej. `Anulado` 409); (7) en una transacción escribir ticket con `institucion_id`/sede y detalles con misma institución, más historial. La autoría no se obtiene del usuario del payload, y el 404 por solicitante ajeno desaparece.
+- **Semilla/sede:** roles 2 (Administradores 1/3/4/10, departamentos 1/3/4/10) y 3 (Bodegueros 6/7/12, departamentos 6/7/6) tienen sede asignada en sus departamentos. Si un departamento carece de sede, cualquier rol que tenga permiso vigente recibe 409 sin ticket, detalle ni historial; `usuario.sede_id` de un Bodeguero no es fallback.
+- **Contrato:** no cambia `/tickets/`, response/status, matriz ni contrato de `GET /tickets/catalogos`; la lista `solicitantes` permanece. OpenAPI solo documenta optional/ignored para `usuario_id` y ya no presenta 404 por solicitante payload.
+- **UI compartida:** campo informativo read-only con `nombre`, `apellido`, `correo` desde `AutenticacionService.identidad()` (la interfaz real expone también usuario_id/sub/rol/institucion, pero **no departamento**). No llamada extra, no selector. El formulario no incluye `usuario_id` en cuerpo. Solicitantes permanece como dato de lectura para listados/detalle.
+
+### Archivos de la enmienda
+
+| Archivo | Responsabilidad | AC |
+|---|---|---|
+| `backend/app/schemas/ticket_schema.py`, `ticket_service.py`, `backend/app/api/v1/endpoints/tickets.py` | Opcionalidad, autoatribución/orden institución-productos-sede, documentación de contrato. | AC-11 |
+| `backend/tests/api/test_tickets_institucional.py` | Cambiar 404 de solicitante ajeno a autoría de sesión; probar anclas; conservar producto ajeno 404. | AC-11 |
+| `backend/tests/api/test_tickets_alcance.py`, `test_modal_ticket.py`, `test_ticket_sede_011.py`, `test_transaccion_ticket.py` y demás altas halladas por grep | Compatibilidad de payload y todas las identidades permitidas; mantener despacho aparte. | AC-11 |
+| `frontend/src/app/features/tickets/tickets.component.ts`, `.html`, `.spec.ts`, `frontend/src/app/shared/interfaces/index.ts` | Campo solo lectura desde identidad y cuerpo sin usuario_id; sin selector. | AC-11 |
+| `database/` y `backend/app/models/` | **No se modifican**: no hay DDL ni cambio de entidad. | AC-11 |
+
+### Orden TDD único entre las tres features
+
+`008/tasks.md` orquesta el único flujo porque AC-11 es dueña del resultado institucional pero la implementación también actualiza requisitos cerrados 003/007. Las secciones E22 en las tres tasks remiten a estas tareas; no crear copias concurrentes:
+
+1. **E22-1 backend rojo→verde:** en `test_tickets_alcance.py` reemplazar obligatorio y actualizar creación para Admin/Solicitante/Bodeguero; en `test_tickets_institucional.py` reemplazar `test_crear_ticket_con_solicitante_ajeno_404_sin_parcial` y `test_administrador_crea_para_solicitante_de_otra_institucion_404_sin_mutar`; actualizar `test_solicitante_ignora_usuario_ajeno_y_conserva_autoatribucion`. Añadir casos omitido/propio/ajeno/inexistente atribuidos a sesión, sede ausente 409 sin persistencia, producto ajeno 404 intacto, y anclas ticket/detalle en institución autenticada. Ajustar schema/service/docs del POST solo tras ver rojos.
+2. **E22-2 frontend rojo→verde:** reescribir tests que fijan select, `formulario.controls.usuario_id.setValue(5)`, presencia del campo en body y `solicitantes().length` como requisito de UI; comprobar campo con nombre/apellido/correo, identidad existente, no llamada adicional, sin selector/control y sin campo en body. Catálogo sigue conservando solicitantes y tests de listados/detalle no se eliminan.
+3. **E22-3 regresión:** inventariar con grep todos los `usuario_id` en tests API que corresponden a POST alta; mantener `test_crear_ticket_con_producto_ajeno_404_sin_parcial` y `test_crear_ticket_puebla_institucion_en_ticket_y_detalle` (ajustar actor a identidad persistida si requerido). Conservar payloads de `TicketDespacho` en `test_despacho_transaccional.py`; en `test_ticket_sede_011.py` adaptar altas solamente, no despacho.
+4. **E22-4 verificación/cierre:** pytest SQLite + gated PostgreSQL si aplica a comprobación de esquema/tenant; ng test con Edge; `/openapi.json`; recorrido 4200 y 8080 tras rebuild si frontend cambiado. Actualizar evidencia por AC en 003/007/008 y `MEMORY.md`; grep de coherencia; roadmap solo con gates cumplidos.
+
+### Riesgos y alcance excluido
+
+| Riesgo | Mitigación |
+|---|---|
+| Seguir respondiendo 404 por solicitante de otra institución | Prueba el valor enviado ignorado y las columnas institucionales procedentes de sesión; retirar solamente ese 404. |
+| Relajar aislamiento de producto junto con autoría | Test de producto ajeno permanece idéntico: 404 y cero ticket/detalles; prueba explícita independiente. |
+| Admin/Bodeguero sin sede | 409 explícito antes de escritura; no fallback a `usuario.sede_id`; semilla actual y caso sin sede verificados. |
+| Payload heredado pasa un `usuario_id` como si fuese actor | Grep completo de pruebas, mapear altas frente a despacho, probar omisión y valores ajeno/inexistente. |
+| UI/evidencia antigua habilita suplantación | Campo read-only desde identidad, DOM/body tests y evidencia actualizada en los AC afectados. |
+
+No se toca matriz ni permisos, Superadmin 403, catálogo de solicitantes, DDL/esquema/modelos, dependencias, schema/versión tenant, ni resto de despacho/stock/historial/estado/transacción de `crear_ticket`.
+
+---
+
+## Plan original (cerrado)
+
 ## 3. Estrategia de pruebas e integración
 
 1. **Modelo/DDL**: nueva base PostgreSQL 16 desde `01` + `02`; verificar homónimos, restricciones categoría-producto, departamento-producto y ticket-producto. Fixture SQLite activa FKs, pero restricciones compuestas/cascadas relevantes se confirman en PostgreSQL.

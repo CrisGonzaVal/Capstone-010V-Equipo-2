@@ -569,13 +569,17 @@ def test_productos_repetidos_no_disparan_busquedas_redundantes(cliente, datos_ca
     assert len(respuesta.json()["detalles"]) == 5
 
 
-def test_ticket_con_usuario_inexistente_responde_404(cliente, datos_catalogo_ticket):
+def test_ticket_con_usuario_inexistente_se_ignora_y_atiende_a_la_sesion(
+    cliente, datos_catalogo_ticket
+):
+    """AC-33/AC-18: `usuario_id` ya no es referencia; un id inexistente se ignora."""
     respuesta = cliente.post(
         "/api/v1/tickets/", json=cuerpo_ticket_valido(datos_catalogo_ticket, usuario_id=98765)
     )
 
-    assert respuesta.status_code == 404
-    assert "98765" in respuesta.json()["detail"]
+    assert respuesta.status_code == 201, respuesta.text
+    assert respuesta.json()["usuario_id"] != 98765
+    assert respuesta.json()["usuario_id"] == datos_catalogo_ticket["usuario_id"]
 
 
 def test_ticket_con_prioridad_inexistente_responde_404(cliente, datos_catalogo_ticket):
@@ -599,19 +603,21 @@ def test_ticket_con_estado_inexistente_responde_404(cliente, datos_catalogo_tick
 def test_el_404_distingue_tipo_y_valor_de_la_referencia(cliente, datos_catalogo_ticket):
     """Dos 404 por motivos distintos: el mensaje tiene que decir **cual**.
 
-    Un 404 generico obligaria a adivinar si el problema era el solicitante o el
-    estado, que es justo lo que el usuario no puede ver desde el modal.
+    Un 404 generico obligaria a adivinar si el problema era la prioridad o el
+    estado, que es justo lo que el usuario no puede ver desde el modal. Desde la
+    enmienda D-33 `usuario_id` ya no es una referencia validada, asi que la
+    distincion se ejerce con las dos referencias compartidas que quedan.
     """
-    por_usuario = cliente.post(
-        "/api/v1/tickets/", json=cuerpo_ticket_valido(datos_catalogo_ticket, usuario_id=11111)
-    ).json()["detail"]
     por_prioridad = cliente.post(
         "/api/v1/tickets/", json=cuerpo_ticket_valido(datos_catalogo_ticket, prioridad_id=22222)
     ).json()["detail"]
+    por_estado = cliente.post(
+        "/api/v1/tickets/", json=cuerpo_ticket_valido(datos_catalogo_ticket, estado_id=33333)
+    ).json()["detail"]
 
-    assert por_usuario != por_prioridad
-    assert "usuario" in por_usuario.lower()
+    assert por_prioridad != por_estado
     assert "prioridad" in por_prioridad.lower()
+    assert "estado" in por_estado.lower()
 
 
 # --- AC-8: atomicidad ---

@@ -4,6 +4,10 @@
 **Release:** 2.0 — Sprint 3  
 **Tipo:** Autorización y saneamiento de credenciales
 
+> **Enmienda posterior al cierre (22/Oct/2026):** la Feature 007 permanece cerrada y
+> verificada. Esta enmienda posterior solo ajusta presentación/contrato de alta de ticket;
+> no cambia la matriz de roles, DDL, dependencias ni permisos por operación.
+
 ## 1. Problema
 
 La Feature 006 incorporó Clerk como autoridad de autenticación y expone el rol local
@@ -97,6 +101,13 @@ queda denegada también por backend, manteniendo Clerk como requisito previo.
 
 ### D-3 — La matriz de permisos es explícita por operación
 
+La fila de `POST /tickets/` conserva la matriz aprobada, con la semántica de
+autoatribución establecida por la enmienda posterior de 22/Oct/2026; los roles permitidos
+no cambian.
+
+**Transcripción histórica:** la fila de `POST /tickets/` refleja la regla posterior de
+autoatribución de la enmienda de 22/Oct/2026; no hubo cambio de roles permitidos.
+
 La política de permisos y el límite institucional se describen operación por operación
 en la matriz siguiente. Superadmin tiene alcance global. Administrador y Bodeguero solo
 operan tickets, inventario y movimientos de su institución; Administrador también queda
@@ -117,7 +128,10 @@ o el control de interfaz resulta accesible.
 | `GET /inventario/movimientos` y `POST /inventario/movimientos` | ✅ | ✅, solo inventario propio | ✅, solo inventario propio | ❌ 403 |
 | `GET /tickets/catalogos` | ✅; productos y stock globales; solicitantes globales | ✅; productos y `stock_total` globales, solicitantes de institución propia | ✅; productos y `stock_total` globales, solicitantes de institución propia | ✅; productos y `stock_total` globales; solicitantes solo su identidad |
 | `GET /tickets/` | ✅ | ✅, tickets de institución propia | ✅, tickets de institución propia | ✅, solo propios |
-| `POST /tickets/` | ✅; elige solicitante con `usuario_id` obligatorio | ✅; elige solicitante con `usuario_id` obligatorio dentro de su institución | ✅; elige solicitante con `usuario_id` obligatorio dentro de su institución | ✅; siempre a su nombre, no puede elegir a otro |
+| `POST /tickets/` | ❌ 403 desde Feature 008/017 | ✅; autoatribución de sesión, `usuario_id` opcional e ignorado si se envía | ✅; autoatribución de sesión, `usuario_id` opcional e ignorado si se envía | ✅; siempre a su nombre, `usuario_id` opcional e ignorado si se envía |
+
+> **Nota de enmienda:** esta fila mantiene los permisos preexistentes, pero su semántica
+> de atribución sustituye la decisión histórica de elegir solicitante en D-3.
 | `POST /tickets/{id}/despacho` y `PATCH /tickets/{id}/estado` | ✅ | ✅, tickets e inventario propios | ✅, tickets e inventario propios | ❌ 403 |
 
 Las solicitudes con parámetros `departamento_id` de otra institución para
@@ -168,6 +182,46 @@ La columna deja de formar parte de los registros de usuario y se retira mediante
 migración reproducible, ya que alterar solamente el DDL no actualizaría bases
 previamente inicializadas.
 
+### Enmienda D-8 — Todo ticket queda atribuido a la identidad autenticada
+
+Para cada rol autorizado a ejecutar `POST /tickets/` según la matriz vigente, el servidor
+establece `usuario_id` con la identidad autenticada, sin aceptar selección de solicitante.
+El campo de payload `usuario_id` pasa a opcional y cualquier valor recibido se ignora
+silenciosamente: omitirlo no es 422, enviar otro valor no es 403, y un valor inexistente o
+ajeno no produce 404 por usuario. La regla de pertenencia institucional ahora se aplica a
+la identidad del actor/autor, no a un usuario seleccionado; la matriz de permisos no se
+abre a roles nuevos ni a operaciones antes denegadas.
+
+**Por qué:** la autoría debe corresponder a la sesión que realiza la acción. El selector
+contradice esa regla para Administrador/Bodeguero y era redundante para Solicitante, a
+quien el servidor ya autoatribuía.
+
+### Enmienda D-9 — El formulario identifica al autor sin permitir elegirlo
+
+La UI de creación no presenta selector ni control editable `usuario_id`; muestra como
+información no editable el nombre, apellido y correo de `AutenticacionService.identidad()`
+(respuesta `/auth/me`). Esa identidad no contiene departamento, por lo que no se añade una
+consulta adicional ni se afirma que el campo muestre el nombre departamental. El catálogo
+`solicitantes` se conserva para listados y detalle, aunque deje de poblar selector de alta.
+
+**Por qué:** interfaz y contrato deben expresar la misma autoría inmutable y evitar una
+opción visual que el servidor no debe honrar.
+
+### Enmienda D-10 — El ámbito organizacional del alta sigue a la identidad
+
+El ticket se ancla a institución y departamento de la identidad de sesión; su instantánea
+de sede sale del `departamento.sede_id` de esa identidad. Si el departamento no tiene sede,
+el alta responde 409 sin fallback, también para Administrador o Bodeguero; si tiene sede,
+se crea usando esa sede. La semilla vigente tiene departamentos con sede para todos sus
+Administradores y Bodegueros de roles 2 y 3 (usuarios 1, 3, 4, 10 y 6, 7, 12); los
+Bodegueros 6, 7 y 12 tienen además asignación de usuario a sede, pero esa asignación no
+sustituye la regla de sede del departamento del alta. Superadmin conserva el 403 de la
+matriz actual de Feature 008/017.
+
+**Por qué:** el contexto efectivo se deriva del usuario local y no puede seleccionarse en
+el cuerpo. `_sede_vigente_de_solicitante` sigue tomando la sede del departamento del
+usuario autor.
+
 ## 6. Reglas del flujo
 
 1. La identidad debe autenticarse con Clerk y vincularse al usuario local conforme a
@@ -188,13 +242,12 @@ previamente inicializadas.
 7. El catálogo de productos/categorías y `stock_total` en `/tickets/catalogos` son
    globales en 007; el total agrega todas las sedes y no se presenta como stock
    institucional. El particionamiento corresponde a 008.
-8. Solicitante solo consulta tickets propios. Al crear, el backend atribuye el ticket a
-   su identidad autenticada e ignora/rechaza cualquier `usuario_id` alternativo. En
-   cambio, Administrador, Bodeguero y Superadmin conservan el contrato existente:
-   `usuario_id` sigue obligatorio y pueden elegir al solicitante, sujeto al límite
-   institucional para Administrador/Bodeguero. Este comportamiento no cambia el contrato
-   `TicketCrear` para esos roles. En los catálogos del Solicitante, `solicitantes` solo
-   contiene su propia identidad.
+8. Solicitante solo consulta tickets propios. Al crear, todo rol autorizado queda
+   atribuido a su identidad autenticada: `usuario_id` es opcional y, si se envía, se
+   ignora sin error. La institución y sede del ticket se derivan de esa identidad; una
+   sede departamental ausente conserva el 409 de Feature 011. Superadmin continúa sin
+   permiso para el alta. En `GET /tickets/catalogos`, `solicitantes` se conserva según el
+   alcance vigente del rol; la lista no constituye autoridad de autoría.
 9. Un Solicitante sin permiso general para PATCH estado o despacho recibe 403. En
    operaciones de ticket permitidas, un ticket ajeno e inexistente responden ambos 404.
 10. En `POST /usuarios/`, Administrador solo asigna Bodeguero o Solicitante; Superadmin
@@ -232,14 +285,18 @@ previamente inicializadas.
 ### Autorización de API y propiedad
 
 - **AC-6** DADO QUE el rol es `Solicitante`, CUANDO ejecuta `GET /tickets/`, ENTONCES
-  recibe solo tickets propios. CUANDO ejecuta `POST /tickets/`, ENTONCES el ticket se
-  atribuye a su identidad autenticada y no puede elegir otro solicitante. Administrador,
-  Bodeguero y Superadmin conservan `TicketCrear` vigente: `usuario_id` obligatorio y
-  elección del solicitante, limitada a su institución para Administrador/Bodeguero.
-  Si Solicitante invoca `PATCH /tickets/{id}/estado` o
+  recibe solo tickets propios. CUANDO un rol autorizado ejecuta `POST /tickets/`,
+  ENTONCES el ticket se atribuye a la identidad autenticada, con payload `usuario_id`
+  opcional e ignorado si se envía, sin 422/403 ni 404 por ese campo incluso si su valor
+  es inexistente o ajeno. Administrador y Bodeguero crean bajo su propia identidad y el
+  ámbito institucional/sede se deriva de ella; Superadmin conserva 403 conforme a la
+  matriz. No se permite elegir otro autor. Si el departamento de sesión carece de sede,
+  el alta conserva 409; con sede, usa esa sede. Si Solicitante invoca `PATCH /tickets/{id}/estado` o
   `POST /tickets/{id}/despacho`, recibe 403 por falta de permiso general. Si una
   operación de ticket permitida intenta acceder a un ticket existente de otro usuario,
-  recibe 404 igual que para un id inexistente y no modifica datos.
+  recibe 404 igual que para un id inexistente y no modifica datos. Esta formulación de
+  autoatribución reemplaza la decisión histórica de conservar `TicketCrear` obligatorio
+  para otros roles y permitirles elegir solicitante.
 - **AC-7** DADO QUE el rol es `Bodeguero`, ENTONCES puede listar, actualizar estado y
   despachar tickets, y leer/operar inventario y movimientos, solo dentro de su
   institución. Si intenta administrar usuarios o crear productos, backend responde 403.
@@ -257,8 +314,8 @@ previamente inicializadas.
   `/tickets/catalogos`, productos/categorías y `stock_total` son globales para todos los
   roles autorizados; `stock_total` suma todas las sedes y no se presenta como dato
   institucional. `solicitantes` para Solicitante contiene únicamente su identidad; para
-  otros roles, solo solicitantes seleccionables dentro del alcance aplicable
-  (global para Superadmin, institución propia para Administrador/Bodeguero).
+  otros roles se conserva la lista de lectura dentro del alcance aplicable. La lista no
+  alimenta la autoría del alta (enmienda D-9); Superadmin sigue sin permiso a la operación.
 - **AC-10** En `POST /usuarios/`, Administrador puede crear usuarios con rol
   `Bodeguero` o `Solicitante`; si intenta asignar `Superadmin` o `Administrador`, recibe
   HTTP 403 y no se crea usuario. Superadmin puede asignar cualquiera de los cuatro
@@ -287,7 +344,8 @@ previamente inicializadas.
 
 - **AC-15** Las pruebas backend comprueban permisos permitidos/denegados por rol y
   operación, 401/403/404, ausencia de mutación ante denegación, propiedad y atribución de
-  tickets, conservación del contrato `TicketCrear` para los demás roles, alcance
+  tickets, compatibilidad aditiva de `TicketCrear` (`usuario_id` opcional e ignorado para
+  todos los roles autorizados), alcance
   institucional de Administrador/Bodeguero/Solicitante, restricción de roles asignables,
   filtro de solicitantes, stock de catálogo global y 403 si no se resuelve institución.
   Las pruebas frontend cubren guards, espera de identidad/rol y acceso denegado; las
@@ -314,18 +372,73 @@ sirve el 8080.
 | AC-3 | `app.routes.spec.ts::permite dashboard, inventario y tickets a los cuatro roles (AC-5)`, `::restringe administración a Superadmin y Administrador (AC-3, AC-5)`; `tickets.component.spec.ts::oculta las operaciones de Kanban al Solicitante`, `::ofrece las operaciones de Kanban a Bodeguero, Administrador y Superadmin`. |
 | AC-4 | `app.routes.spec.ts::protege las rutas de negocio con el guard de autenticación`, `::expone /login sin guard`; `AutenticacionGuard` conservado redirige a `/login` con retorno (regresión intacta desde 006). |
 | AC-5 | `app.routes.spec.ts::conserva la redirección de la raíz a dashboard (AC-5)`, `::no expone ninguna ruta de registro`; `test_permisos_endpoints.py::test_rutas_publicas_no_exigen_sesion` (`/health`, `/docs`, `/openapi.json`). |
-| AC-6 | `test_tickets_alcance.py::test_solicitante_lista_solo_sus_tickets`, `::test_solicitante_crea_y_se_atribuye_su_identidad`, `::test_otros_roles_conservan_usuario_id_obligatorio`, `::test_administrador_patch_ticket_ajeno_404_sin_mutar`, `::test_bodeguero_despacho_ticket_ajeno_404_sin_mutar`, `::test_administrador_patch_ticket_inexistente_404`; Solicitante en `PATCH .../estado` y `POST .../despacho` → 403 por `test_permisos_endpoints.py::test_rol_sin_permiso_recibe_403` (matriz `_INVENTARIO_Y_TICKETS`). |
+| AC-6 | Evidencia vigente tras la enmienda (Actualización 22/Oct/2026: reescritura ejecutada): `test_tickets_alcance.py::test_solicitante_lista_solo_sus_tickets`, `::test_solicitante_crea_y_se_atribuye_su_identidad`, `::test_roles_autorizados_atienden_la_identidad_de_sesion` (payload con `usuario_id` omitido, propio, ajeno e inexistente → 201 y autoría de sesión), `::test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion`, `::test_administrador_crea_para_solicitante_propio_201`; más PATCH/despacho ajenos (`::test_administrador_patch_ticket_ajeno_404_sin_mutar`, `::test_bodeguero_despacho_ticket_ajeno_404_sin_mutar`) y permisos. |
 | AC-7 | `test_permisos_endpoints.py::test_rol_sin_permiso_recibe_403` (Bodeguero en usuarios/productos → 403); `test_ambito_institucional.py::test_bodeguero_ajeno_existencias_solo_su_institucion`, `::test_movimientos_bodeguero_solo_su_institucion`, `::test_registrar_movimiento_en_inventario_ajeno_responde_403_sin_mutar`; `test_tickets_alcance.py::test_bodeguero_lista_solo_su_institucion`, `::test_bodeguero_despacho_propio_200_sigue_transaccional`. |
 | AC-8 | `test_ambito_institucional.py::test_administrador_existencias_acota_a_su_institucion`, `::test_superadmin_existencias_es_global`, `::test_existencias_departamento_ajeno_responde_403`, `::test_rol_limitado_sin_institucion_resoluble_responde_403`, `::test_instituciones_administrador_solo_la_propia`, `::test_usuarios_administrador_solo_su_institucion`; `test_tickets_alcance.py::test_administrador_lista_solo_su_institucion`; `ambito_service.py` deriva `usuario → departamento → institución` y 403 si no resuelve. |
-| AC-9 | `test_permisos.py::test_matriz_cubre_exactamente_las_operaciones_de_d3`, `::test_sin_sesion_responde_401`, `::test_denegacion_autenticada_es_403_y_no_401`, `::test_dependencia_concede_o_deniega_segun_matriz` (parametrizado por operación/rol); `test_permisos_endpoints.py::test_inventario_de_rutas_igual_a_la_matriz_d3`, `::test_denegacion_no_muta_datos`; `test_tickets_alcance.py::test_catalogo_solicitante_solo_su_identidad`, `::test_catalogo_productos_y_stock_siguen_globales`. |
+| AC-9 | `test_permisos.py::test_matriz_cubre_exactamente_las_operaciones_de_d3`, `::test_sin_sesion_responde_401`, `::test_denegacion_autenticada_es_403_y_no_401`, `::test_dependencia_concede_o_deniega_segun_matriz` (parametrizado por operación/rol); `test_permisos_endpoints.py::test_inventario_de_rutas_igual_a_la_matriz_d3`, `::test_denegacion_no_muta_datos`; `test_tickets_alcance.py::test_catalogo_solicitante_solo_su_identidad`, `::test_catalogo_productos_y_stock_siguen_globales`. La semántica de `solicitantes` del catálogo es consulta, no selección para alta (enmienda). |
 | AC-10 | `test_rol_asignable_usuarios.py::test_administrador_crea_usuario_con_rol_permitido`, `::test_administrador_no_puede_asignar_rol_prohibido` (403 sin creación), `::test_superadmin_puede_asignar_cualquiera_de_los_cuatro_roles`; regla en `usuario_service.py`, no en el router. |
 | AC-11 | `database/01_esquema.sql` y `database/02_datos_semilla.sql` sin columna/valores `password` (10 usuarios de semilla intactos); comentario de autenticación "decorativa" de la semilla y docstring de `TicketDespacho` corregidos; verificado contra PostgreSQL 16 real (T7). |
 | AC-12 | `test_retiro_password.py` (3 tests): `Usuario` sin columna, `UsuarioCrear` sin campo, `UsuarioRespuesta` sin publicar `password`; grep de runtime sin dependencia de `usuario.password`. |
 | AC-13 | `database/99_migracion_retiro_password.sql` (`ALTER TABLE usuario DROP COLUMN IF EXISTS password`). Verificado en vivo (T13) sobre `compustock_db`/`apt_erp`: la tabla `usuario` queda con `usuario_id, nombre, apellido, correo, departamento_id, rol_id` (sin `password`); **12 usuarios y 10 tickets intactos**; segunda ejecución con `ON_ERROR_STOP=1` → `NOTICE: column "password" ... does not exist, skipping`, exit 0 (idempotente); instalación limpia verificada en T8. |
 | AC-14 | `/auth/me` en vivo (Bearer real) → 200 con `IdentidadAutenticadaRespuesta`; autorización y operaciones de usuario corren sin consultar `password`; recorrido funcional 4200 (T12) con sesiones Clerk reales por rol. |
-| AC-15 | Backend `pytest` 377 passed; frontend `ng test` 140 SUCCESS (guards, espera de identidad/rol, acceso denegado y capacidades); OpenAPI en vivo publica `HTTPBearer` y 401/403 por operación (`test_permisos_endpoints.py::test_openapi_*`). |
+| AC-15 | Backend `pytest` **1405 passed / 77 skipped / 0 failed** (gated PG16 **1482 / 0 skipped / 0 failed**); frontend `ng test` **470 SUCCESS / 0 FAILED** (guards, espera de identidad/rol, acceso denegado y capacidades); OpenAPI en vivo publica `HTTPBearer` y 401/403 por operación (`test_permisos_endpoints.py::test_openapi_*`). Cobertura vigente de autoatribución del alta: `test_tickets_alcance.py::test_roles_autorizados_atienden_la_identidad_de_sesion`, `::test_solicitante_crea_y_se_atribuye_su_identidad`, `::test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion`, `::test_administrador_crea_para_solicitante_propio_201`, y los de propiedad/403 (PATCH/despacho ajenos); UI en `tickets.component.spec.ts`. Actualización 22/Oct/2026: reescritura ejecutada; ver AC-18–AC-20. |
 | AC-16 | Migración PostgreSQL verificada en vivo con conservación de conteos/IDs y repetición segura (AC-13); `pytest` 377 y `ng test` 140 verdes. |
 | AC-17 | Este cierre: evidencia por AC, contrato `/openapi.json` (HTTPBearer + 401/403) comprobado en vivo, recorridos 4200 (funcional, escrituras reales) y 8080 (humo sobre imagen reconstruida `sha256:3862981…`, ruta directa `/acceso-denegado` → 200), y grep §8.7 sobre `AGENTS.md`/`MEMORY.md`/`.agents/skills/` con correcciones aplicadas. |
+
+### Enmienda posterior al cierre: autoría de alta de tickets — 22/Oct/2026
+
+#### Problema
+
+El selector de solicitante permitía emitir tickets a nombre de otra persona, incongruente
+con la identidad que inicia sesión. Para Solicitante ya era ineficaz porque el backend
+sobreescribía el valor con su propia identidad; para Administrador y Bodeguero habilitaba
+una autoría ajena.
+
+#### Qué cambia
+
+El backend autoatribuye incondicionalmente a la identidad autenticada en todos los roles
+que ya están autorizados a crear tickets. `usuario_id` pasa a opcional: se acepta payload
+sin ese campo y se ignora cualquier valor enviado, sin 422/403 ni 404 por referencia de
+usuario. La UI sustituye el selector por un campo informativo no editable con nombre,
+apellido y correo de la identidad de sesión; `/auth/me` no incluye departamento, por lo
+que no se muestra ni se consulta de forma adicional.
+
+#### Qué no cambia
+
+No cambia la matriz de permisos ni se concede `POST /tickets/` a Superadmin, que conserva
+403 según Feature 008/017. El catálogo `solicitantes` sigue en `GET /tickets/catalogos`
+para listados/detalle; solo deja de poblar selector de creación. No cambia el resto de
+`crear_ticket`: productos, prioridad, estado, transacción, detalles, historial y validación
+de sede. La institución y sede se derivan de la identidad de sesión; sin sede en su
+departamento el alta responde 409, con sede procede si las demás reglas se cumplen.
+
+#### Por qué una enmienda
+
+Es un ajuste posterior de contrato de autoría y presentación de un flujo ya cerrado; no
+amplía ni redistribuye permisos y no requiere DDL ni dependencias. Se conserva la evidencia
+de cierre original, marcando para reescritura únicamente las afirmaciones que el nuevo
+contrato invalida.
+
+#### Criterios de aceptación de la enmienda (AC-18–AC-20)
+
+- **AC-18 — Atribución incondicional.** DADO Administrador o Bodeguero con permiso vigente, CUANDO crea un ticket sin `usuario_id` o incluye un valor propio, ajeno o inexistente, ENTONCES una solicitud válida responde **201** y `ticket.usuario_id` es el de la identidad de sesión; el valor enviado se ignora sin 422/403 ni 404 por ese campo. Institución y sede se derivan del usuario de sesión. Superadmin conserva 403 y la matriz no cambia.
+  - *Evidencia (observada 22/Oct/2026):* `test_tickets_alcance.py::test_roles_autorizados_atienden_la_identidad_de_sesion` (Administrador/Bodeguero/Solicitante con `usuario_id` omitido, propio, ajeno e inexistente → 201 y autoría de sesión), `::test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion`, `::test_administrador_crea_para_solicitante_propio_201`, `::test_solicitante_crea_y_se_atribuye_su_identidad`; `test_tickets_institucional.py::test_solicitante_ignora_usuario_ajeno_y_conserva_autoatribucion` y `::test_crear_ticket_con_producto_ajeno_404_sin_parcial` (404 de producto conservado); `test_modal_ticket.py::test_ticket_con_usuario_inexistente_se_ignora_y_atiende_a_la_sesion`. Suites: SQLite **1405 passed / 77 skipped / 0 failed**, gated PostgreSQL 16 **1482 passed / 0 skipped / 0 failed**. Contrato: `TicketCrear.required` sin `usuario_id`, campo documentado como ignorado y `POST /tickets/` sin 404 por usuario; matriz **62** operaciones y Superadmin 403. Recorrido 4200: tickets 11 (usuario 13) y 12 (usuario 11) con body sin `usuario_id` → 201. Evidencia: [`evidencia/README.md`](evidencia/README.md).
+- **AC-19 — Presentación del autor y catálogo.** DADO el modal de creación con identidad disponible, CUANDO presenta el autor, ENTONCES muestra en solo lectura nombre, apellido y correo de sesión; no hay selector ni control editable `usuario_id`, y el POST no requiere/envía ese campo. `GET /tickets/catalogos` conserva `solicitantes` para listados/detalle, pero no se usa como selector de autoría.
+  - *Evidencia (observada 22/Oct/2026):* `tickets.component.spec.ts` cubre identidad visible en solo lectura, ausencia del selector y del control `usuario_id`, y body sin ese campo; `ng test` **470 SUCCESS / 0 FAILED** (Edge 155) y `ng build` limpio (`main-QNRFXFUT.js`). El catálogo `GET /tickets/catalogos` conserva `solicitantes` (`test_modal_ticket.py::test_catalogos_responde_200_con_las_cuatro_listas`, `::test_solicitantes_traen_departamento_y_orden_por_apellido`) y alimenta listados/detalle, no el alta. Recorrido 4200: campo «Solicitante (sesión)» con nombre y correo de la identidad, sin selector; POST sin `usuario_id`. Humo 8080 tras rebuild con el mismo campo. Evidencia: [`evidencia/README.md`](evidencia/README.md).
+- **AC-20 — Herencia del ámbito y sede.** DADO Administrador o Bodeguero cuya identidad está vinculada a un departamento con sede, CUANDO crea un ticket válido, ENTONCES el ticket y su instantánea de sede corresponden al departamento autenticado. Si no hay sede asignada, responde 409 sin ticket ni detalle parcial. No se usa `usuario.sede_id` como sustituto de `departamento.sede_id`.
+  - *Evidencia (observada 22/Oct/2026):* `test_tickets_alcance.py::test_departamento_sin_sede_responde_409_sin_ticket_detalle_ni_historial` y `test_ticket_sede_011.py::test_crear_ticket_sin_sede_de_departamento_afecta_a_todos_los_roles_creadores` (409 sin ticket ni detalle), frente a `test_ticket_sede_011.py::test_crear_ticket_almacena_la_sede_del_departamento` (201 con la sede del departamento). En 4200 y en BD: Administrador (usuario 13, Dirección) → ticket 11 con `sede_id 1`; Solicitante (usuario 11, Biblioteca) → ticket 12 con `sede_id 2`; sin usar `usuario.sede_id`. Evidencia: [`evidencia/README.md`](evidencia/README.md).
+
+#### Evidencia anterior afectada
+
+En AC-6, AC-15 y su tabla de evidencia queda obsoleto el test histórico del `usuario_id`
+obligatorio (hoy eliminado); también cambia la expectativa de
+`test_administrador_crea_para_solicitante_propio_201`. La evidencia de AC-9 que describe
+`solicitantes` seleccionables se debe limitar al alcance del catálogo y no a la autoría del
+POST. Los tests de permisos denegados, propiedad del listado y matriz permanecen válidos.
+Toda evidencia nueva quedó reescrita tras la enmienda en la fase de implementación.
+
+**Actualización 22/Oct/2026:** reescritura ejecutada; la evidencia observada de AC-18…AC-20
+está en los propios AC y en [`evidencia/README.md`](evidencia/README.md).
 
 ## 8. Riesgos y mitigaciones
 
@@ -340,8 +453,8 @@ sirve el 8080.
   inventario, movimientos y tickets para los roles limitados. No presentar el
   `stock_total` global de catálogo como institucional; catálogo/stock se particionan en
   008.
-- **Exposición de solicitantes no seleccionables o escalada de rol:** filtrar catálogo
-  del Solicitante a su propia identidad y restringir roles asignables por Administrador;
+- **Exposición de datos del catálogo o escalada de rol:** limitar el catálogo de lectura
+  conforme al rol y restringir roles asignables por Administrador;
   verificar denegación 403.
 - **Migración destructiva o no idempotente:** retirar solo la columna y probar
   preservación de datos y repetición segura antes de cerrar.

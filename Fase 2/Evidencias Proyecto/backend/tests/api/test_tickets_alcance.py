@@ -13,9 +13,10 @@ una y se observa, por rol, que:
   * En una operacion permitida sobre un ticket de otra institucion (PATCH estado,
     despacho) el rol limitado recibe **404**, igual que para un id inexistente, sin
     mutar datos (D-5, AC-6).
-  * `POST /tickets/`: el Solicitante queda atribuido a su identidad aunque envie
-    otro `usuario_id`; Administrador/Bodeguero conservan `usuario_id` obligatorio y
-    solo pueden elegir un solicitante de su institucion (D-3, AC-6).
+  * `POST /tickets/`: **todo rol autorizado** queda atribuido a su identidad de
+    sesion; `usuario_id` es opcional y su valor (propio, ajeno o inexistente) se
+    ignora sin 422/403/404 (enmienda D-33/D-35 de la 003, AC-18/AC-20 de la 007 y
+    AC-11 de la 008). La institucion del ticket y de sus detalles es la de sesion.
   * El despacho del ticket propio sigue siendo una transaccion ACID (Feature 005).
 
 Fuera de alcance de T4: el 403 de rol (e.g. Solicitante en PATCH/despacho) ya lo fija
@@ -38,6 +39,7 @@ from app.models import (
     Departamento,
     DetalleTicket,
     EstadoTicket,
+    HistorialTransicionTicket,
     Institucion,
     Inventario,
     Producto,
@@ -309,11 +311,15 @@ def ambito_tickets(motor, datos_base):
 # ---------------------------------------------------------------------------
 
 
-def _identidad(rol: str, departamento_id, usuario_id: int) -> IdentidadAutenticada:
+def _identidad(
+    rol: str, departamento_id, usuario_id: int, sede_id: int | None = None
+) -> IdentidadAutenticada:
     """Identidad autenticada con rol, departamento e id de usuario dados.
 
     El usuario no se persiste: el filtro institucional lee `departamento_id`, la
     propiedad lee `usuario_id` y la autorizacion solo lee `rol.nombre_rol`.
+    `sede_id` es opcional y solo lo usa la prueba de AC-20 (007) para distinguir
+    `usuario.sede_id` de `departamento.sede_id`.
     """
     usuario = Usuario(
         usuario_id=usuario_id,
@@ -322,13 +328,14 @@ def _identidad(rol: str, departamento_id, usuario_id: int) -> IdentidadAutentica
         correo=f"sonda.{rol.lower()}@compustock.cl",
         departamento_id=departamento_id,
         rol_id=1,
+        sede_id=sede_id,
     )
     usuario.rol = Rol(nombre_rol=rol)
     return IdentidadAutenticada(usuario=usuario, sub=f"sub-{rol.lower()}")
 
 
 @contextmanager
-def _cliente(motor, rol: str, departamento_id, usuario_id: int = 9999):
+def _cliente(motor, rol: str, departamento_id, usuario_id: int = 9999, sede_id=None):
     Fabrica = sessionmaker(autocommit=False, autoflush=False, bind=motor)
 
     def _db_de_prueba():
@@ -340,7 +347,7 @@ def _cliente(motor, rol: str, departamento_id, usuario_id: int = 9999):
 
     app.dependency_overrides[dependencies.get_db] = _db_de_prueba
     app.dependency_overrides[dependencies.get_current_user] = (
-        lambda: _identidad(rol, departamento_id, usuario_id)
+        lambda: _identidad(rol, departamento_id, usuario_id, sede_id)
     )
     try:
         with TestClient(app) as cliente:
@@ -369,15 +376,44 @@ def _stock_sede(motor, sede_id: int, producto_id: int) -> int:
         return fila.stock_actual
 
 
-def _payload(datos: dict, usuario_id: int) -> dict:
-    return {
-        "usuario_id": usuario_id,
+def _payload(datos: dict, usuario_id: int | None = None) -> dict:
+    """Payload valido del alta; `usuario_id` solo viaja si se pide.
+
+    Enmienda D-33: el campo es opcional y su valor se ignora, asi que la omision
+    es una variante valida del contrato.
+    """
+    cuerpo = {
         "prioridad_id": datos["prioridad_id"],
         "estado_id": datos["estado_pendiente_id"],
         "asunto": "Alta de ticket en pruebas de alcance",
         "descripcion": "Atribucion y ambito de tickets.",
         "detalles": [{"producto_id": datos["producto_id"], "cantidad_solicitada": 1}],
     }
+    if usuario_id is not None:
+        cuerpo["usuario_id"] = usuario_id
+    return cuerpo
+
+
+def _contar(motor, modelo) -> int:
+    with sessionmaker(bind=motor)() as db:
+        return db.query(modelo).count()
+
+
+def _instituciones_persistidas(motor, ticket_id: int) -> dict:
+    """`institucion_id` de la cabecera y de cada detalle del ticket."""
+    with sessionmaker(bind=motor)() as db:
+        ticket = db.get(Ticket, ticket_id)
+        detalles = (
+            db.query(DetalleTicket)
+            .filter(DetalleTicket.ticket_id == ticket_id)
+            .all()
+        )
+        return {
+            "usuario_id": ticket.usuario_id,
+            "sede_id": ticket.sede_id,
+            "ticket": ticket.institucion_id,
+            "detalles": [d.institucion_id for d in detalles],
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -610,28 +646,78 @@ def test_solicitante_crea_y_se_atribuye_su_identidad(motor, ambito_tickets):
     assert respuesta.status_code == 201, respuesta.text
     assert respuesta.json()["usuario_id"] == ambito_tickets["solicitante_id"]
 
+    persistido = _instituciones_persistidas(motor, respuesta.json()["ticket_id"])
+    assert persistido["ticket"] == "INST01"
+    assert persistido["detalles"] == ["INST01"]
 
-def test_administrador_crea_para_solicitante_de_otra_institucion_404_sin_mutar(
+
+@pytest.mark.parametrize("rol", ["Administrador", "Bodeguero", "Solicitante"])
+@pytest.mark.parametrize("variante", ["omitido", "propio", "ajeno", "inexistente"])
+def test_roles_autorizados_atienden_la_identidad_de_sesion(
+    motor, ambito_tickets, rol, variante
+):
+    """AC-33/AC-18/AC-11: las cuatro variantes de payload dan 201 y autor de sesion.
+
+    La identidad de sesion es un usuario persistido de INST01 (la fila del
+    Solicitante) con el rol parametrizado: la autoria no depende del rol sino de
+    la sesion, y el valor enviado en `usuario_id` se ignora por completo.
+    """
+    enviado = {
+        "omitido": None,
+        "propio": ambito_tickets["solicitante_id"],
+        "ajeno": ambito_tickets["usuario_ajeno_id"],
+        "inexistente": 987654,
+    }[variante]
+
+    with _cliente(
+        motor,
+        rol,
+        ambito_tickets["departamento_id"],
+        ambito_tickets["solicitante_id"],
+    ) as cliente:
+        respuesta = cliente.post(
+            RUTA_TICKETS, json=_payload(ambito_tickets, enviado)
+        )
+
+    assert respuesta.status_code == 201, (rol, variante, respuesta.text)
+    cuerpo = respuesta.json()
+    assert cuerpo["usuario_id"] == ambito_tickets["solicitante_id"]
+    assert cuerpo["sede_id"] == ambito_tickets["sede_id"]
+
+    persistido = _instituciones_persistidas(motor, cuerpo["ticket_id"])
+    assert persistido["usuario_id"] == ambito_tickets["solicitante_id"]
+    assert persistido["ticket"] == "INST01"
+    assert persistido["detalles"] == ["INST01"]
+
+
+def test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion(
     motor, ambito_tickets
 ):
-    """Feature 008 (AC-11): un solicitante de otra institucion se oculta con 404,
-    igual que un usuario inexistente, y no deja ticket."""
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        antes = len(supervisor.get(RUTA_TICKETS).json())
+    """AC-11: un `usuario_id` ajeno ya no produce 404; se ignora y no duplica."""
+    inicio = _contar(motor, Ticket)
 
-    with _cliente(motor, "Administrador", ambito_tickets["departamento_id"]) as cliente:
+    with _cliente(
+        motor,
+        "Administrador",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+    ) as cliente:
         respuesta = cliente.post(
             RUTA_TICKETS, json=_payload(ambito_tickets, ambito_tickets["usuario_ajeno_id"])
         )
 
-    with _cliente(motor, "Superadmin", None) as supervisor:
-        despues = len(supervisor.get(RUTA_TICKETS).json())
+    assert respuesta.status_code == 201, respuesta.text
+    assert respuesta.json()["usuario_id"] == ambito_tickets["usuario_id"]
+    assert _contar(motor, Ticket) == inicio + 1
 
-    assert respuesta.status_code == 404, respuesta.text
-    assert despues == antes
+    persistido = _instituciones_persistidas(motor, respuesta.json()["ticket_id"])
+    assert persistido["usuario_id"] == ambito_tickets["usuario_id"]
+    assert persistido["ticket"] == "INST01"
+    assert persistido["detalles"] == ["INST01"]
 
 
 def test_administrador_crea_para_solicitante_propio_201(motor, ambito_tickets):
+    """Aunque el payload nombre al Solicitante, el autor es el Administrador."""
     # Actor persistido: la creacion registra su fila de historial (013, AC-9).
     with _cliente(
         motor,
@@ -643,19 +729,115 @@ def test_administrador_crea_para_solicitante_propio_201(motor, ambito_tickets):
             RUTA_TICKETS, json=_payload(ambito_tickets, ambito_tickets["solicitante_id"])
         )
     assert respuesta.status_code == 201, respuesta.text
-    assert respuesta.json()["usuario_id"] == ambito_tickets["solicitante_id"]
+    assert respuesta.json()["usuario_id"] == ambito_tickets["usuario_id"]
 
 
-@pytest.mark.parametrize("rol", ["Administrador", "Bodeguero"])
-def test_otros_roles_conservan_usuario_id_obligatorio(motor, ambito_tickets, rol):
-    """Sin `usuario_id` el contrato vigente responde 422 para los roles con alta.
+def test_departamento_sin_sede_responde_409_sin_ticket_detalle_ni_historial(
+    motor, ambito_tickets
+):
+    """D-35/AC-20: sin sede departamental el alta es 409 y no escribe nada."""
+    with sessionmaker(bind=motor)() as db:
+        departamento = db.get(Departamento, ambito_tickets["departamento_id"])
+        departamento.sede_id = None
+        db.commit()
 
-    Feature 008 (D-3/AC-10): Superadmin ya no crea tickets de una institucion
-    concreta (recibe 403, verificado en `test_permisos_008.py`), por lo que sale
-    de esta parametrizacion; su contrato de alta institucional ya no existe.
+    tickets_antes = _contar(motor, Ticket)
+    detalles_antes = _contar(motor, DetalleTicket)
+    historial_antes = _contar(motor, HistorialTransicionTicket)
+
+    with _cliente(
+        motor,
+        "Administrador",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+    ) as cliente:
+        respuesta = cliente.post(
+            RUTA_TICKETS, json=_payload(ambito_tickets, ambito_tickets["solicitante_id"])
+        )
+
+    assert respuesta.status_code == 409, respuesta.text
+    assert _contar(motor, Ticket) == tickets_antes
+    assert _contar(motor, DetalleTicket) == detalles_antes
+    assert _contar(motor, HistorialTransicionTicket) == historial_antes
+
+
+def test_departamento_sin_sede_ignora_usuario_sede_id_y_responde_409(
+    motor, ambito_tickets
+):
+    """AC-20 (007, enmienda 22/Oct/2026): no hay fallback a `usuario.sede_id`.
+
+    El departamento de la identidad no tiene sede, pero el usuario de sesion
+    apunta a una sede **valida**. Si el servicio usara `usuario.sede_id` como
+    sustituto de `departamento.sede_id`, el alta responderia 201; la regla
+    vigente exige **409** sin ticket, detalle ni historial. Este caso es el que
+    distingue ambas fuentes de sede; los demas tests de 409 usan
+    `usuario.sede_id = NULL` y no protegen esta clausura.
     """
-    payload = _payload(ambito_tickets, ambito_tickets["solicitante_id"])
-    payload.pop("usuario_id")
-    with _cliente(motor, rol, ambito_tickets["departamento_id"]) as cliente:
-        respuesta = cliente.post(RUTA_TICKETS, json=payload)
-    assert respuesta.status_code == 422, respuesta.text
+    sede_valida = ambito_tickets["sede_id"]
+    with sessionmaker(bind=motor)() as db:
+        departamento = db.get(Departamento, ambito_tickets["departamento_id"])
+        departamento.sede_id = None
+        db.commit()
+
+    tickets_antes = _contar(motor, Ticket)
+    detalles_antes = _contar(motor, DetalleTicket)
+    historial_antes = _contar(motor, HistorialTransicionTicket)
+
+    # La identidad de sesion si tiene una sede valida: el fallback la usaria.
+    with _cliente(
+        motor,
+        "Administrador",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+        sede_id=sede_valida,
+    ) as cliente:
+        respuesta = cliente.post(
+            RUTA_TICKETS, json=_payload(ambito_tickets, ambito_tickets["solicitante_id"])
+        )
+
+    assert respuesta.status_code == 409, respuesta.text
+    assert _contar(motor, Ticket) == tickets_antes
+    assert _contar(motor, DetalleTicket) == detalles_antes
+    assert _contar(motor, HistorialTransicionTicket) == historial_antes
+
+
+def test_ticket_guarda_la_sede_del_departamento_no_la_del_usuario(
+    motor, ambito_tickets
+):
+    """AC-20 (007, enmienda 22/Oct/2026): la sede del ticket es la departamental.
+
+    La identidad de sesion tiene `usuario.sede_id` apuntando a una sede
+    **distinta** de la de su departamento. El alta responde 201 y la instantanea
+    `ticket.sede_id` copia `departamento.sede_id`, nunca `usuario.sede_id`.
+    """
+    sede_departamento = ambito_tickets["sede_id"]
+    with sessionmaker(bind=motor)() as db:
+        sede_usuario = Sede(
+            nombre="Sede Alterna del Usuario",
+            institucion_id=ambito_tickets["institucion_id"],
+        )
+        db.add(sede_usuario)
+        db.commit()
+        sede_usuario_id = sede_usuario.sede_id
+
+    assert sede_usuario_id != sede_departamento, "el caso debe distinguir las sedes"
+
+    with _cliente(
+        motor,
+        "Administrador",
+        ambito_tickets["departamento_id"],
+        ambito_tickets["usuario_id"],
+        sede_id=sede_usuario_id,
+    ) as cliente:
+        respuesta = cliente.post(
+            RUTA_TICKETS, json=_payload(ambito_tickets, ambito_tickets["solicitante_id"])
+        )
+
+    assert respuesta.status_code == 201, respuesta.text
+    cuerpo = respuesta.json()
+    assert cuerpo["sede_id"] == sede_departamento
+    assert cuerpo["sede_id"] != sede_usuario_id
+
+    persistido = _instituciones_persistidas(motor, cuerpo["ticket_id"])
+    assert persistido["sede_id"] == sede_departamento
+    assert persistido["sede_id"] != sede_usuario_id

@@ -109,3 +109,60 @@ Spec: [`spec.md`](spec.md) · Plan: [`plan.md`](plan.md)
   - **AC:** AC-21.
   - **Verificación:** revisión de casillas/evidencias, grep documental registrado, memoria concisa y referencia a resultados de 4200/8080.
   - **Hecho cuando:** todas las tareas precedentes están `[x]`, cada AC está marcado con evidencia, ambas suites y los dos recorridos están verificados, y la documentación no contiene afirmaciones/rutas obsoletas.
+
+---
+
+## Enmienda de autoatribución de tickets (22/Oct/2026)
+
+> Esta es la única lista ejecutable para el cambio transversal de las Features 003/007/008. Ejecutar estrictamente E22-1 → E22-2 → E22-3 → E22-4, sin paralelismo. Las secciones E22 de `003/tasks.md` y `007/tasks.md` son trazabilidad de AC, no duplicados de tareas. Tareas históricas T1…T15 no se renumeran.
+
+- [x] **E22-1 — Backend: pruebas rojas, schema, servicio y contrato**
+  - **Archivos:** `backend/app/schemas/ticket_schema.py`, `backend/app/services/ticket_service.py`, `backend/app/api/v1/endpoints/tickets.py`; `backend/tests/api/test_tickets_alcance.py`, `test_tickets_institucional.py`, `test_modal_ticket.py`, `test_ticket_sede_011.py`, `test_transaccion_ticket.py` y demás tests de POST alta encontrados por grep.
+  - **Primero rojo:** reemplazar el test histórico del `usuario_id` obligatorio (eliminado); reescribir `test_administrador_crea_para_solicitante_propio_201`, `test_solicitante_crea_y_se_atribuye_su_identidad`, `test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion`, `test_departamento_sin_sede_ignora_usuario_sede_id_y_responde_409` y `test_ticket_guarda_la_sede_del_departamento_no_la_del_usuario`. Afirmar rol autorizado con `usuario_id` omitido, propio, ajeno e inexistente: 201 y autoría de la identidad autenticada; `ticket.institucion_id` y detalles se anclan a institución de sesión. Cubrir departamento sin sede → 409 y ninguna fila, y producto ajeno → 404 sin parcial.
+  - **Implementación/orden obligatorio:** autoatribución incondicional primero (ignorar campo entrante); resolver institución del usuario de sesión; verificar prioridad/estado; verificar todos los productos para esa institución (404 producto ajeno intacto); resolver sede del departamento autenticado (409 si no resoluble); reglas restantes de estado inicial; escribir cabecera/detalles/historial transaccionalmente. No validar payload.usuario_id como referencia y no usar `usuario.sede_id` como fallback. Superadmin mantiene 403 por matriz.
+  - Mantener `test_crear_ticket_con_producto_ajeno_404_sin_parcial` y `test_crear_ticket_puebla_institucion_en_ticket_y_detalle`; en `test_ticket_sede_011.py` actualizar exclusivamente altas, no despachos. `TicketDespacho.usuario_id` queda como contrato distinto y obligatorio.
+  - **AC:** 003 AC-33/35; 007 AC-6 actualizado/18/20; 008 AC-11.
+  - **Hecho cuando:** tests HTTP demuestran las cuatro variantes de payload sin 422/403/404 por usuario; autoría/institución son de sesión; sede ausente 409 sin ticket/detalle/historial; producto ajeno 404; OpenAPI declara optional/ignored y no 404 por usuario; matriz no varía.
+  - **Comando:** `backend\.venv\Scripts\python.exe -m pytest backend\tests\api\test_tickets_alcance.py backend\tests\api\test_tickets_institucional.py backend\tests\api\test_modal_ticket.py backend\tests\api\test_ticket_sede_011.py backend\tests\api\test_transaccion_ticket.py -q`.
+
+- [x] **E22-2 — Frontend: identidad informativa y body sin autor**
+  - **Archivos:** `frontend/src/app/features/tickets/tickets.component.ts`, `.html`, `.spec.ts`, `frontend/src/app/shared/interfaces/index.ts`.
+  - **Rojo:** retirar set `formulario.controls.usuario_id.setValue(5)`, expectativa `usuario_id` incluido en cuerpo, pruebas de selector y `solicitantes().length` como selector. Añadir cobertura de nombre/apellido/correo de identidad, ausencia de `<select>`/control editable y ausencia de llamada extra/departamento.
+  - Implementar el campo de solo lectura desde `AutenticacionService.identidad()`. Contrato real de `IdentidadAutenticada`: `nombre`, `apellido`, `correo`, más `usuario_id`, `sub`, `rol`, `institucion`; **no** departamento. Omitir por completo `usuario_id` del cuerpo. Mantener `solicitantes` de `GET /tickets/catalogos` y sus usos de lectura.
+  - **AC:** 003 AC-34/35; 007 AC-19; 008 AC-11.
+  - **Hecho cuando:** tests del DOM y HTTP pasan y afirman el autor informativo correcto, no selector/control, body sin usuario_id, catálogo de lectura no retirado y el resto del formulario intacto.
+  - **Comando:** `$env:CHROME_BIN = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"; cd frontend; npx ng test --watch=false --browsers=ChromeHeadless` (nunca `npm test`).
+
+- [x] **E22-3 — Regresión completa e inventario de payloads**
+  - **Archivos:** tests de alta de ticket encontrados con `grep -rn "usuario_id" backend/tests/api/` (incluidos `test_ticket_sede_011.py` y `test_transaccion_ticket.py`) y `tickets.component.spec.ts`.
+  - Auditar cada `usuario_id` de petición HTTP para distinguir alta de ticket de despacho; los payloads `TicketDespacho.usuario_id` no se actualizan. Reescribir todas las aserciones incompatibles listadas en E22-1 y comprobar que ningún test de alta sigue esperando 404/obligatoriedad o atribución al payload. Mantener los dos tests explícitamente conservados en E22-1. Revisar `GET /tickets/catalogos`: responde la misma clave/lista `solicitantes`; su contrato no cambia. En `test_ticket_sede_011.py` adaptar el helper/casos de alta, incluida creación sin sede, pero conservar íntegros los POST de despacho y sus payloads.
+  - **AC:** AC-33…AC-35; 007 AC-6/18–20; 008 AC-11.
+  - **Hecho cuando:** grep completo queda inventariado; pruebas de autorización/matriz y Superadmin 403, producto ajeno 404, transacción, catálogo/listados/detalle, sede y despacho continúan verdes; no queda test heredado con expectativa obsoleta.
+  - **Comandos:** `backend\.venv\Scripts\python.exe -m pytest`; `$env:CHROME_BIN = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"; cd frontend; npx ng test --watch=false --browsers=ChromeHeadless`.
+
+- [x] **E22-4 — Verificación integrada, evidencia y memoria**
+  - **Archivos:** evidencia de AC en las tres `spec.md` (solo tras verificación), `MEMORY.md`; inspección grep de `AGENTS.md`, `MEMORY.md`, `.agents/skills/`; roadmap condicional.
+  - Ejecutar suite backend completa y pruebas gated PostgreSQL aplicables sin usar `apt_erp` como base temporal; suite frontend completa y build de producción; inspeccionar `/openapi.json`; realizar recorrido funcional 4200 con una identidad autorizada y alta real; reconstruir imagen frontend y humo en 8080 porque el modal cambia. Registrar separado qué demuestra cada puerto y evidencia observada por AC en 003/007/008. Actualizar `MEMORY.md`; roadmap solo se modifica si el coordinador confirma los gates y estado correspondiente.
+  - **AC:** AC-33…AC-35; 007 AC-17/18–20; 008 AC-11.
+  - **Hecho cuando:** ambas suites y build pasan; recorrido 4200 y humo 8080 posteriores a rebuild documentados; OpenAPI, AC y grep coherentes; memoria actualizada; ninguna casilla se marca como verificada sin resultado observado.
+  - **Comandos:** `backend\.venv\Scripts\python.exe -m pytest`; `$env:POSTGRES_TEST_URL = "postgresql://postgres:postgres@localhost:5433/postgres"; backend\.venv\Scripts\python.exe -m pytest` (solo gated desechable configurado); `$env:CHROME_BIN = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"; cd frontend; npx ng test --watch=false --browsers=ChromeHeadless; npx ng build`; `docker compose -f docker-compose.yml build frontend` y `docker compose -f docker-compose.yml up -d frontend`.
+
+### Cierre de enmienda
+
+- [x] **E22-C1 — Suites y contrato.** **AC:** enmienda completa. **Hecho cuando:** SQLite y pruebas gated PostgreSQL aplicables pasan, `ng test` con Edge y build están verdes; `/openapi.json` refleja usuario opcional, matriz intacta y 404 por producto vigente.
+- [x] **E22-C2 — Recorridos.** **AC:** 003 AC-34, 007 AC-19, 008 AC-11. **Hecho cuando:** 4200 confirma identidad/cuerpo sin `usuario_id` y alta real; 8080 confirma modal en build reconstruido/humo básico; evidencia distingue recorrido funcional y humo.
+- [x] **E22-C3 — Evidencia, memoria y coherencia.** **AC:** 003 AC-33…35, 007 AC-17…20, 008 AC-11. **Hecho cuando:** evidencia observada queda bajo los AC afectados de las tres specs; `MEMORY.md` actualizado; grep de coherencia registrado; roadmap únicamente se cambia tras gates completos.
+
+
+### Matriz de trazabilidad AC ↔ tareas
+
+| AC de enmienda | Tareas |
+|---|---|
+| 003 AC-33 | E22-1, E22-3, E22-4, E22-C1, E22-C3 |
+| 003 AC-34 | E22-2, E22-3, E22-4, E22-C2, E22-C3 |
+| 003 AC-35 | E22-1…E22-4, E22-C1…C3 |
+| 007 AC-6 actualizado | E22-1, E22-3, E22-4, E22-C1 |
+| 007 AC-17/AC-18 | E22-1, E22-3, E22-4, E22-C1, E22-C3 |
+| 007 AC-19 | E22-2, E22-3, E22-4, E22-C2, E22-C3 |
+| 007 AC-20 | E22-1, E22-3, E22-4, E22-C1, E22-C3 |
+| 008 AC-11 | E22-1…E22-4, E22-C1…C3 |

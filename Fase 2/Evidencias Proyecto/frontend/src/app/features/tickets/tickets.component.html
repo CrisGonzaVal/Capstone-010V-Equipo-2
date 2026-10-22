@@ -62,23 +62,22 @@
       } @else {
         <form [formGroup]="formulario" (ngSubmit)="enviar()" class="px-6 py-5 space-y-5">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <label class="block space-y-1">
-              <span class="text-xs font-semibold text-slate-700">Solicitante</span>
-              <select
-                formControlName="usuario_id"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+            <!-- AC-34: el autor es dato informativo de la sesión, no un selector. -->
+            <dl class="block space-y-1">
+              <dt class="text-xs font-semibold text-slate-700">Solicitante (sesión)</dt>
+              <dd
+                class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-700"
               >
-                <option [ngValue]="null">Selecciona un solicitante</option>
-                @for (solicitante of solicitantes(); track solicitante.usuario_id) {
-                  <option [ngValue]="solicitante.usuario_id">
-                    {{ etiquetaSolicitante(solicitante) }}
-                  </option>
+                @if (identidad(); as autor) {
+                  <span class="block font-medium">{{ autor.nombre }} {{ autor.apellido }}</span>
+                  <span class="block text-xs text-slate-500">{{ autor.correo }}</span>
+                } @else {
+                  <span class="block text-xs text-slate-500">
+                    No se pudo cargar tu identidad.
+                  </span>
                 }
-              </select>
-              @if (formulario.controls.usuario_id.touched && formulario.controls.usuario_id.invalid) {
-                <span class="text-xs text-rose-600 block">Selecciona un solicitante.</span>
-              }
-            </label>
+              </dd>
+            </dl>
 
             <label class="block space-y-1">
               <span class="text-xs font-semibold text-slate-700">Prioridad</span>

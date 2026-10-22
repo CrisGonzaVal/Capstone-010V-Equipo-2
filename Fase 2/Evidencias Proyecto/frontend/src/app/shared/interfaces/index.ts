@@ -283,8 +283,13 @@ export interface DetalleTicketCrear {
   cantidad_solicitada: number;
 }
 
+/**
+ * Cuerpo de `POST /tickets/`. No incluye `usuario_id`: desde la enmienda del
+ * 22/Oct/2026 (Feature 003, D-33/AC-33 y D-34/AC-34) el servidor atribuye el
+ * alta a la identidad de sesión, y el backend acepta el campo solo por
+ * compatibilidad. Enviarlo aquí sugeriría una autoría elegible que ya no existe.
+ */
 export interface TicketCrear {
-  usuario_id: number;
   prioridad_id: number;
   estado_id: number;
   asunto: string;

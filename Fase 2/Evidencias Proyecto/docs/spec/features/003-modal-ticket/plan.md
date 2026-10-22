@@ -28,6 +28,58 @@ Cada AC de `spec.md` §6 tiene aquí su archivo y su caso de prueba.
 | `AGENTS.md` §5 | nota de los dos puertos | — |
 | `docs/spec/roadmap.md`, `MEMORY.md` | estado y fila | — |
 
+## Enmienda de autoatribución de tickets (22/Oct/2026)
+
+> Esta sección planifica exclusivamente AC-33…AC-35 y D-33…D-35 añadidos a la spec aprobada. No se reescribe el plan histórico de la feature cerrada.
+
+### Decisiones técnicas por capa
+
+- **Schema:** `TicketCrear.usuario_id` pasa de obligatorio a `int | None = None` (o equivalente Pydantic v2 opcional). El campo se conserva por compatibilidad aditiva; se acepta si está ausente o presente, pero el servicio nunca consulta, valida ni usa su valor. OpenAPI debe reflejarlo como opcional.
+- **Servicio — orden definitivo antes de cualquier escritura:** (1) autoatribuir incondicionalmente el DTO a `identidad.usuario.usuario_id` para todos los roles autorizados, descartando cualquier valor entrante; (2) resolver institución efectiva del actor y la institución del usuario de sesión; un ámbito institucional irresoluble conserva su 403 de autorización; (3) verificar prioridad y estado compartidos; (4) verificar todos los productos contra la institución de sesión, manteniendo 404 para producto ajeno/inexistente; (5) resolver `departamento.sede_id` del usuario de sesión, con 409 si falta/no se puede resolver; (6) conservar las reglas existentes de estado inicial (`Anulado` 409, etc.); solo entonces escribir cabecera/detalles/historial dentro de la transacción actual. Desaparecen `_verificar_referencia(Usuario, payload.usuario_id)` y el 404/403 por solicitante payload ajeno. No se usa `usuario.sede_id` como sustituto.
+- **Perfiles sin sede:** el código de validación aplica a Administrador y Bodeguero igual que a Solicitante. En la semilla real, usuarios rol 2 (Administradores 1/3/4/10, departamentos 1/3/4/10) y rol 3 (Bodegueros 6/7/12, departamentos 6/7/6) tienen departamentos con sede; usuario.sede_id de Bodeguero no cambia el origen de sede del alta. Si un perfil real o posterior carece de sede departamental resoluble, se rechaza con **409** y no hay ticket/detalles/historial parcial.
+- **Endpoint/documentación:** `POST /tickets/` conserva ruta, response model, status 201 y matriz; revisar resumen/descripción/422/404 en OpenAPI para precisar `usuario_id` opcional e ignorado y eliminar la documentación de 404 por usuario. `/tickets/catalogos` conserva su DTO y la lista `solicitantes` íntegra.
+- **Frontend:** se elimina el control `usuario_id` del `FormGroup`, su validación y el `<select>`. En su lugar, campo no editable muestra exactamente `nombre` + `apellido` y `correo` desde `AutenticacionService.identidad()` (`IdentidadAutenticada` expone `usuario_id`, `sub`, `nombre`, `apellido`, `correo`, `rol`, `institucion`; no `departamento`). No se hace otra llamada ni se toma la persona desde el catálogo. `solicitantes` del catálogo sigue siendo read model para listados/detalle, no selector.
+- **Cuerpo frontend:** omitir `usuario_id` completamente. Aunque el DTO frontend puede reflejar `usuario_id?: number`, no debe fabricarse/reenviarse una autoría; así se prueba de forma directa que la sesión es autoridad y no se crea un dato redundante en el cuerpo.
+
+### Archivos de la enmienda
+
+| Archivo | Responsabilidad | AC |
+|---|---|---|
+| `backend/app/schemas/ticket_schema.py` | Hacer opcional `TicketCrear.usuario_id`; OpenAPI coherente. | AC-33 |
+| `backend/app/services/ticket_service.py` | Aplicar orden definitivo, autoatribución antes de referencias, ámbito/productos/sede de identidad y 409 sin mutación. | AC-33, AC-35 |
+| `backend/app/api/v1/endpoints/tickets.py` | Ajustar documentación del POST sin cambiar matriz ni respuesta. | AC-33 |
+| `backend/tests/api/test_tickets_alcance.py` | Sustituir obligatoriedad/selección por autoatribución de Solicitante, Administrador y Bodeguero, con identidad persistida y ámbito. | AC-33, AC-35 |
+| `backend/tests/api/test_tickets_institucional.py` | Cambiar solicitante ajeno 404 a autoría de sesión; conservar producto ajeno 404 y anclas institucionales. | AC-33, AC-35 |
+| `backend/tests/api/test_modal_ticket.py`, `test_ticket_sede_011.py`, `test_transaccion_ticket.py` y otros hallados por búsqueda `usuario_id` en payload de alta | Actualizar solo altas que asumían usuario payload como identidad/referencia; mantener payloads de despacho (`TicketDespacho.usuario_id`) intactos. | AC-33, AC-35 |
+| `frontend/src/app/features/tickets/tickets.component.ts` y `.html` | Usar identidad cargada para autor informativo; eliminar control/select y omitir `usuario_id` del cuerpo. | AC-34, AC-35 |
+| `frontend/src/app/features/tickets/tickets.component.spec.ts` | Reescribir aserciones del selector/usuario en body y cubrir identidad, ausencia del select/control y catálogo preservado. | AC-34, AC-35 |
+| `frontend/src/app/shared/interfaces/index.ts` | Hacer `TicketCrear.usuario_id` opcional si sigue modelado; conservar `Solicitante`/`CatalogosTicket`. | AC-34, AC-35 |
+
+### Orden TDD y pruebas
+
+La ejecución común está coordinada en `008/tasks.md` para evitar tres implementaciones solapadas: TDD backend, luego frontend, regresión, verificación y cierre. En esta feature se ejecutan los mismos cambios transversales pero la matriz de trazabilidad mantiene AC-33…35.
+
+1. **Rojo backend:** reemplazar el test histórico del `usuario_id` obligatorio (eliminado), `test_administrador_crea_para_solicitante_propio_201`, `test_solicitante_crea_y_se_atribuye_su_identidad`, `test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion`; añadir casos omisión/propio/ajeno/inexistente de payload para roles autorizados, autoría e institución de sesión, departamento sin sede→409 sin persistencia y producto ajeno→404. Luego modificar schema y servicio hasta verde.
+2. **Rojo frontend:** retirar en pruebas `formulario.controls.usuario_id.setValue(5)`, la expectativa de `usuario_id` presente y tests de opciones/longitud de `solicitantes` como selector. Probar identidad visible `nombre apellido · correo`, ausencia de `select[formcontrolname="usuario_id"]` y cuerpo sin `usuario_id`; después implementar componente/template/tipo.
+3. **Conservar expresamente:** `test_crear_ticket_con_producto_ajeno_404_sin_parcial` y `test_crear_ticket_puebla_institucion_en_ticket_y_detalle`; además pruebas existentes de prioridad/estado, transacción, historial, catálogo y reglas de sede/estado. En tests de tickets de sede se actualizan únicamente los POST de creación; en pruebas de despacho se conserva el actor `usuario_id` exigido por `TicketDespacho`.
+4. Backend por `pytest` (incluido `/openapi.json`); frontend con `ng test` usando `CHROME_BIN` Edge; no usar `npm test`. El endpoint de catálogo no cambia de contrato.
+
+### Riesgos, mitigación y límites
+
+| Riesgo | Mitigación |
+|---|---|
+| Quede un 404 por solicitante ajeno heredado de 008 | Cambiar específicamente ambos rechazos por solicitante a 201 atribuido a sesión y conservar/ejecutar el 404 por producto ajeno. |
+| Identidad de un perfil no tenga departamento-sede | Casos 409 sin escritura para los roles; fixture QA conserva sedes actuales de Admin/Bodeguero y no confunde usuario.sede_id con departamento.sede_id. |
+| Tests viejos envían usuario_id y se vuelven engañosamente verdes | Inventariar todos los payloads `usuario_id` de creación con grep; separar creación de `TicketDespacho`; probar también campo omitido y ids inexistente/ajeno. |
+| Regresión visual o lectura de identidad nula | Comprobar estado informativo usando `identidad()` sin otra llamada; no permitir falso selector ni autor vacío seleccionable. |
+| Evidencia de cierre describe selector, 404 por usuario o cuerpo con usuario_id | Reescribir evidencia afectada solo durante implementación/cierre; no declarar verificados estos AC en planificación. |
+
+No se toca la matriz de permisos, la lista `solicitantes` de `GET /tickets/catalogos`, DDL/modelos, dependencias, ni reglas restantes de `crear_ticket` (prioridad/estado/productos, transacción, detalles, historial, stock y estado inicial). Superadmin permanece fuera del permiso de alta.
+
+---
+
+## Plan original (cerrado)
+
 **No se tocan:** `backend/app/models/`, `database/01_esquema.sql`,
 `backend/app/services/inventario_service.py`, `tickets.component.ts`'s columnas del Kanban,
 `listar_tickets`, `actualizar_estado_ticket`, `conftest.py`.

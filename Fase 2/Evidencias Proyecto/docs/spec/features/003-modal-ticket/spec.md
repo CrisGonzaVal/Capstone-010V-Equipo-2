@@ -4,6 +4,11 @@
 **Release:** 1.0 — Sprint 1
 **Tipo:** Valor de negocio (primera escritura end-to-end del ciclo de abastecimiento)
 
+> **Enmienda posterior al cierre (22/Oct/2026):** la Feature 003 permanece cerrada y
+> verificada. La enmienda modifica únicamente la presentación del autor del alta y el
+> contrato de atribución de `POST /tickets/`; no cambia la matriz de roles, el esquema
+> de datos, las dependencias ni las reglas restantes del alta.
+
 ## 1. Problema
 
 El ciclo de abastecimiento arranca con el Actor **Solicitante** emitiendo un requerimiento
@@ -82,8 +87,9 @@ referencia inexistente, nunca 500.
   producto_id)`, así que la base los admite. Se resuelven **en el cliente**, sumando las
   cantidades, porque un selector que ya eligió "Resma Carta" dos veces es un error de
   UX, no una regla de negocio.
-- **Autenticación real.** `get_current_user` lanza 501 y no lo usa ninguna ruta. El
-  solicitante se elige a mano (D-3).
+- **Autenticación real (alcance original).** `get_current_user` lanza 501 y no lo usa
+  ninguna ruta en el estado inicial descrito por esta feature. La enmienda posterior al
+  cierre incorpora la identidad real de sesión para mostrar y atribuir el autor.
 - **Filtro de solicitantes por rol.** `GET /usuarios/` devuelve los 10 usuarios de la
   semilla, incluidos los administrativos. Filtrar por rol es de la Feature 007.
 - **CRUD de catálogo** y **`GET /inventario/movimientos`**: el de movimientos es de la
@@ -133,7 +139,10 @@ actualiza en la misma jugada. Se actualiza la línea correspondiente de `stack.m
 Se corrige en esta feature porque la 003 es la primera que necesita shared para algo real:
 si se dejara, la deuda crecería con cada archivo que importe la URL desde inventario.
 
-### D-3 — El solicitante se elige de un `<select>`, no de una constante
+### D-3 — El solicitante se elegía de un `<select>`, no de una constante (histórica)
+
+**Decisión histórica, sustituida para la atribución de altas por las enmiendas D-33 y
+D-34 (22/Oct/2026):**
 
 `get_current_user` lanza `501 Not Implemented` y ninguna ruta lo usa: la autenticación es
 decorativa hasta la Feature 006. No hay "usuario actual" que resolver, así que el formulario
@@ -143,6 +152,50 @@ usuario lo elige cada vez.
 
 La alternativa —una constante con el id de un solicitante de demo— es menos código pero se
 rompe en cuanto cambie la semilla, que es el mismo error que H-2 en otra capa.
+
+### Enmienda D-33 — La identidad de sesión atribuye el alta para todo rol
+
+En toda llamada autenticada que tenga permiso para `POST /tickets/`, el servidor atribuye
+`ticket.usuario_id` a `identidad.usuario.usuario_id`, sin excepción por rol y antes de
+resolver referencias del alta. `usuario_id` es opcional en el payload por compatibilidad:
+si se omite, el alta sigue siendo válida; si se proporciona, el valor se ignora
+silenciosamente, sin 422 ni 403. Por ello, un id inexistente o ajeno enviado en ese campo
+ya no puede producir un 404 por referencia de usuario. La institución del ticket, los
+productos aceptables y la instantánea de sede se resuelven usando el usuario autenticado.
+
+**Por qué:** ningún usuario debe poder firmar un requerimiento como otra identidad. El
+selector era inútil para Solicitante porque 007 ya sobreescribía su valor y permitía una
+atribución incongruente para los demás roles autorizados.
+
+### Enmienda D-34 — El autor se presenta como dato informativo no editable
+
+El modal no ofrece selector ni control editable `usuario_id`. Presenta un campo de solo
+lectura/informativo con el nombre y apellido devueltos por la identidad local de sesión;
+el contrato real de `GET /auth/me` contiene `usuario_id`, `nombre`, `apellido`, `correo`,
+`rol` e `institucion`, pero **no contiene departamento**. Se muestra nombre y apellido,
+con correo como identificador complementario; departamento no se promete ni se consulta
+por separado. La identidad ya está en `AutenticacionService.identidad()`.
+
+**Por qué:** la persona que inicia sesión es la única autora del ticket. Un selector crea
+una affordance de suplantación y el catálogo `solicitantes` no es fuente de identidad de
+sesión.
+
+### Enmienda D-35 — El ámbito organizacional se hereda de la identidad
+
+La institución, departamento y sede relevantes siguen derivándose en servidor de la
+identidad autenticada. `crear_ticket` conserva la regla de que el departamento del usuario
+de sesión debe tener sede asignada: sin sede, el alta responde **409**, sin fallback; con
+sede, el ticket conserva la instantánea de esa sede. Esto aplica también a Administrador y
+Bodeguero; la semilla actual sí asigna departamentos con sede a sus perfiles de roles 2 y
+3 (Administradores usuarios 1, 3, 4, 10; Bodegueros 6, 7, 12; el Bodeguero de usuario 6
+y 12 además tiene `usuario.sede_id`, pero el alta usa la sede del departamento). El
+Superadmin no puede invocar la operación bajo la matriz vigente de 008/017; no se le
+concede permiso por esta enmienda.
+
+**Por qué:** la identidad autenticada, no un `usuario_id` escogido, debe determinar todo
+el contexto organizacional del ticket. `_sede_vigente_de_solicitante` consulta
+`usuario.departamento_id → departamento.sede_id` para cualquier usuario; una ausencia
+produce 409.
 
 ### D-4 — El estado inicial es el primero del catálogo, no el que se llama "Pendiente"
 
@@ -250,10 +303,13 @@ entidad cada una: Pydantic las lee del objeto ORM. `ProductoCatalogoRespuesta` y
 existen en la entidad: las arma el service, con el patrón de read model de `stack.md` §2.
 
 `correo` es `str` y no `EmailStr` a propósito: el DTO es una proyección de lectura para un
-desplegable, y no vale la pena arrastrar el validador de correo a un catálogo.
+catálogo, y no vale la pena arrastrar el validador de correo a un catálogo. `solicitantes`
+se conserva para vistas de tickets; por la enmienda posterior ya no alimenta selector de
+autor en el modal.
 
-**Las cuatro listas salen siempre**, aunque estén vacías: el formulario distingue "no hay
-catálogo" de "el backend no respondió", y una clave ausente no permite esa distinción.
+**Las cuatro listas salen siempre**, aunque estén vacías: el contrato de lectura distingue
+"no hay catálogo" de "el backend no respondió", y una clave ausente no permite esa
+distinción. La enmienda mantiene la lista `solicitantes` aunque el alta no la consuma.
 
 **Orden:** `prioridades` por `prioridad_id` y `estados` por `estado_id`, porque en ambos
 casos el id es el orden del flujo (Alta→Media→Baja; Pendiente→EnRevision→EnCurso→Cerrado) y
@@ -289,6 +345,9 @@ a 2 productos y 2 solicitantes):
 }
 ```
 
+`solicitantes` se conserva como proyección de lectura para las vistas de tickets aunque,
+por la enmienda posterior, ya no sea fuente para seleccionar autor en el modal.
+
 Los dos primeros son los que salen con el orden por apellido: la lista de la semilla mezcla
 dominios `@losalpes.cl` y `@cordillera.cl`, y también roles, así que el desplegable muestra
 el departamento para que dos nombres parecidos no se confundan.
@@ -297,15 +356,16 @@ el departamento para que dos nombres parecidos no se confundan.
 endpoint de existencias de la Feature 002, para que el catálogo y la tabla de inventario no
 puedan discrepar. `stock_total` suma todas las sedes.
 
-### `POST /api/v1/tickets/` — cambios
+### `POST /api/v1/tickets/` — contrato original y ajuste posterior
 
-El contrato no cambia en su forma: los mismos campos, los mismos nombres, el mismo
-`TicketRespuesta` de respuesta. Lo que cambia es qué se **rechaza**:
+El contrato original conserva los mismos campos/nombres y `TicketRespuesta`. La tabla
+resume ese contrato; la enmienda posterior (AC-33) establece que `usuario_id` es opcional,
+se ignora si se envía y no genera 404.
 
 | Entrada | Antes | Ahora |
 |---|---|---|
 | `producto_id` inexistente | 500 | **404** con mensaje |
-| `usuario_id`, `prioridad_id`, `estado_id` inexistente | 500 | **404** con mensaje |
+| `usuario_id`, `prioridad_id`, `estado_id` inexistente | 500 | **404** con mensaje (contrato original; enmienda: `usuario_id` opcional/ignorado y no causa 404) |
 | `asunto` de 1 o de 200 caracteres | 500 (o se guardaba truncado) | **422** por campo |
 | `detalles: []` | 201, ticket sin ítems | **422** por campo |
 | `cantidad_solicitada: 0` o negativa | 500 (CHECK del DDL) | **422** por campo |
@@ -325,16 +385,20 @@ Y un caso que **no** cambia, a propósito: pedir más de lo que hay en stock sig
 - [x] **AC-3** Cada producto trae `categoria_nombre`, `stock_total` y `es_critico`, y
       `es_critico` sale de la **misma** `es_stock_critico()` que usa
       `GET /inventario/existencias`.
-- [x] **AC-4** Cada solicitante trae nombre, apellido, correo y `departamento_nombre`.
+- [x] **AC-4** Cada solicitante del catálogo trae nombre, apellido, correo y `departamento_nombre`.
+      La enmienda no retira este read model: listados y detalle mantienen ese contexto.
 - [x] **AC-5** Las cuatro listas salen **siempre**, aunque estén vacías; con la base vacía el
       endpoint responde 200 con `{"prioridades": [], "estados": [], "productos": [],
       "solicitantes": []}` y no 404 ni 500.
 - [x] **AC-6** `POST /tickets/` con `producto_id` inexistente responde **404** con mensaje
       que nombre la referencia, no 500 (D-6).
-- [x] **AC-7** `POST /tickets/` con `usuario_id`, `prioridad_id` o `estado_id` inexistente
-      responde **404** en los tres casos.
+- [x] **AC-7** En el contrato original, `POST /tickets/` con `usuario_id`, `prioridad_id`
+      o `estado_id` inexistente respondía **404**. **Enmienda 22/Oct/2026:** solo
+      prioridad/estado y las demás referencias de negocio mantienen su 404; `usuario_id`
+      es opcional e ignorado y no produce 404. Ver AC-33.
 - [x] **AC-8** Un 404 en cualquiera de las referencias **no deja ticket a medias**: la lista
-      de tickets sigue igual y el stock de ningún producto se movió. Los dos tests de
+       de tickets sigue igual y el stock de ningún producto se movió. **Enmienda 22/Oct/2026:**
+       no se incluye el `usuario_id` recibido como referencia validada; ver AC-33. Los dos tests de
       atomicidad de la Feature 001 se migran de 500 a 404 **conservando sus aserciones**.
 - [x] **AC-9** `asunto` de menos de 3 caracteres o de más de 150 responde **422**; un
       `detalles: []` responde **422**; `cantidad_solicitada` en `0` o negativa responde
@@ -356,11 +420,16 @@ Y un caso que **no** cambia, a propósito: pedir más de lo que hay en stock sig
 
 - [x] **AC-16** El botón "+ Crear Ticket" abre el modal, y `grep` del template confirma que
       ya no queda ningún `(click)` sin manejador.
-- [x] **AC-17** El modal pide `GET /tickets/catalogos` **una** vez al abrirse y con una sola
-      llamada alimenta los cuatro desplegables; no consulta `/usuarios/` ni
+- [x] **AC-17** El modal pide `GET /tickets/catalogos` **una** vez al abrirse; en el
+      contrato original alimentaba cuatro desplegables. **Enmienda 22/Oct/2026:**
+      `solicitantes` se conserva en la respuesta pero ya no alimenta selector de alta;
+      la lista sigue disponible para vistas de tickets. No consulta `/usuarios/` ni
       `/inventario/existencias`.
-- [x] **AC-18** El formulario tiene solicitante, prioridad, estado, asunto, descripción y un
-      `FormArray` de ítems con al menos una fila; cada ítem elige producto y cantidad.
+- [x] **AC-18** El formulario original tenía solicitante, prioridad, estado, asunto,
+      descripción y un `FormArray` de ítems. **Enmienda 22/Oct/2026:** el campo de
+      solicitante es informativo/no editable, muestra identidad de sesión y no hay control
+      editable `usuario_id`; se conservan los demás campos y cada ítem elige producto y
+      cantidad. Ver AC-34.
 - [x] **AC-19** No se puede enviar con el formulario inválido: el botón se deshabilita y los
       errores aparecen bajo el campo que los causa, leyendo el 422 del backend por campo.
 - [x] **AC-20** Al crear, el modal se cierra y se avisa con el `ticket_id` asignado. El
@@ -376,7 +445,9 @@ Y un caso que **no** cambia, a propósito: pedir más de lo que hay en stock sig
       cumplido en los hechos, no solo en la casilla (D-2).
 - [x] **AC-24** `shared/interfaces/index.ts` declara `Prioridad`, `EstadoTicket`,
       `ProductoCatalogo`, `Solicitante` y `CatalogosTicket` en `snake_case`, reflejando 1:1
-      los schemas nuevos.
+      los schemas nuevos. **Enmienda 22/Oct/2026:** `Solicitante` sigue siendo tipo del
+      catálogo de lectura; la identidad de presentación proviene de `/auth/me` y el cuerpo
+      del alta no necesita `usuario_id`.
 - [x] **AC-25** `grep` de `@NgModule`, `*ngIf`, `*ngFor` y `CommonModule` en
       `frontend/src/app` → 0, y `grep` de `style=` en `features/tickets` → 0. Solo clases
       de Tailwind (`AGENTS.md` §6).
@@ -406,6 +477,60 @@ Y un caso que **no** cambia, a propósito: pedir más de lo que hay en stock sig
       sirva la misma vista que `localhost:4200` y no deje de reflejar la feature.
       Entender que 8080 no se actualiza solo es la mitad del AC: reconstruir **y**
       recorrer en los dos puertos es el criterio de cierre (`AGENTS.md` §8.5 y §8.6).
+
+### Enmienda posterior al cierre: atribución y presentación del solicitante — 22/Oct/2026
+
+#### Problema
+
+El selector permitía emitir tickets a nombre de otra persona, incongruente con la identidad
+de sesión. Para Solicitante ya era ineficaz porque el backend reescribía `usuario_id` con su
+identidad; para Administrador y Bodeguero habilitaba elegir a otra persona.
+
+#### Qué cambia
+
+La atribución del servidor pasa a ser incondicional para todo rol autorizado en el alta; el
+campo de entrada `usuario_id` pasa a opcional y, si llega, se ignora sin error. En el modal,
+el selector se reemplaza por un campo informativo no editable con nombre, apellido y correo
+de `AutenticacionService.identidad()`. La identidad local no expone departamento en
+`/auth/me`, así que no se muestra ni consulta por separado.
+
+#### Qué no cambia
+
+No cambia la matriz central de roles ni se concede alta a Superadmin. El catálogo
+`solicitantes` permanece en `GET /tickets/catalogos` para vistas de listados/detalle y no
+se elimina; deja de alimentar el selector del alta. Se conservan las demás reglas del
+servicio: referencias de prioridad/estado/producto, disponibilidad de producto, validación
+de sede con 409, estado inicial admisible, transacción, detalles e historial. El ticket
+hereda institución y departamento del usuario de sesión y la sede del departamento; si
+falta esa sede, sigue respondiendo 409.
+
+#### Por qué una enmienda
+
+Es una corrección posterior al cierre de la autoría del ticket y de su affordance visual,
+sin cambio de matriz, DDL, dependencias ni del resto del flujo. Se mantiene trazabilidad
+de la decisión original y se registra como enmienda a las features cerradas 003 y 007.
+
+#### Criterios de aceptación de la enmienda
+
+- **AC-33 — Atribución incondicional y compatibilidad del payload.** DADO cualquier rol autenticado autorizado para crear tickets, CUANDO envía un payload sin `usuario_id` o con cualquier valor en ese campo (incluidos ids inexistentes o ajenos), ENTONCES la petición válida responde **201** y el ticket queda atribuido al `usuario_id` de la identidad de sesión; el valor recibido, si existe, se ignora sin 422/403 y sin 404 por esa referencia. La institución y sede corresponden a la identidad de sesión. La condición de éxito conserva las demás validaciones del ticket.
+  - *Evidencia (observada 22/Oct/2026):* Backend: `test_tickets_alcance.py::test_solicitante_crea_y_se_atribuye_su_identidad`, `::test_roles_autorizados_atienden_la_identidad_de_sesion` (parametrizado por rol con `usuario_id` omitido, propio, ajeno e inexistente), `::test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion` y `::test_administrador_crea_para_solicitante_propio_201`; `test_tickets_institucional.py::test_solicitante_ignora_usuario_ajeno_y_conserva_autoatribucion` y `::test_crear_ticket_con_producto_ajeno_404_sin_parcial` (404 de producto conservado); `test_modal_ticket.py::test_ticket_con_usuario_inexistente_se_ignora_y_atiende_a_la_sesion`. Suites: `pytest` SQLite **1405 passed / 77 skipped / 0 failed**, gated PostgreSQL 16 **1482 passed / 0 skipped / 0 failed**. Contrato vivo: `TicketCrear.required` sin `usuario_id`, `usuario_id` opcional documentado como ignorado y `POST /tickets/` sin 404 por usuario. Recorrido 4200: altas reales de Administrador (ticket 11, usuario 13) y Solicitante (ticket 12, usuario 11) con body sin `usuario_id` → **201**. Evidencia: [`evidencia/README.md`](evidencia/README.md).
+- **AC-34 — Autor visible, no seleccionable.** DADO el modal abierto con identidad disponible, CUANDO se muestra el autor, ENTONCES presenta nombre, apellido y correo de sesión como dato informativo, no tiene selector de solicitante ni control editable llamado `usuario_id`, y el cuerpo enviado no incluye `usuario_id`. No se requiere llamada adicional para presentar identidad; no se promete departamento porque `/auth/me` no lo expone.
+  - *Evidencia (observada 22/Oct/2026):* `tickets.component.spec.ts` cubre la identidad visible (nombre/apellido/correo), la ausencia de `<select>` y de control editable `usuario_id`, y el cuerpo sin ese campo; `ng test` **470 SUCCESS / 0 FAILED** (Edge 155) y `ng build` limpio (`main-QNRFXFUT.js`). Recorrido 4200: el modal mostró «Solicitante (sesión)» con «Administrador QA014»/su correo y con «Paula Rojas»/su correo en cada sesión, sin selector, y el POST observado en Red no llevó `usuario_id`. Humo 8080 tras rebuild: `main-QNRFXFUT.js` (antes `main-KWQKKL6Q.js`) con el mismo campo informativo. Evidencia: [`evidencia/README.md`](evidencia/README.md).
+- **AC-35 — Catálogo conservado y reglas ajenas al autor intactas.** DADO consulta de `GET /tickets/catalogos` o listados/detalle, ENTONCES el contrato sigue incluyendo `solicitantes` para resolver nombres/contexto de tickets; en el alta la lista ya no alimenta un selector. Las reglas de producto, estado, transacción, historial y sede permanecen vigentes; identidad sin sede departamental recibe 409 y con sede permite alta conforme al resto de validaciones.
+  - *Evidencia (observada 22/Oct/2026):* `test_modal_ticket.py::test_catalogos_responde_200_con_las_cuatro_listas` y `::test_solicitantes_traen_departamento_y_orden_por_apellido` conservan `solicitantes` (el recorrido en 4200 recibió `GET /tickets/catalogos` 200 y los listados siguen mostrando el solicitante resuelto). Sede: `test_tickets_alcance.py::test_departamento_sin_sede_responde_409_sin_ticket_detalle_ni_historial` y `test_ticket_sede_011.py::test_crear_ticket_sin_sede_de_departamento_afecta_a_todos_los_roles_creadores` (409 sin escritura) frente a `::test_crear_ticket_almacena_la_sede_del_departamento` (201). En 4200 los tickets 11 y 12 se crearon con sede 1 y 2 respectivamente, derivadas del departamento de la identidad. Evidencia: [`evidencia/README.md`](evidencia/README.md).
+
+#### Evidencia anterior afectada
+
+Los AC-4, AC-7, AC-17, AC-18, AC-24, AC-26, AC-27, AC-29 y AC-30 se conservan para lo
+que no contradice esta enmienda. La evidencia de AC-7 ya no debe afirmar 404 por
+`usuario_id` inexistente; AC-17 no describe cuatro desplegables; AC-18 deja de requerir
+campo de solicitante seleccionable; AC-24 no supone que `TicketCrear` frontend envíe
+autoría; y AC-26/AC-27 deben añadir las expectativas reescritas de los casos afectados.
+La evidencia actual de esos puntos queda **a reescribir tras la enmienda** durante
+plan/tareas e implementación.
+
+**Actualización 22/Oct/2026:** la reescritura se ejecutó; la evidencia observada de AC-33…AC-35
+está en los propios AC y en [`evidencia/README.md`](evidencia/README.md).
 
 ## 7. Restricciones
 

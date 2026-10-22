@@ -382,3 +382,48 @@ Decisiones que se tomaron al escribir el plan y que conviene no perder de vista:
 - **Los CHECK de la base solo existen en PostgreSQL.** El 422 de cantidad y asunto lo produce
   el schema Pydantic, no el CHECK, así que la suite SQLite sí lo cubre. El CHECK se
   verifica en la Fase 9 contra el contenedor.
+
+---
+
+## Enmienda de autoatribución de tickets (22/Oct/2026)
+
+> Ejecución coordinada única: el orden y las tareas comunes viven en `008/tasks.md` como E22-1…E22-4. No duplicar ejecución entre features; esta sección registra la contribución de 003 y sus AC. Mantener separadas las tareas históricas T1…T10.
+
+- [x] **E22-1 — Backend común: schema y alta autoatribuida** (coordinación/orden en `008/tasks.md` E22-1; contribución 003).
+  - **Archivos:** `backend/app/schemas/ticket_schema.py`, `backend/app/services/ticket_service.py`, `backend/app/api/v1/endpoints/tickets.py` y tests de API enumerados en el plan 003.
+  - Primero escribir/revisar casos rojos. Hacer opcional `TicketCrear.usuario_id`; autoatribuir incondicionalmente de identidad autenticada; luego resolver institución de usuario de sesión, prioridad/estado, productos dentro de institución (404 ajeno intacto), sede departamental (409 faltante), y reglas de estado inicial; escribir solo tras validaciones. Corregir OpenAPI para que no anuncie 404 por usuario.
+  - **AC:** AC-33, AC-35.
+  - **Hecho cuando:** los roles autorizados crean atribuidos a identidad con campo omitido/propio/ajeno/inexistente; sede faltante produce 409 sin filas; producto ajeno sigue 404 sin parcial; `/openapi.json` muestra usuario opcional y no cambia ruta, status ni matriz.
+  - **Comando:** `backend\.venv\Scripts\python.exe -m pytest backend\tests\api\test_tickets_alcance.py backend\tests\api\test_tickets_institucional.py backend\tests\api\test_modal_ticket.py backend\tests\api\test_ticket_sede_011.py backend\tests\api\test_transaccion_ticket.py -q`.
+
+- [x] **E22-2 — Frontend común: autor informativo y payload sin usuario_id** (coordinación/orden en `008/tasks.md` E22-2; contribución 003).
+  - **Archivos:** `tickets.component.ts`, `tickets.component.html`, `shared/interfaces/index.ts`, `tickets.component.spec.ts`.
+  - Pruebas rojas: quitar de pruebas setValue/expectativa de `usuario_id` en body y expectativas del selector; cubrir identidad visible (`nombre apellido · correo`), no departamento/no llamada adicional, select ausente y body que omite campo. Implementar formulario sin control author y dato informativo desde `AutenticacionService.identidad()`.
+  - **AC:** AC-34, AC-35.
+  - **Hecho cuando:** pruebas Angular confirman el autor de sesión, no selector/control editable ni `usuario_id` en body, catálogo `solicitantes` aún cargado para vistas/listados y resto del formulario intacto.
+  - **Comando:** `$env:CHROME_BIN = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"; cd frontend; npx ng test --watch=false --browsers=ChromeHeadless` (nunca `npm test`).
+
+- [x] **E22-3 — Regresión coordinada y conservación de contratos** (coordinación/orden en `008/tasks.md` E22-3; contribución 003).
+  - **Archivos:** todos los tests hallados con `grep -rn "usuario_id" backend/tests/api/` relacionados con alta; specs frontend de tickets.
+  - Inventario del grep verificado; tests sustituidos: `test_roles_autorizados_atienden_la_identidad_de_sesion` (parametrizado por rol y por `usuario_id` omitido/propio/ajeno/inexistente), `test_administrador_crea_para_solicitante_propio_201`, `test_solicitante_crea_y_se_atribuye_su_identidad`, `test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion`, `test_departamento_sin_sede_ignora_usuario_sede_id_y_responde_409` y `test_ticket_guarda_la_sede_del_departamento_no_la_del_usuario`. El test histórico de `usuario_id` obligatorio y los de 404 por solicitante ajeno quedaron eliminados. Conservar `test_crear_ticket_con_producto_ajeno_404_sin_parcial` y `test_crear_ticket_puebla_institucion_en_ticket_y_detalle`. No cambiar tests de actor de despacho (`TicketDespacho.usuario_id`).
+  - **AC:** AC-33…AC-35.
+  - **Hecho cuando:** grep revisado separa payloads de alta de despacho; todas las expectativas anteriores de autoría/404 por usuario fueron sustituidas y las conservaciones indicadas están verdes; ninguna afirmación de matriz o catálogo cambió.
+  - **Comandos:** `backend\.venv\Scripts\python.exe -m pytest`; `$env:CHROME_BIN = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"; cd frontend; npx ng test --watch=false --browsers=ChromeHeadless`.
+
+- [x] **E22-4 — Cierre de enmienda compartido** (coordinación/orden en `008/tasks.md` E22-4; evidencia correspondiente en 003).
+  - **AC:** AC-33…AC-35.
+  - **Hecho cuando:** evidencia observada se incorpora bajo esos AC de las tres specs; `MEMORY.md` actualizado; grep de coherencia sobre `AGENTS.md`, `MEMORY.md`, `.agents/skills/`; recorrido funcional 4200 y humo 8080 con frontend reconstruido si se valida el cambio UI; roadmap solo si el coordinador determina que corresponde tras completar gates. La 003 conserva su estado cerrado histórico y no se reabre por sí sola.
+  - **Comandos:** `backend\.venv\Scripts\python.exe -m pytest`; `$env:CHROME_BIN = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"; cd frontend; npx ng test --watch=false --browsers=ChromeHeadless`; si toca UI: `docker compose -f docker-compose.yml build frontend` y `docker compose -f docker-compose.yml up -d frontend`.
+
+### Cierre de enmienda
+
+- [x] **E22-C1 — Suites, contrato y recorridos.** **AC:** AC-33…AC-35. **Hecho cuando:** pytest y ng test completos verdes, OpenAPI revisado, 4200 recorrido funcional con identidad real y 8080 humo tras rebuild frontend. **Comandos:** los de E22-4; nunca `npm test`.
+- [x] **E22-C2 — Evidencia y coherencia.** **AC:** AC-33…AC-35. **Hecho cuando:** evidencia verificable actualizada en las tres specs y `MEMORY.md`, grep de coherencia registrado y roadmap solo ajustado si el cierre lo requiere.
+
+### Matriz de trazabilidad de la enmienda AC ↔ tareas
+
+| AC | Tareas |
+|---|---|
+| AC-33 | E22-1, E22-3, E22-4, E22-C1, E22-C2 |
+| AC-34 | E22-2, E22-3, E22-4, E22-C1, E22-C2 |
+| AC-35 | E22-1, E22-2, E22-3, E22-4, E22-C1, E22-C2 |

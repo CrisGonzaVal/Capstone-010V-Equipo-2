@@ -1,8 +1,13 @@
 # Feature 008: Particionamiento lógico de datos por institución (SaaS multiinstitución)
 
-**Estado:** lista para revisión QA  
-**Release:** 2.0 — Sprint 4  
+**Estado:** Cerrada y verificada
+**Release:** 2.0 — Sprint 4
 **Tipo:** Aislamiento de datos multiinstitución
+
+> **Enmienda posterior al cierre (22/Oct/2026):** la Feature 008 permanece cerrada y
+> verificada. Esta enmienda acotada actualiza únicamente la semántica de `usuario_id`
+> en el alta de tickets para armonizarla con la autoatribución aprobada en las Features
+> 003 y 007; no reabre el particionamiento ni modifica la matriz de permisos.
 
 ## 1. Problema
 
@@ -94,10 +99,10 @@ La migración debe asignar datos existentes a su institución mediante relacione
 | `categoria`, `producto` | Una institución por registro; catálogo aislado. |
 | `inventario` | Institución del departamento; producto de la misma institución. |
 | `movimiento_inventario` | Institución del inventario asociado; registro de auditoría inmutable. |
-| `ticket`, `detalle_ticket` | Institución del usuario solicitante/ticket; cada producto del detalle debe pertenecer a ella. |
+| `ticket`, `detalle_ticket` | Institución del usuario de sesión que crea/ticket; cada producto del detalle debe pertenecer a ella. `usuario_id` del payload se ignora, incluso si identifica otro usuario/institución. |
 | `rol`, `prioridad`, `estado_ticket` | Globales y compartidos. |
 
-No se acepta un ticket que cruce instituciones por `usuario_id` o `producto_id`. Al despachar, el inventario que se rebaja debe pertenecer a la misma institución que el ticket y el producto de su detalle. La operación conserva atomicidad: rebaja, detalle entregado, cierre y movimientos se confirman juntos o se revierten juntos.
+No se acepta un ticket que cruce instituciones por `producto_id`: `usuario_id` del payload no determina el solicitante y se ignora conforme a la enmienda D-7. El ticket y sus detalles se anclan a la institución de la identidad de sesión; cada producto del detalle debe pertenecer a esa institución. Al despachar, el inventario que se rebaja debe pertenecer a la misma institución que el ticket y el producto de su detalle. La operación conserva atomicidad: rebaja, detalle entregado, cierre y movimientos se confirman juntos o se revierten juntos.
 
 ### Alcance por rol
 
@@ -140,8 +145,8 @@ El aislamiento se debe verificar en `GET /usuarios/`, `POST /usuarios/`, catálo
 
 - **AC-10** Administrador no puede asociar producto/categoría/usuario a una institución distinta a la suya ni crear inventario para departamento ajeno; cada denegación deja la base sin cambios. Superadmin recibe 403 al intentar crear/modificar catálogo, stock o tickets de una institución concreta; el Administrador de esa institución sí puede realizar las operaciones autorizadas por la matriz.
   - **Verificado:** `test_permisos_008.py::test_superadmin_deja_de_escribir_catalogo_stock_y_tickets`, `test_superadmin_no_muta_catalogo_stock_ni_tickets`, `test_administrador_conserva_las_escrituras_institucionales` y `test_operacion_ajustada_concede_o_deniega_por_rol` parametrizado (p. ej. `POST /inventario/productos` → Superadmin 403 / Administrador 200 / Bodeguero-Solicitante 403); `test_ambito_institucional.py::test_crear_producto_con_categoria_ajena_responde_404_sin_persistir`, `test_crear_producto_propio_queda_en_la_institucion_del_usuario`; `test_permisos_endpoints.py::test_rol_sin_permiso_recibe_403[...]`. (487 passed, 5 skipped.)
-- **AC-11** Ticket creado en INST-A solo acepta solicitante y productos de INST-A. Una solicitud con usuario de otra institución o producto de INST-B responde 404 para ocultar la existencia del objeto ajeno, conforme al contrato 007; un departamento ajeno aportado en una operación que admite ese campo responde 403. En todos los rechazos no quedan ticket ni detalle parciales; Solicitante conserva autoatribución de 007.
-  - **Verificado:** `test_tickets_institucional.py::test_crear_ticket_con_producto_ajeno_404_sin_parcial`, `test_crear_ticket_con_solicitante_ajeno_404_sin_parcial`, `test_solicitante_ignora_usuario_ajeno_y_conserva_autoatribucion`, `test_crear_ticket_puebla_institucion_en_ticket_y_detalle`; `test_tickets_alcance.py::test_administrador_crea_para_solicitante_de_otra_institucion_404_sin_mutar`, `test_administrador_crea_para_solicitante_propio_201`, `test_solicitante_crea_y_se_atribuye_su_identidad`. (487 passed, 5 skipped.)
+- **AC-11 — Aislamiento institucional al crear tickets (reemplaza el criterio histórico por la enmienda del 22/Oct/2026).** DADO un usuario autenticado con permiso vigente para crear tickets, CUANDO envía una solicitud válida con `usuario_id` omitido, propio, ajeno o inexistente, ENTONCES el valor de ese campo se ignora siempre y el ticket se atribuye a la identidad de sesión; `ticket.institucion_id` y `detalle_ticket.institucion_id` corresponden a la institución de esa identidad. CUANDO cualquiera de los productos del detalle pertenece a otra institución, ENTONCES `POST /tickets/` responde 404 y no deja ticket ni detalles parciales. Se conserva la ocultación 404 del producto ajeno, y no se altera la matriz de permisos.
+  - **Evidencia (observada 22/Oct/2026):** `test_tickets_institucional.py::test_solicitante_ignora_usuario_ajeno_y_conserva_autoatribucion` y `test_tickets_alcance.py::test_roles_autorizados_atienden_la_identidad_de_sesion` (el `usuario_id` ajeno se ignora) junto con `::test_administrador_ignora_solicitante_de_otra_institucion_y_atribuye_a_sesion`; anclas institucionales en `test_tickets_institucional.py::test_crear_ticket_puebla_institucion_en_ticket_y_detalle` y en el recorrido real (tickets 11 y 12 con `institucion_id INST-001` en cabecera y detalle, usuarios 13 y 11). 404 de producto ajeno conservado en `::test_crear_ticket_con_producto_ajeno_404_sin_parcial`; matriz intacta en **62** operaciones y Superadmin 403. Suites: SQLite **1405 passed / 77 skipped / 0 failed**, gated PostgreSQL 16 **1482 passed / 0 skipped / 0 failed**. Evidencia: [`evidencia/README.md`](evidencia/README.md).
 - **AC-12** El despacho de un ticket de INST-A solo rebaja stock de INST-A y genera movimientos asociados a sus inventarios. Ante referencia cruzada, falta de stock o fallo transaccional, no cambia stock, detalle, ticket ni auditoría parcialmente.
   - **Verificado:** `test_tickets_institucional.py::test_despacho_producto_cruzado_409_sin_efectos`, `test_despacho_inventario_cruzado_409_sin_efectos`, `test_despacho_falta_stock_409_sin_efectos`, `test_despacho_valido_actualiza_stock_entrega_estado_y_auditoria`, `test_despacho_revierte_todo_si_el_commit_falla`. (487 passed, 5 skipped.)
 - **AC-13** Las operaciones de movimiento de stock validan la institución del inventario antes de modificar cantidades; ningún movimiento de un usuario limitado cambia stock ajeno y los cambios exitosos conservan auditoría absoluta.
@@ -171,6 +176,38 @@ El aislamiento se debe verificar en `GET /usuarios/`, `POST /usuarios/`, catálo
   - **Verificado (T14 — humo 8080 tras reconstruir):** `docker compose -f docker-compose.yml build frontend` (build de producción Angular OK, sin errores de presupuesto; bundle inicial 321.01 kB / 90.66 kB transfer) y `docker compose -f docker-compose.yml up -d frontend` (contenedor `compustock_frontend` **recreado**). Imagen nueva `sha256:cfdd5de44bc9ad…` (antes `815cfac1e0c1`, pre-008). Servido por nginx: `/`, `/inventario`, `/tickets` → **200 `text/html`** (`try_files` SPA) y el `index.html` referencia los hashes del build nuevo (`main-FJRVOZX4.js`, `styles-KWVWMOF.css`); proxy `/api/v1/auth/me` → 401. Humo con chrome-devtools en `http://localhost:8080`: sesión Clerk existente válida (sin JWT local); `/dashboard` muestra header **«Rol: Superadmin · Institución: Todas las instituciones»** (coherente con `/auth/me` → `institucion: null`); `/inventario` (Catálogo de Insumos) y `/tickets` (Kanban) y `/administracion` cargan; consola **sin errores** (solo el aviso benigno de «Clerk development keys»). El header con institución limitada («Institución: <nombre>») quedó evidenciado en 4200 (T13, sesión INST-002).
 
 ## 8. Restricciones
+
+### Enmienda posterior al cierre: autoatribución de tickets — 22/Oct/2026
+
+#### Problema
+
+La AC-11 original exigía 404 ante un `usuario_id` de otra institución. La enmienda de autoatribución de la Feature 007 (AC-18…AC-20, 22/Oct/2026), alineada con 003, establece que todos los roles autorizados ignoran ese campo y crean el ticket con la identidad autenticada; por tanto, el 404 por solicitante ajeno dejó de ser observable y la regla quedó insostenible.
+
+#### Qué cambia
+
+Desaparece del contrato de alta el 404 por solicitante ajeno. `usuario_id` del payload se ignora siempre, conforme a AC-18…AC-20 de la 007: se omite o se envía, el ticket se atribuye a la identidad de sesión.
+
+#### Qué no cambia
+
+Se conserva intacto el 404 por producto ajeno de `_verificar_productos`: un producto de INST-B en un ticket de INST-A responde 404 y no deja ticket/detalles parciales. También se conservan las anclas `ticket.institucion_id` y `detalle_ticket.institucion_id` a la institución del usuario autenticado, el resto de AC-11 (referencias de producto, ausencia de escrituras parciales y semántica de ocultación) y la matriz de permisos.
+
+#### Decisiones nuevas
+
+- **D-7 — Prevalece la identidad de sesión sobre `usuario_id` del payload.** En toda alta autorizada se deriva la autoría y el ámbito institucional de la sesión, nunca del `usuario_id` recibido. No hay 404 por solicitante ajeno.
+  - **Por qué:** aplica la autoatribución aprobada por 003/007; inspeccionar o rechazar el valor ignorado del payload contradiría ese contrato.
+- **D-8 — La validación del producto ajeno permanece independiente.** Todo producto del detalle debe pertenecer a la institución de la sesión; producto de otra institución responde 404 sin persistencia parcial.
+  - **Por qué:** la autoatribución redefine solo quién solicita; no relaja el aislamiento institucional de los productos ni la ocultación de recursos ajenos.
+
+#### Criterio de aceptación enmendado
+
+La AC-11 indicada en §7 sustituye íntegramente su formulación histórica. Su evidencia actual no se considera verificación de la nueva semántica. **A reescribir tras la enmienda, en implementación:** `test_crear_ticket_con_solicitante_ajeno_404_sin_parcial` y `test_administrador_crea_para_solicitante_de_otra_institucion_404_sin_mutar` deben dejar de exigir 404 y comprobar que el id ajeno se ignora, con autoría e institución de sesión. Actualizar también `test_solicitante_ignora_usuario_ajeno_y_conserva_autoatribucion`, `test_administrador_crea_para_solicitante_propio_201` y `test_solicitante_crea_y_se_atribuye_su_identidad` para confirmar la regla para todos los roles autorizados. Conservar `test_crear_ticket_con_producto_ajeno_404_sin_parcial` como verificación del 404 de producto; conservar/confirmar `test_crear_ticket_puebla_institucion_en_ticket_y_detalle` para ambas anclas institucionales de sesión. No se marca ningún test nuevo como verificado en esta enmienda documental.
+
+**Actualización 22/Oct/2026:** reescritura ejecutada; la evidencia observada de AC-11 está en
+el AC (§7) y en [`evidencia/README.md`](evidencia/README.md).
+
+#### Evidencia histórica afectada
+
+La evidencia de rechazo por solicitante ajeno deja de ser vigente. Los tests que cubren identidad, producto ajeno y anclas institucionales se actualizarán o conservarán conforme a lo indicado en AC-11; no se declara verificación nueva ni se cambia el cierre original.
 
 - Clerk permanece como autoridad única de autenticación; no se añade `institucion_id` confiable al token ni se acepta el ámbito declarado por el cliente como autorización.
 - Se conservan literalmente los roles `Superadmin`, `Administrador`, `Bodeguero` y `Solicitante`; solo Superadmin tiene ámbito global. La matriz central de permisos de Feature 007 sigue siendo la fuente de autoridad por operación.

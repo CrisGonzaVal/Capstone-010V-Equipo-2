@@ -6,10 +6,10 @@ homonimos independientes. Se comprueba:
 
   * `GET /tickets/catalogos` (AC-6): los productos y su `stock_total` son
     institucionales; el homonimo de otra institucion no aparece ni influye.
-  * `POST /tickets/` (AC-11): un solicitante ajeno o un producto ajeno se
-    ocultan con **404**, sin dejar ticket ni detalle parciales; el Solicitante
-    conserva la autoatribucion de 007 y el ticket/detalle se poblan con la
-    institucion efectiva.
+  * `POST /tickets/` (AC-11): la autoria y la institucion del ticket/detalle son
+    las de la **identidad de sesion**; un `usuario_id` ajeno enviado en el
+    payload se ignora sin 404, mientras que un producto ajeno sigue oculto con
+    **404** y sin ticket ni detalle parciales.
   * `PATCH /tickets/{ticket_id}/estado` y despacho (AC-7/AC-9): un ticket ajeno
     responde 404 sin mutar.
   * Despacho (AC-12): producto o inventario de institucion cruzada, falta de
@@ -376,15 +376,24 @@ def _cliente(motor, rol: str, departamento_id, usuario_id: int = 9999, *, sin_ex
         app.dependency_overrides.clear()
 
 
-def _payload(datos: dict, usuario_id: int, producto_id: int, cantidad: int = 1) -> dict:
-    return {
-        "usuario_id": usuario_id,
+def _payload(
+    datos: dict,
+    usuario_id: int,
+    producto_id: int,
+    cantidad: int = 1,
+    *,
+    incluir_usuario: bool = True,
+) -> dict:
+    cuerpo = {
         "prioridad_id": datos["prioridad_id"],
         "estado_id": datos["estado_pendiente_id"],
         "asunto": "Alta de ticket institucional",
         "descripcion": "Prueba de aislamiento institucional.",
         "detalles": [{"producto_id": producto_id, "cantidad_solicitada": cantidad}],
     }
+    if incluir_usuario:
+        cuerpo["usuario_id"] = usuario_id
+    return cuerpo
 
 
 def _ticket(listado, ticket_id):
@@ -561,10 +570,14 @@ def test_crear_ticket_con_producto_ajeno_404_sin_parcial(motor, particion):
     assert _contar_detalles(motor) == inicio_detalles
 
 
-def test_crear_ticket_con_solicitante_ajeno_404_sin_parcial(motor, particion):
+def test_crear_ticket_con_solicitante_ajeno_201_atribuye_a_la_sesion(motor, particion):
+    """AC-11 (enmienda): el `usuario_id` ajeno se ignora y el autor es la sesion."""
     inicio_tickets = _contar_tickets(motor)
+    inicio_detalles = _contar_detalles(motor)
 
-    with _cliente(motor, "Administrador", particion["departamento_id"]) as cliente:
+    with _cliente(
+        motor, "Administrador", particion["departamento_id"], particion["usuario_id"]
+    ) as cliente:
         respuesta = cliente.post(
             RUTA_TICKETS,
             json=_payload(
@@ -572,8 +585,37 @@ def test_crear_ticket_con_solicitante_ajeno_404_sin_parcial(motor, particion):
             ),
         )
 
-    assert respuesta.status_code == 404, respuesta.text
-    assert _contar_tickets(motor) == inicio_tickets
+    assert respuesta.status_code == 201, respuesta.text
+    assert respuesta.json()["usuario_id"] == particion["usuario_id"]
+    assert _contar_tickets(motor) == inicio_tickets + 1
+    assert _contar_detalles(motor) == inicio_detalles + 1
+
+    persistido = _instituciones_persistidas(motor, respuesta.json()["ticket_id"])
+    assert persistido["ticket"] == "INST01"
+    assert persistido["detalles"] == ["INST01"]
+
+
+def test_administrador_omite_usuario_id_y_atiende_a_la_sesion(motor, particion):
+    """AC-18/AC-33: el alta sin `usuario_id` es valida para un rol autorizado."""
+    with _cliente(
+        motor, "Administrador", particion["departamento_id"], particion["usuario_id"]
+    ) as cliente:
+        respuesta = cliente.post(
+            RUTA_TICKETS,
+            json=_payload(
+                particion,
+                particion["solicitante_id"],
+                particion["producto_propio_id"],
+                incluir_usuario=False,
+            ),
+        )
+
+    assert respuesta.status_code == 201, respuesta.text
+    assert respuesta.json()["usuario_id"] == particion["usuario_id"]
+
+    persistido = _instituciones_persistidas(motor, respuesta.json()["ticket_id"])
+    assert persistido["ticket"] == "INST01"
+    assert persistido["detalles"] == ["INST01"]
 
 
 def test_crear_ticket_puebla_institucion_en_ticket_y_detalle(motor, particion):
@@ -611,6 +653,7 @@ def test_solicitante_ignora_usuario_ajeno_y_conserva_autoatribucion(motor, parti
 
     persistido = _instituciones_persistidas(motor, respuesta.json()["ticket_id"])
     assert persistido["ticket"] == "INST01"
+    assert persistido["detalles"] == ["INST01"]
 
 
 # ---------------------------------------------------------------------------

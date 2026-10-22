@@ -25,7 +25,23 @@ class DetalleTicketRespuesta(BaseModel):
 
 
 class TicketCrear(BaseModel):
-    usuario_id: int = Field(description="Solicitante. Debe existir en `usuario`.")
+    """Payload de `POST /api/v1/tickets/`.
+
+    Enmienda D-33 (003) / D-7 (008): `usuario_id` es **opcional e ignorado**. La
+    autoria del ticket la fija el servidor con la identidad autenticada, sea cual
+    sea el rol autorizado; enviar un id propio, ajeno o inexistente no cambia el
+    autor ni produce 404/422/403. Se conserva en el contrato solo por compatibilidad
+    de los clientes existentes.
+    """
+
+    usuario_id: Optional[int] = Field(
+        default=None,
+        description=(
+            "Opcional e **ignorado**: la autoria queda fijada por el servidor con "
+            "la identidad autenticada. Enviarlo (propio, ajeno o inexistente) no "
+            "cambia el autor ni produce 404/422/403."
+        ),
+    )
     prioridad_id: int = Field(description="Prioridad. Debe existir en `prioridad`.")
     estado_id: int = Field(description="Estado inicial. Debe existir en `estado_ticket`.")
     asunto: str = Field(
