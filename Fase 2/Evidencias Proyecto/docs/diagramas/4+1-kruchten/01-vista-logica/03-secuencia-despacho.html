@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secuencia · despacho de ticket | CompuStock</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper: #f8fafc; --color-ink: #1e293b; --color-muted: #475569;
+      --color-soft: #64748b; --color-accent: #2563eb;
+      --font-sans: 'Geist', system-ui, sans-serif; --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink);
+      min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 3rem 2rem;
+    }
+    .frame { max-width: 1440px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; margin-top: 1.5rem; }
+    .eyebrow {
+      font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2.1rem);
+      font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 0.35rem;
+    }
+    .subtitle { color: var(--color-muted); font-size: 0.95rem; max-width: 86ch; }
+    svg { width: 100%; min-width: 1440px; display: block; }
+    .note {
+      margin-top: 1.75rem; padding-top: 1rem; border-top: 1px solid rgba(30,41,59,0.12);
+      font-family: var(--font-serif); font-style: italic; font-size: 1rem;
+      color: var(--color-muted); max-width: 86ch; line-height: 1.55;
+    }
+    .note strong { font-family: var(--font-sans); font-style: normal; font-weight: 600; color: var(--color-ink); }
+    .colophon { margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-muted); }
+    @media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">4+1 · vista lógica · UML sequence</p>
+    <h1>Secuencia · despacho de un ticket</h1>
+    <p class="subtitle">
+      Escenario crítico: el Bodeguero despacha un ticket aprobado. La secuencia muestra la validación
+      federada con Clerk, la resolución del esquema tenant, el bloqueo pesimista de las filas y el
+      cierre transaccional que rebaja el stock y deja rastro en el historial.
+    </p>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1440 960" xmlns="http://www.w3.org/2000/svg"
+           role="img" aria-labelledby="seq-title seq-desc">
+        <title id="seq-title">Diagrama de secuencia del despacho de un ticket</title>
+        <desc id="seq-desc">Interacción entre Bodeguero, SPA Angular, Clerk, API FastAPI, TicketService y PostgreSQL: autenticación, resolución de tenant, bloqueo FOR UPDATE, validación de stock, rebaja, cierre e historial en un solo COMMIT.</desc>
+        <defs>
+          <marker id="seq-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" fill="#1e293b"/>
+          </marker>
+          <marker id="seq-return" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8" fill="none" stroke="#475569" stroke-width="1.2"/>
+          </marker>
+        </defs>
+        <rect width="1440" height="960" fill="#f8fafc"/>
+
+        <!-- ===================== LÍNEAS DE VIDA ===================== -->
+        <g stroke="rgba(30,41,59,0.20)" stroke-width="1" stroke-dasharray="4,5">
+          <line x1="120" y1="160" x2="120" y2="800"/>
+          <line x1="360" y1="160" x2="360" y2="800"/>
+          <line x1="600" y1="160" x2="600" y2="800"/>
+          <line x1="840" y1="160" x2="840" y2="800"/>
+          <line x1="1080" y1="160" x2="1080" y2="800"/>
+          <line x1="1320" y1="160" x2="1320" y2="800"/>
+        </g>
+
+        <!-- ===================== CABECERAS ===================== -->
+        <g>
+          <rect x="40" y="88" width="160" height="64" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="120" y="108" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="middle">«ACTOR»</text>
+          <text x="120" y="126" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Bodeguero</text>
+          <text x="120" y="141" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">navegador</text>
+
+          <rect x="270" y="88" width="180" height="64" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="360" y="108" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="middle">«SPA»</text>
+          <text x="360" y="126" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Angular 18</text>
+          <text x="360" y="141" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Clerk JS · signals</text>
+
+          <rect x="510" y="88" width="180" height="64" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="600" y="108" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="middle">«CLOUD»</text>
+          <text x="600" y="126" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Clerk</text>
+          <text x="600" y="141" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">JWKS · Backend API</text>
+
+          <rect x="750" y="88" width="180" height="64" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="840" y="108" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="middle">«CONTAINER»</text>
+          <text x="840" y="126" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">API FastAPI</text>
+          <text x="840" y="141" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">uvicorn · 8000</text>
+
+          <rect x="990" y="88" width="180" height="64" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="1080" y="108" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="middle">«SERVICE»</text>
+          <text x="1080" y="126" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">TicketService</text>
+          <text x="1080" y="141" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">reglas ACID</text>
+
+          <rect x="1230" y="88" width="180" height="64" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="1320" y="108" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="middle">«DATABASE»</text>
+          <text x="1320" y="126" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">PostgreSQL 16</text>
+          <text x="1320" y="141" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">esquema tenant</text>
+        </g>
+
+        <!-- ===================== BARRAS DE ACTIVACIÓN ===================== -->
+        <g fill="#eff6ff" stroke="#2563eb" stroke-width="1">
+          <rect x="355" y="188" width="10" height="598" rx="2"/>
+          <rect x="595" y="220" width="10" height="145" rx="2"/>
+          <rect x="835" y="286" width="10" height="482" rx="2"/>
+          <rect x="1075" y="418" width="10" height="320" rx="2"/>
+          <rect x="1315" y="454" width="10" height="256" rx="2"/>
+        </g>
+
+        <!-- ===================== MENSAJES ===================== -->
+        <g stroke="#1e293b" stroke-width="1.2" fill="none">
+          <line x1="130" y1="188" x2="350" y2="188" marker-end="url(#seq-arrow)"/>
+          <line x1="370" y1="220" x2="590" y2="220" marker-end="url(#seq-arrow)"/>
+          <line x1="370" y1="286" x2="830" y2="286" marker-end="url(#seq-arrow)"/>
+          <line x1="830" y1="322" x2="610" y2="322" marker-end="url(#seq-arrow)"/>
+          <line x1="850" y1="384" x2="900" y2="384" marker-end="url(#seq-arrow)"/>
+          <line x1="900" y1="384" x2="900" y2="396"/>
+          <line x1="900" y1="396" x2="850" y2="396" marker-end="url(#seq-arrow)"/>
+          <line x1="850" y1="418" x2="1070" y2="418" marker-end="url(#seq-arrow)"/>
+          <line x1="1090" y1="454" x2="1310" y2="454" marker-end="url(#seq-arrow)"/>
+          <line x1="1090" y1="514" x2="1310" y2="514" marker-end="url(#seq-arrow)"/>
+          <line x1="1090" y1="574" x2="1140" y2="574" marker-end="url(#seq-arrow)"/>
+          <line x1="1140" y1="574" x2="1140" y2="586"/>
+          <line x1="1140" y1="586" x2="1090" y2="586" marker-end="url(#seq-arrow)"/>
+          <line x1="1090" y1="606" x2="1310" y2="606" marker-end="url(#seq-arrow)"/>
+          <line x1="1090" y1="634" x2="1310" y2="634" marker-end="url(#seq-arrow)"/>
+          <line x1="1090" y1="662" x2="1310" y2="662" marker-end="url(#seq-arrow)"/>
+        </g>
+        <g stroke="#475569" stroke-width="1" stroke-dasharray="5,4" fill="none">
+          <line x1="590" y1="248" x2="370" y2="248" marker-end="url(#seq-return)"/>
+          <line x1="610" y1="350" x2="830" y2="350" marker-end="url(#seq-return)"/>
+          <line x1="1310" y1="482" x2="1090" y2="482" marker-end="url(#seq-return)"/>
+          <line x1="1310" y1="542" x2="1090" y2="542" marker-end="url(#seq-return)"/>
+          <line x1="1310" y1="690" x2="1090" y2="690" marker-end="url(#seq-return)"/>
+          <line x1="1070" y1="718" x2="850" y2="718" marker-end="url(#seq-return)"/>
+          <line x1="830" y1="746" x2="370" y2="746" marker-end="url(#seq-return)"/>
+          <line x1="350" y1="774" x2="130" y2="774" marker-end="url(#seq-return)"/>
+        </g>
+
+        <!-- ===================== ETIQUETAS ===================== -->
+        <g font-family="'Geist', system-ui, sans-serif" font-size="9" fill="#1e293b">
+          <text x="240" y="182" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">01</tspan>  Confirma despacho y cantidades</text>
+          <text x="480" y="214" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">02</tspan>  getToken()</text>
+          <text x="480" y="242" text-anchor="middle" fill="#475569"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">03</tspan>  JWT de sesión</text>
+          <rect x="424" y="270" width="352" height="14" fill="#f8fafc"/>
+          <text x="600" y="280" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">04</tspan>  POST /api/v1/tickets/{id}/despacho · Bearer</text>
+          <text x="720" y="316" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">05</tspan>  JWKS + GET /v1/users/{sub}</text>
+          <text x="720" y="344" text-anchor="middle" fill="#475569"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">06</tspan>  correo primario verificado</text>
+          <text x="905" y="378"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">07</tspan>  get_db_negocio · schema_translate_map</text>
+          <text x="960" y="412" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">08</tspan>  despachar_ticket(id, dto, identidad)</text>
+          <text x="1200" y="448" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">09</tspan>  BEGIN · SELECT ticket FOR UPDATE</text>
+          <text x="1200" y="476" text-anchor="middle" fill="#475569"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">10</tspan>  ticket + estado actual</text>
+          <text x="1200" y="508" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">11</tspan>  SELECT stock_sede FOR UPDATE</text>
+          <text x="1200" y="536" text-anchor="middle" fill="#475569"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">12</tspan>  filas de stock de la sede</text>
+          <text x="1145" y="568"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">13</tspan>  valida estado, stock y pertenencia</text>
+          <text x="1200" y="600" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">14</tspan>  UPDATE stock_sede, detalle y ticket</text>
+          <text x="1200" y="628" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">15</tspan>  INSERT movimiento SALIDA + historial</text>
+          <text x="1200" y="656" text-anchor="middle"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">16</tspan>  COMMIT</text>
+          <text x="1200" y="684" text-anchor="middle" fill="#475569"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">17</tspan>  ok</text>
+          <text x="960" y="712" text-anchor="middle" fill="#475569"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">18</tspan>  Ticket cerrado + fecha_cierre</text>
+          <rect x="520" y="730" width="160" height="14" fill="#f8fafc"/>
+          <text x="600" y="740" text-anchor="middle" fill="#475569"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">19</tspan>  200 · TicketResponse</text>
+          <text x="240" y="768" text-anchor="middle" fill="#475569"><tspan fill="#2563eb" font-family="'Geist Mono', ui-monospace, monospace">20</tspan>  Kanban actualizado</text>
+        </g>
+
+        <!-- ===================== NOTA DE FALLO ===================== -->
+        <g>
+          <path d="M40,812 L720,812 L720,892 L60,892 L40,872 Z" fill="#eff6ff" stroke="#2563eb" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="58" y="832" fill="#2563eb" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">SI UNA VALIDACIÓN FALLA</text>
+          <text x="58" y="852" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">El servicio lanza HTTPException antes del COMMIT: la sesión hace ROLLBACK y el ticket</text>
+          <text x="58" y="868" fill="#1e293b" font-size="10.5" font-family="'Geist', system-ui, sans-serif">permanece <tspan font-family="'Geist Mono', ui-monospace, monospace" fill="#2563eb">EnCurso</tspan>. No se crea movimiento, no se rebaja stock y no se escribe historial.</text>
+          <text x="58" y="884" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">Dos despachos concurrentes se serializan con FOR UPDATE; el segundo relee Cerrado y recibe 409.</text>
+        </g>
+
+        <!-- ===================== LEYENDA ===================== -->
+        <line x1="40" y1="918" x2="1400" y2="918" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <line x1="56" y1="942" x2="116" y2="942" stroke="#1e293b" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+        <text x="126" y="946" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">mensaje síncrono</text>
+        <line x1="286" y1="942" x2="346" y2="942" stroke="#475569" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#seq-return)"/>
+        <text x="356" y="946" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">respuesta</text>
+        <rect x="472" y="934" width="10" height="16" rx="2" fill="#eff6ff" stroke="#2563eb" stroke-width="1"/>
+        <text x="490" y="946" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">activación</text>
+        <text x="620" y="946" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">El número de paso sigue el orden contractual de <tspan fill="#1e293b">despachar_ticket</tspan>.</text>
+        <text x="1400" y="946" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">FEATURE 013 · DESPACHO ATÓMICO</text>
+      </svg>
+    </div>
+    <p class="note">
+      <strong>Por qué importa el orden.</strong> La fila del ticket se bloquea antes de mirar el stock; así el
+      estado que se valida es el que se despacha. Después se bloquean las filas de <em>stock_sede</em> y se
+      comprueba la suficiencia agregada. Solo cuando todas las comprobaciones pasan se muta y se hace un
+      único <em>commit</em>: el ticket no puede quedar cerrado sin su movimiento de salida.
+    </p>
+    <p class="colophon">Fuente: backend/app/services/ticket_service.py §despachar_ticket · backend/app/api/dependencies.py · backend/app/core/security.py · backend/app/services/auth_service.py.</p>
+  </div>
+</body>
+</html>

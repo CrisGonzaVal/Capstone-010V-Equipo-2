@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Despliegue · Docker Compose | CompuStock</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper: #f8fafc; --color-ink: #1e293b; --color-muted: #475569;
+      --color-soft: #64748b; --color-accent: #2563eb;
+      --font-sans: 'Geist', system-ui, sans-serif; --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink);
+      min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 3rem 2rem;
+    }
+    .frame { max-width: 1440px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; margin-top: 1.5rem; }
+    .eyebrow {
+      font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2.1rem);
+      font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 0.35rem;
+    }
+    .subtitle { color: var(--color-muted); font-size: 0.95rem; max-width: 86ch; }
+    svg { width: 100%; min-width: 1440px; display: block; }
+    .note {
+      margin-top: 1.75rem; padding-top: 1rem; border-top: 1px solid rgba(30,41,59,0.12);
+      font-family: var(--font-serif); font-style: italic; font-size: 1rem;
+      color: var(--color-muted); max-width: 86ch; line-height: 1.55;
+    }
+    .note strong { font-family: var(--font-sans); font-style: normal; font-weight: 600; color: var(--color-ink); }
+    .colophon { margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-muted); }
+    @media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">4+1 · vista física · UML deployment</p>
+    <h1>Despliegue · Docker Compose en el host local</h1>
+    <p class="subtitle">
+      Nodos de ejecución, contenedores, puertos y volúmenes. El navegador entra por el 8080 de nginx; nginx
+      sirve el build de Angular y proxya <span style="font-family:var(--font-mono);font-size:0.85em">/api</span>
+      al backend; el backend habla con PostgreSQL por la red interna y con Clerk por HTTPS. La base publica
+      el 5433 solo para administración local.
+    </p>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1440 940" xmlns="http://www.w3.org/2000/svg"
+           role="img" aria-labelledby="dep-title dep-desc">
+        <title id="dep-title">Diagrama de despliegue del entorno Docker Compose</title>
+        <desc id="dep-desc">Navegador con Angular y Clerk JS; host Windows con Docker Desktop y red bridge; contenedores frontend nginx en 8080, backend FastAPI en 8000 y PostgreSQL en 5433; volumen postgres_data, bind mounts de backend/app y database; Clerk Cloud externo por HTTPS.</desc>
+        <defs>
+          <marker id="dep-arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+            <path d="M0,0 L9,4.5 L0,9" fill="none" stroke="#475569" stroke-width="1.2"/>
+          </marker>
+          <marker id="dep-arrow-accent" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+            <path d="M0,0 L9,4.5 L0,9" fill="none" stroke="#2563eb" stroke-width="1.2"/>
+          </marker>
+        </defs>
+        <rect width="1440" height="940" fill="#f8fafc"/>
+
+        <text x="60" y="46" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">NODOS FÍSICOS Y CONTENEDORES · ENTORNO LOCAL</text>
+        <text x="1380" y="46" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">UN HOST · TRES CONTENEDORES · UNA RED BRIDGE</text>
+
+        <!-- ===================== ZONAS ===================== -->
+        <rect x="40" y="90" width="340" height="430" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <text x="60" y="114" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">CLIENTE · ESTACIÓN DE TRABAJO</text>
+
+        <rect x="420" y="90" width="700" height="760" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <text x="440" y="114" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">HOST WINDOWS · DOCKER DESKTOP</text>
+
+        <rect x="440" y="130" width="660" height="700" rx="8" fill="rgba(37,99,235,0.025)" stroke="rgba(37,99,235,0.40)" stroke-width="1" stroke-dasharray="5,4"/>
+        <text x="460" y="150" fill="#2563eb" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">compustock_network · bridge</text>
+
+        <rect x="1160" y="90" width="240" height="300" rx="8" fill="rgba(30,41,59,0.03)" stroke="rgba(30,41,59,0.30)" stroke-width="1" stroke-dasharray="5,4"/>
+        <text x="1176" y="114" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">CLOUD · SAAS</text>
+
+        <!-- ===================== FLECHAS ===================== -->
+        <g stroke="#475569" stroke-width="1.2" fill="none">
+          <!-- navegador -> frontend -->
+          <line x1="350" y1="280" x2="460" y2="280" marker-end="url(#dep-arrow)"/>
+          <!-- frontend -> backend -->
+          <line x1="730" y1="270" x2="790" y2="270" marker-end="url(#dep-arrow)"/>
+          <!-- backend -> db -->
+          <path d="M900,430 L900,450 L640,450 L640,470" marker-end="url(#dep-arrow)"/>
+          <!-- backend -> clerk -->
+          <line x1="1080" y1="300" x2="1160" y2="300" marker-end="url(#dep-arrow)"/>
+          <!-- db -> volumen -->
+          <path d="M730,580 L765,580 L765,540 L855,540" marker-end="url(#dep-arrow)"/>
+          <!-- backend -> bind mount -->
+          <path d="M830,430 L830,450 L770,450 L770,718 L800,718" marker-end="url(#dep-arrow)"/>
+          <!-- db -> init scripts -->
+          <path d="M595,700 L595,756 L800,756" marker-end="url(#dep-arrow)"/>
+        </g>
+        <g stroke="#2563eb" stroke-width="1.2" fill="none" stroke-dasharray="5,4">
+          <!-- navegador -> clerk -->
+          <path d="M210,140 L210,70 L1180,70 L1180,90" marker-end="url(#dep-arrow-accent)"/>
+        </g>
+
+        <!-- ===================== ETIQUETAS ===================== -->
+        <g font-size="8" font-family="'Geist Mono', ui-monospace, monospace" fill="#64748b">
+          <text x="360" y="264">HTTP :8080</text>
+          <text x="738" y="264">proxy /api</text>
+          <text x="850" y="444">psycopg2 · db:5432</text>
+          <text x="1092" y="294">HTTPS 443</text>
+          <text x="770" y="534">mount</text>
+          <text x="774" y="712">bind</text>
+          <text x="612" y="750">initdb</text>
+          <text x="640" y="64" fill="#2563eb">HTTPS · sesión Clerk (JS)</text>
+        </g>
+
+        <!-- ===================== NAVEGADOR ===================== -->
+        <g>
+          <rect x="70" y="140" width="280" height="300" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <rect x="70" y="128" width="90" height="20" rx="4" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="82" y="142" fill="#1e293b" font-size="10" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace">navegador</text>
+          <text x="86" y="170" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«DEVICE»</text>
+          <text x="86" y="188" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Chrome / Edge</text>
+          <text x="86" y="202" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">http://localhost:8080</text>
+
+          <rect x="86" y="215" width="248" height="90" rx="4" fill="#eff6ff" stroke="#2563eb" stroke-width="1"/>
+          <text x="98" y="232" fill="#2563eb" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.10em">«SPA»</text>
+          <text x="98" y="250" fill="#1e293b" font-size="11" font-weight="600" font-family="'Geist', system-ui, sans-serif">Angular 18</text>
+          <text x="98" y="266" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">bundle estático · signals</text>
+          <text x="98" y="280" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">guards de sesión y rol</text>
+          <text x="98" y="294" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">interceptor Authorization</text>
+
+          <rect x="86" y="325" width="248" height="86" rx="4" fill="#ffffff" stroke="rgba(30,41,59,0.24)" stroke-width="1"/>
+          <text x="98" y="342" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.10em">«LIBRARY»</text>
+          <text x="98" y="360" fill="#1e293b" font-size="11" font-weight="600" font-family="'Geist', system-ui, sans-serif">@clerk/clerk-js</text>
+          <text x="98" y="376" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">sesión · getToken()</text>
+          <text x="98" y="390" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">UI prebuilt · autoregistro cerrado</text>
+          <text x="98" y="404" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">sin acceso directo a la base</text>
+        </g>
+        <text x="60" y="462" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">El navegador solo conoce el 8080 y Clerk.</text>
+        <text x="60" y="478" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">No resuelve nombres internos de la red.</text>
+        <text x="60" y="500" fill="#2563eb" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">Frontera pública: 8080 + HTTPS 443.</text>
+
+        <!-- ===================== FRONTEND ===================== -->
+        <g>
+          <rect x="460" y="180" width="270" height="210" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <rect x="460" y="168" width="120" height="20" rx="4" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="472" y="182" fill="#1e293b" font-size="10" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace">frontend</text>
+          <text x="476" y="206" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«CONTAINER»</text>
+          <text x="476" y="226" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">nginx:alpine</text>
+          <text x="476" y="244" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">imagen multi-stage</text>
+          <text x="476" y="258" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">node:20-alpine → build</text>
+          <line x1="476" y1="270" x2="714" y2="270" stroke="rgba(30,41,59,0.10)" stroke-width="1"/>
+          <text x="476" y="288" fill="#2563eb" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">8080:80</text>
+          <text x="476" y="304" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">/usr/share/nginx/html</text>
+          <text x="476" y="320" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">try_files → index.html</text>
+          <text x="476" y="336" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">location /api/ → proxy</text>
+          <text x="476" y="356" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">healthcheck: wget /</text>
+          <text x="476" y="374" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">build congelado en la imagen</text>
+        </g>
+
+        <!-- ===================== BACKEND ===================== -->
+        <g>
+          <rect x="790" y="180" width="290" height="250" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <rect x="790" y="168" width="110" height="20" rx="4" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="802" y="182" fill="#1e293b" font-size="10" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace">backend</text>
+          <text x="806" y="206" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«CONTAINER»</text>
+          <text x="806" y="226" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">python:3.12-slim</text>
+          <text x="806" y="244" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">uvicorn --reload</text>
+          <text x="806" y="258" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">app.main:app</text>
+          <line x1="806" y1="270" x2="1064" y2="270" stroke="rgba(30,41,59,0.10)" stroke-width="1"/>
+          <text x="806" y="288" fill="#2563eb" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">8000:8000</text>
+          <text x="806" y="304" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">DB_HOST=db · DB_PORT=5432</text>
+          <text x="806" y="318" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">CLERK_ISSUER · CLERK_SECRET_KEY</text>
+          <text x="806" y="332" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">depends_on: db healthy</text>
+          <text x="806" y="352" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">healthcheck: curl /health</text>
+          <text x="806" y="368" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">volumen ./backend/app:/app/app</text>
+          <text x="806" y="390" fill="#2563eb" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">recarga en caliente del código</text>
+          <text x="806" y="412" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">CORS: localhost:4200 y :8080</text>
+        </g>
+
+        <!-- ===================== DB ===================== -->
+        <g>
+          <rect x="460" y="470" width="270" height="230" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <rect x="460" y="458" width="70" height="20" rx="4" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="472" y="472" fill="#1e293b" font-size="10" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace">db</text>
+          <text x="476" y="496" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«CONTAINER»</text>
+          <text x="476" y="516" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">postgres:16-alpine</text>
+          <text x="476" y="534" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">base apt_erp · UTF-8</text>
+          <line x1="476" y1="546" x2="714" y2="546" stroke="rgba(30,41,59,0.10)" stroke-width="1"/>
+          <text x="476" y="564" fill="#2563eb" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">5433:5432</text>
+          <text x="476" y="580" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">5433 solo para administración</text>
+          <text x="476" y="596" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">volumen postgres_data</text>
+          <text x="476" y="612" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">initdb: ./database</text>
+          <text x="476" y="632" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">healthcheck: pg_isready</text>
+          <text x="476" y="650" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">22 tablas control + 19 tenant</text>
+          <text x="476" y="672" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">versión de esquema 014.1</text>
+          <text x="476" y="690" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">restart: unless-stopped</text>
+        </g>
+
+        <!-- ===================== VOLUMEN ===================== -->
+        <g>
+          <ellipse cx="925" cy="505" rx="70" ry="10" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <path d="M855,505 L855,575 A70,10 0 0 0 995,575 L995,505" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="925" y="534" fill="#1e293b" font-size="9" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">postgres_data</text>
+          <text x="925" y="550" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">/var/lib/postgresql/data</text>
+          <text x="925" y="566" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">volumen con nombre</text>
+          <text x="925" y="596" fill="#2563eb" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">persiste entre reinicios</text>
+        </g>
+
+        <!-- ===================== BIND MOUNTS ===================== -->
+        <g>
+          <rect x="800" y="680" width="250" height="110" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.24)" stroke-width="1"/>
+          <text x="814" y="699" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">BIND MOUNTS DEL HOST</text>
+          <text x="814" y="718" fill="#1e293b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">./backend/app → /app/app</text>
+          <text x="814" y="736" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">código en caliente · backend</text>
+          <text x="814" y="756" fill="#1e293b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">./database → initdb.d</text>
+          <text x="814" y="772" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">solo al crear el volumen</text>
+        </g>
+
+        <!-- ===================== CLERK ===================== -->
+        <g>
+          <text x="1176" y="140" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«CLOUD SERVICE»</text>
+          <text x="1176" y="162" fill="#1e293b" font-size="14" font-weight="600" font-family="'Geist', system-ui, sans-serif">Clerk</text>
+          <text x="1176" y="180" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">relevant-termite-8089</text>
+          <line x1="1176" y1="192" x2="1384" y2="192" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="1176" y="210" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">JWKS · /.well-known</text>
+          <text x="1176" y="226" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">Backend API · /v1/users</text>
+          <text x="1176" y="242" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">invitaciones · sesiones</text>
+          <text x="1176" y="266" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">HTTPS 443 · sin VPN</text>
+          <text x="1176" y="282" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">única autoridad de identidad</text>
+          <text x="1176" y="304" fill="#2563eb" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">JWT · JWKS · correo verificado</text>
+          <text x="1176" y="326" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">no se emite JWT local</text>
+          <text x="1176" y="348" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">la secret key vive en .env</text>
+          <text x="1176" y="370" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">nunca en el repositorio</text>
+        </g>
+
+        <!-- ===================== OPERACIÓN ===================== -->
+        <g>
+          <rect x="1160" y="420" width="240" height="300" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.16)" stroke-width="1"/>
+          <text x="1176" y="444" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">OPERACIÓN DEL ENTORNO</text>
+          <text x="1176" y="470" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">• 8080 sirve el build congelado.</text>
+          <text x="1176" y="490" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">• 4200 es el dev server, fuera</text>
+          <text x="1186" y="504" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">de Docker.</text>
+          <text x="1176" y="526" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">• Cambios de frontend exigen</text>
+          <text x="1186" y="540" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">rebuild de la imagen.</text>
+          <text x="1176" y="562" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">• El backend recarga solo</text>
+          <text x="1186" y="576" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">por el bind mount.</text>
+          <text x="1176" y="598" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">• Reset de base: down -v + up.</text>
+          <text x="1176" y="620" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">• Los secretos viven en .env</text>
+          <text x="1186" y="634" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">y no se versionan.</text>
+          <text x="1176" y="662" fill="#2563eb" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">docker compose up -d</text>
+          <text x="1176" y="680" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">db healthy → backend → frontend</text>
+          <text x="1176" y="700" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">tres healthchecks activos</text>
+          <text x="1176" y="716" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">restart: unless-stopped</text>
+        </g>
+
+        <!-- ===================== LEYENDA ===================== -->
+        <line x1="40" y1="880" x2="1400" y2="880" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <rect x="56" y="898" width="18" height="14" rx="2" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+        <text x="84" y="909" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">nodo / contenedor</text>
+        <line x1="230" y1="905" x2="290" y2="905" stroke="#475569" stroke-width="1.2" marker-end="url(#dep-arrow)"/>
+        <text x="300" y="909" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">tráfico interno</text>
+        <line x1="430" y1="905" x2="490" y2="905" stroke="#2563eb" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#dep-arrow-accent)"/>
+        <text x="500" y="909" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">HTTPS externo</text>
+        <text x="680" y="909" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">La red bridge resuelve <tspan fill="#1e293b">db</tspan> y <tspan fill="#1e293b">backend</tspan> por nombre de servicio.</text>
+        <text x="1400" y="909" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">PUERTO 8080 · 8000 · 5433</text>
+      </svg>
+    </div>
+    <p class="note">
+      <strong>Lo que el diagrama evita.</strong> El 5433 está publicado, pero no es la vía de la aplicación:
+      el backend entra por <em>db:5432</em> en la red bridge. El 8080 no habla con el backend por CORS, sino
+      por el proxy de nginx. Y el frontend del contenedor no es el dev server: es un build inmutable, así que
+      una feature no está cerrada hasta reconstruir la imagen.
+    </p>
+    <p class="colophon">Fuente: docker-compose.yml · backend/Dockerfile · frontend/Dockerfile · frontend/nginx.conf · docs/spec/stack.md §1 y §5.</p>
+  </div>
+</body>
+</html>

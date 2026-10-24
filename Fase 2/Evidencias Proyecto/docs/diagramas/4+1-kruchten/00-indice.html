@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modelo 4+1 de Kruchten | CompuStock</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper: #f8fafc;
+      --color-ink: #1e293b;
+      --color-muted: #475569;
+      --color-soft: #64748b;
+      --color-accent: #2563eb;
+      --color-rule: rgba(30,41,59,0.12);
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 3rem 2rem 5rem;
+    }
+    .frame { max-width: 1180px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif); font-size: clamp(2rem, 3vw + 0.8rem, 3rem);
+      font-weight: 400; letter-spacing: -0.02em; line-height: 1.1;
+      margin-bottom: 0.6rem;
+    }
+    .subtitle { color: var(--color-muted); font-size: 1rem; max-width: 78ch; line-height: 1.55; }
+    .meta {
+      display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem;
+      margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--color-rule);
+      font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-soft);
+    }
+    .grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.25rem; margin-top: 2.25rem;
+    }
+    .card {
+      border: 1px solid var(--color-rule); border-radius: 8px;
+      background: #ffffff; padding: 1.5rem 1.5rem 1.35rem;
+    }
+    .card .tag {
+      font-family: var(--font-mono); font-size: 0.64rem; font-weight: 500;
+      letter-spacing: 0.16em; text-transform: uppercase; color: var(--color-accent);
+    }
+    .card h2 {
+      font-family: var(--font-serif); font-weight: 400; font-size: 1.55rem;
+      letter-spacing: -0.01em; margin: 0.35rem 0 0.45rem;
+    }
+    .card p { color: var(--color-muted); font-size: 0.9rem; line-height: 1.55; }
+    .card ul { list-style: none; margin-top: 1rem; display: grid; gap: 0.55rem; }
+    .card li a {
+      display: flex; align-items: baseline; gap: 0.65rem;
+      color: var(--color-ink); text-decoration: none; font-size: 0.92rem;
+      border-bottom: 1px solid transparent; padding-bottom: 0.2rem;
+    }
+    .card li a:hover { border-bottom-color: var(--color-accent); color: var(--color-accent); }
+    .card li .num {
+      font-family: var(--font-mono); font-size: 0.66rem; color: var(--color-soft);
+      min-width: 2.2rem;
+    }
+    .card li .what { font-family: var(--font-mono); font-size: 0.66rem; color: var(--color-soft); margin-left: auto; }
+    .note {
+      margin-top: 2.25rem; padding-top: 1.1rem; border-top: 1px solid var(--color-rule);
+      font-family: var(--font-serif); font-style: italic; font-size: 1.02rem;
+      color: var(--color-muted); max-width: 80ch; line-height: 1.55;
+    }
+    .note strong { font-family: var(--font-sans); font-style: normal; font-weight: 600; color: var(--color-ink); }
+    .colophon {
+      margin-top: 0.7rem; font-family: var(--font-mono); font-size: 0.7rem;
+      color: var(--color-soft); line-height: 1.7;
+    }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } body { padding: 2rem 1.1rem 4rem; } }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Arquitectura · modelo 4+1 de Kruchten</p>
+    <h1>CompuStock ERP · cuatro vistas</h1>
+    <p class="subtitle">
+      El modelo 4+1 describe la arquitectura desde cuatro puntos de vista complementarios.
+      Esta colección cubre las vistas lógica, de procesos, de desarrollo y física; la vista
+      de casos de uso vive aparte, en los diagramas de actores de <span style="font-family:var(--font-mono);font-size:0.82em">docs/diagramas/</span>.
+    </p>
+    <div class="meta">
+      <span>8 diagramas · HTML + PNG @2x</span>
+      <span>Angular 18 · FastAPI · PostgreSQL 16 · Clerk</span>
+      <span>Fuente: código y docs/spec/stack.md</span>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <p class="tag">01 · Vista lógica</p>
+        <h2>Estructura y comportamiento</h2>
+        <p>Qué clases sostienen el dominio, cómo se relacionan y cómo colaboran los objetos en un escenario crítico.</p>
+        <ul>
+          <li><a href="01-vista-logica/01-clases-organizacion-catalogo.html"><span class="num">01</span> Clases · organización y catálogo <span class="what">UML</span></a></li>
+          <li><a href="01-vista-logica/02-clases-inventario-tickets.html"><span class="num">02</span> Clases · inventario y tickets <span class="what">UML</span></a></li>
+          <li><a href="01-vista-logica/03-secuencia-despacho.html"><span class="num">03</span> Secuencia · despacho de ticket <span class="what">UML</span></a></li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <p class="tag">02 · Vista de procesos</p>
+        <h2>Flujo, concurrencia y transacciones</h2>
+        <p>Cómo se encadenan las actividades, dónde se abren las transacciones y qué ocurre cuando una validación falla.</p>
+        <ul>
+          <li><a href="02-vista-procesos/01-actividad-ciclo-ticket.html"><span class="num">01</span> Actividad · ciclo de vida del ticket <span class="what">FLOW</span></a></li>
+          <li><a href="02-vista-procesos/02-actividad-aprovisionamiento.html"><span class="num">02</span> Actividad · aprovisionamiento SaaS <span class="what">FLOW</span></a></li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <p class="tag">03 · Vista de desarrollo</p>
+        <h2>Organización del código</h2>
+        <p>Cómo se descompone el sistema en componentes sustituibles y cómo se agrupan físicamente los paquetes del repositorio.</p>
+        <ul>
+          <li><a href="03-vista-desarrollo/01-componentes.html"><span class="num">01</span> Componentes e interfaces <span class="what">UML</span></a></li>
+          <li><a href="03-vista-desarrollo/02-paquetes.html"><span class="num">02</span> Paquetes y dependencias <span class="what">UML</span></a></li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <p class="tag">04 · Vista física</p>
+        <h2>Dónde se ejecuta</h2>
+        <p>Nodos, contenedores, puertos, volúmenes y fronteras de red del entorno local y de los servicios externos.</p>
+        <ul>
+          <li><a href="04-vista-fisica/01-despliegue.html"><span class="num">01</span> Despliegue · Docker Compose <span class="what">UML</span></a></li>
+        </ul>
+      </section>
+    </div>
+
+    <p class="note">
+      <strong>Lectura del modelo.</strong> Las cuatro vistas no son planos independientes: comparten el mismo
+      sistema y se validan entre sí. La vista lógica fija las entidades; la de procesos muestra cómo se
+      coordinan; la de desarrollo explica cómo se empaquetan; y la física confirma dónde viven.
+    </p>
+    <p class="colophon">
+      Cada diagrama se genera primero como HTML autocontenido y luego se rasteriza a PNG a 2x.
+      Los tokens visuales (paper <span style="font-family:var(--font-mono)">#f8fafc</span>, ink
+      <span style="font-family:var(--font-mono)">#1e293b</span>, accent <span style="font-family:var(--font-mono)">#2563eb</span>)
+      coinciden con los diagramas de casos de uso del proyecto.
+    </p>
+  </div>
+</body>
+</html>

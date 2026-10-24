@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Actividad · aprovisionamiento SaaS | CompuStock</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper: #f8fafc; --color-ink: #1e293b; --color-muted: #475569;
+      --color-soft: #64748b; --color-accent: #2563eb;
+      --font-sans: 'Geist', system-ui, sans-serif; --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink);
+      min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 3rem 2rem;
+    }
+    .frame { max-width: 1440px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; margin-top: 1.5rem; }
+    .eyebrow {
+      font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2.1rem);
+      font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 0.35rem;
+    }
+    .subtitle { color: var(--color-muted); font-size: 0.95rem; max-width: 86ch; }
+    svg { width: 100%; min-width: 1440px; display: block; }
+    .note {
+      margin-top: 1.75rem; padding-top: 1rem; border-top: 1px solid rgba(30,41,59,0.12);
+      font-family: var(--font-serif); font-style: italic; font-size: 1rem;
+      color: var(--color-muted); max-width: 86ch; line-height: 1.55;
+    }
+    .note strong { font-family: var(--font-sans); font-style: normal; font-weight: 600; color: var(--color-ink); }
+    .colophon { margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-muted); }
+    @media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">4+1 · vista de procesos · UML activity</p>
+    <h1>Actividad · aprovisionamiento de una institución</h1>
+    <p class="subtitle">
+      El alta que ejecuta el Superadmin: validación local, clasificación de la identidad en Clerk, creación
+      del esquema tenant y registro canónico en control. El camino de reintento es parte del proceso, no un
+      caso excepcional: un esquema creado sin registro de control se completa sin volver a invitar.
+    </p>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1440 1200" xmlns="http://www.w3.org/2000/svg"
+           role="img" aria-labelledby="prov-title prov-desc">
+        <title id="prov-title">Diagrama de actividad del aprovisionamiento institucional</title>
+        <desc id="prov-desc">Flujo de alta de una institución: formulario del Superadmin, POST de control, validación de duplicados, clasificación de identidad en Clerk, creación o reutilización de invitación, provisión del esquema tenant en PostgreSQL, registro canónico y mapa en control, commit y respuesta 201; incluye el reintento parcial, el conflicto 409 y la compensación con revocación de invitación.</desc>
+        <defs>
+          <marker id="prov-arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+            <path d="M0,0 L9,4.5 L0,9 z" fill="#1e293b"/>
+          </marker>
+          <marker id="prov-arrow-soft" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+            <path d="M0,0 L9,4.5 L0,9 z" fill="#475569"/>
+          </marker>
+        </defs>
+        <rect width="1440" height="1200" fill="#f8fafc"/>
+
+        <text x="60" y="46" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">ALTA INSTITUCIONAL · CONTROL + TENANT</text>
+        <text x="1380" y="46" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">UNA SOLA OPERACIÓN · DOS COMMITS COORDINADOS</text>
+
+        <!-- ===================== FLECHAS ===================== -->
+        <g stroke="#1e293b" stroke-width="1.2" fill="none">
+          <line x1="620" y1="70" x2="620" y2="90" marker-end="url(#prov-arrow)"/>
+          <line x1="620" y1="166" x2="620" y2="196" marker-end="url(#prov-arrow)"/>
+          <line x1="620" y1="260" x2="620" y2="290" marker-end="url(#prov-arrow)"/>
+          <line x1="620" y1="368" x2="620" y2="385" marker-end="url(#prov-arrow)"/>
+          <line x1="620" y1="495" x2="620" y2="530" marker-end="url(#prov-arrow)"/>
+          <line x1="620" y1="600" x2="620" y2="612" marker-end="url(#prov-arrow)"/>
+          <line x1="620" y1="872" x2="620" y2="900" marker-end="url(#prov-arrow)"/>
+          <line x1="620" y1="996" x2="620" y2="1026" marker-end="url(#prov-arrow)"/>
+          <line x1="620" y1="1086" x2="620" y2="1110" marker-end="url(#prov-arrow)"/>
+          <line x1="740" y1="440" x2="960" y2="440" marker-end="url(#prov-arrow)"/>
+          <line x1="700" y1="480" x2="860" y2="480" marker-end="url(#prov-arrow)"/>
+          <line x1="860" y1="480" x2="860" y2="562" marker-end="url(#prov-arrow)"/>
+          <line x1="860" y1="562" x2="960" y2="562" marker-end="url(#prov-arrow)"/>
+          <line x1="1140" y1="594" x2="1170" y2="594" marker-end="url(#prov-arrow)"/>
+          <line x1="1170" y1="594" x2="1170" y2="608" marker-end="url(#prov-arrow)"/>
+          <line x1="1140" y1="486" x2="1380" y2="486" marker-end="url(#prov-arrow)"/>
+          <line x1="1380" y1="486" x2="1380" y2="1010"/>
+          <line x1="1380" y1="1010" x2="900" y2="1010"/>
+          <line x1="900" y1="1010" x2="900" y2="996" marker-end="url(#prov-arrow)"/>
+          <line x1="300" y1="948" x2="280" y2="948" marker-end="url(#prov-arrow)"/>
+          <line x1="170" y1="996" x2="170" y2="1026" marker-end="url(#prov-arrow)"/>
+          <line x1="170" y1="1086" x2="170" y2="1110" marker-end="url(#prov-arrow)"/>
+        </g>
+        <g stroke="#475569" stroke-width="1.1" fill="none" stroke-dasharray="5,4">
+          <line x1="510" y1="665" x2="420" y2="665" marker-end="url(#prov-arrow-soft)"/>
+          <line x1="730" y1="665" x2="840" y2="665" marker-end="url(#prov-arrow-soft)"/>
+          <line x1="250" y1="700" x2="250" y2="735" marker-end="url(#prov-arrow-soft)"/>
+          <line x1="250" y1="735" x2="480" y2="735"/>
+          <line x1="480" y1="735" x2="480" y2="760" marker-end="url(#prov-arrow-soft)"/>
+          <line x1="900" y1="692" x2="900" y2="735" marker-end="url(#prov-arrow-soft)"/>
+          <line x1="900" y1="735" x2="760" y2="735"/>
+          <line x1="760" y1="735" x2="760" y2="760" marker-end="url(#prov-arrow-soft)"/>
+        </g>
+
+        <!-- ===================== ETIQUETAS ===================== -->
+        <g font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace" fill="#64748b">
+          <text x="632" y="512">No</text>
+          <text x="846" y="432">Sí · sin control</text>
+          <text x="872" y="554">Sí · existe</text>
+          <text x="474" y="658">No</text>
+          <text x="780" y="658">Sí</text>
+        </g>
+
+        <!-- ===================== INICIO ===================== -->
+        <circle cx="620" cy="60" r="10" fill="#1e293b"/>
+
+        <!-- ===================== FORMULARIO ===================== -->
+        <g>
+          <rect x="400" y="90" width="440" height="76" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <rect x="400" y="90" width="4" height="76" rx="2" fill="#2563eb"/>
+          <text x="416" y="110" fill="#2563eb" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">SUPERADMIN · /control/alta</text>
+          <text x="416" y="131" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif">Alta de institución y primer Administrador</text>
+          <text x="416" y="150" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">institucion_id · nombre · RUT · dirección · correo</text>
+        </g>
+
+        <!-- ===================== POST ===================== -->
+        <g>
+          <rect x="400" y="196" width="440" height="64" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="416" y="215" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">API · CONTROL</text>
+          <text x="416" y="236" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">POST /api/v1/control/instituciones/</text>
+          <text x="416" y="252" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">Bearer de sesión · capacidad de control</text>
+        </g>
+
+        <!-- ===================== VALIDACIÓN ===================== -->
+        <g>
+          <rect x="360" y="290" width="520" height="78" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="376" y="309" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">CONTROL SERVICE · VALIDACIÓN LOCAL</text>
+          <text x="376" y="330" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Normaliza el correo y valida antes de invitar</text>
+          <text x="376" y="348" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">duplicados · colisión de esquema · reserva de la fila de control</text>
+        </g>
+
+        <!-- ===================== DECISIÓN ESQUEMA ===================== -->
+        <g>
+          <polygon points="620,385 740,440 620,495 500,440" fill="#ffffff" stroke="#1e293b" stroke-width="1.2"/>
+          <text x="620" y="436" fill="#1e293b" font-size="10.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">¿Esquema tenant</text>
+          <text x="620" y="450" fill="#1e293b" font-size="10.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">ya existe?</text>
+          <text x="620" y="468" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">nombre determinista</text>
+        </g>
+
+        <!-- ===================== CLASIFICAR IDENTIDAD ===================== -->
+        <g>
+          <rect x="400" y="530" width="440" height="70" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="416" y="549" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">CLERK · BACKEND API</text>
+          <text x="416" y="570" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Clasifica la identidad del Administrador</text>
+          <text x="416" y="588" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">existente · invitación pendiente · sin identidad</text>
+        </g>
+
+        <!-- ===================== DECISIÓN IDENTIDAD ===================== -->
+        <g>
+          <polygon points="620,612 730,665 620,718 510,665" fill="#ffffff" stroke="#1e293b" stroke-width="1.2"/>
+          <text x="620" y="666" fill="#1e293b" font-size="10.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">¿Identidad</text>
+          <text x="620" y="680" fill="#1e293b" font-size="10.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">existe?</text>
+        </g>
+
+        <!-- ===================== INVITACIÓN ===================== -->
+        <g>
+          <rect x="80" y="620" width="340" height="80" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="96" y="639" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">CLERK · INVITACIONES</text>
+          <text x="96" y="660" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Crea o reutiliza la invitación</text>
+          <text x="96" y="678" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">invitation_id · expira_en · URL solo en la respuesta</text>
+        </g>
+
+        <!-- ===================== ACEPTADA ===================== -->
+        <g>
+          <rect x="840" y="628" width="300" height="64" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="856" y="647" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">CLERK</text>
+          <text x="856" y="668" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">estado = “aceptada”</text>
+          <text x="856" y="684" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">identidad ya verificada</text>
+        </g>
+
+        <!-- ===================== TENANT ===================== -->
+        <g>
+          <rect x="300" y="760" width="640" height="112" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1"/>
+          <text x="316" y="780" fill="#2563eb" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">POSTGRESQL · TENANT</text>
+          <text x="316" y="801" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif">Provisiona el esquema y su DDL canónico</text>
+          <text x="316" y="820" fill="#475569" font-size="8.8" font-family="'Geist Mono', ui-monospace, monospace">CREATE SCHEMA tenant_&lt;slug&gt;_&lt;hash&gt; · espejo de institución · roles · estados · prioridades</text>
+          <text x="316" y="838" fill="#475569" font-size="8.8" font-family="'Geist Mono', ui-monospace, monospace">Administrador inicial · Sede Central · version_esquema = 014.1</text>
+          <text x="316" y="858" fill="#2563eb" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">COMMIT tenant</text>
+        </g>
+
+        <!-- ===================== CONTROL ===================== -->
+        <g>
+          <rect x="300" y="900" width="640" height="96" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1"/>
+          <text x="316" y="920" fill="#2563eb" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">POSTGRESQL · CONTROL</text>
+          <text x="316" y="941" fill="#1e293b" font-size="13" font-weight="600" font-family="'Geist', system-ui, sans-serif">Registra la institución, sus capacidades y el mapa</text>
+          <text x="316" y="960" fill="#475569" font-size="8.8" font-family="'Geist Mono', ui-monospace, monospace">institución canónica (RUT · dirección · activo) · 6 funciones habilitadas · mapa_usuario_esquema</text>
+          <text x="316" y="984" fill="#2563eb" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">COMMIT control</text>
+        </g>
+
+        <!-- ===================== 201 ===================== -->
+        <g>
+          <rect x="400" y="1026" width="440" height="60" rx="6" fill="#ffffff" stroke="#2563eb" stroke-width="1.2"/>
+          <text x="620" y="1048" fill="#2563eb" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em" text-anchor="middle">201 · INSTITUCIÓN OPERATIVA</text>
+          <text x="620" y="1068" fill="#1e293b" font-size="11.5" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">nombre_esquema · versión · estado · invitación</text>
+        </g>
+        <circle cx="620" cy="1120" r="13" fill="#f8fafc" stroke="#1e293b" stroke-width="1.2"/>
+        <circle cx="620" cy="1120" r="7" fill="#1e293b"/>
+
+        <!-- ===================== REINTENTO PARCIAL ===================== -->
+        <g>
+          <rect x="960" y="400" width="360" height="86" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="976" y="419" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">REINTENTO IDEMPOTENTE</text>
+          <text x="976" y="440" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">Completa solo el alta de control</text>
+          <text x="976" y="457" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">reutiliza esquema, admin e invitación</text>
+          <text x="976" y="473" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">no recrea ni reinvita</text>
+        </g>
+
+        <!-- ===================== 409 ===================== -->
+        <g>
+          <rect x="960" y="530" width="360" height="64" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="976" y="549" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">CONFLICTO</text>
+          <text x="976" y="570" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">409 · institución o correo ya registrados</text>
+          <text x="976" y="586" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">no se crea nada nuevo</text>
+        </g>
+        <circle cx="1170" cy="620" r="11" fill="#f8fafc" stroke="#1e293b" stroke-width="1.2"/>
+        <circle cx="1170" cy="620" r="6" fill="#1e293b"/>
+
+        <!-- ===================== FALLO ===================== -->
+        <g>
+          <rect x="60" y="900" width="220" height="96" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="76" y="919" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">FALLO LOCAL</text>
+          <text x="76" y="940" fill="#1e293b" font-size="11.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">ROLLBACK de control</text>
+          <text x="76" y="957" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">revoca la invitación creada</text>
+          <text x="76" y="972" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">si el tenant quedó, se completa</text>
+          <text x="76" y="987" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">solo control en el reintento</text>
+        </g>
+
+        <!-- ===================== 503 ===================== -->
+        <g>
+          <rect x="60" y="1026" width="240" height="60" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.28)" stroke-width="1"/>
+          <text x="76" y="1046" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">RESULTADO</text>
+          <text x="76" y="1067" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">503 · requiere reconciliación</text>
+          <text x="76" y="1082" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace">constancia con invitation_id</text>
+        </g>
+        <circle cx="170" cy="1120" r="13" fill="#f8fafc" stroke="#1e293b" stroke-width="1.2"/>
+        <circle cx="170" cy="1120" r="7" fill="#1e293b"/>
+
+        <!-- ===================== TARJETA DE GARANTÍAS ===================== -->
+        <g>
+          <rect x="980" y="720" width="380" height="280" rx="8" fill="#ffffff" stroke="rgba(30,41,59,0.16)" stroke-width="1"/>
+          <text x="998" y="746" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">GARANTÍAS DEL ALTA</text>
+          <text x="998" y="774" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">• El nombre del esquema se deriva en servidor,</text>
+          <text x="1008" y="788" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">nunca es input del cliente.</text>
+          <text x="998" y="814" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">• Las validaciones y la reserva de control</text>
+          <text x="1008" y="828" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">preceden a cualquier invitación externa.</text>
+          <text x="998" y="854" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">• Si falla la revocación, se guarda constancia</text>
+          <text x="1008" y="868" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">con <tspan font-family="'Geist Mono', ui-monospace, monospace" fill="#2563eb">invitation_id</tspan>, nunca la URL.</text>
+          <text x="998" y="894" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">• La institución se informa operativa solo</text>
+          <text x="1008" y="908" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">cuando el flujo completo se confirma.</text>
+          <text x="998" y="934" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">• El reintento detecta un esquema parcial</text>
+          <text x="1008" y="948" fill="#1e293b" font-size="10" font-family="'Geist', system-ui, sans-serif">y no vuelve a invitar ni a crear tablas.</text>
+          <text x="998" y="980" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">Source of truth: control_service.aprovisionar_institucion</text>
+        </g>
+
+        <!-- ===================== LEYENDA ===================== -->
+        <line x1="40" y1="1150" x2="1400" y2="1150" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <circle cx="60" cy="1172" r="7" fill="#1e293b"/>
+        <text x="74" y="1176" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">inicio</text>
+        <circle cx="150" cy="1172" r="8" fill="#f8fafc" stroke="#1e293b" stroke-width="1.2"/>
+        <circle cx="150" cy="1172" r="4" fill="#1e293b"/>
+        <text x="164" y="1176" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">fin</text>
+        <polygon points="256,1162 276,1172 256,1182 236,1172" fill="#ffffff" stroke="#1e293b" stroke-width="1"/>
+        <text x="284" y="1176" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">decisión</text>
+        <rect x="384" y="1164" width="22" height="16" rx="3" fill="#eff6ff" stroke="#2563eb" stroke-width="1"/>
+        <text x="414" y="1176" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">paso transaccional</text>
+        <line x1="580" y1="1172" x2="640" y2="1172" stroke="#475569" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#prov-arrow-soft)"/>
+        <text x="650" y="1176" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">convergencia de identidad</text>
+        <text x="1400" y="1176" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">FEATURE 017 · ALTA INSTITUCIONAL</text>
+      </svg>
+    </div>
+    <p class="note">
+      <strong>Dos commits, una operación.</strong> El esquema tenant se confirma primero; el registro canónico
+      y el mapa se confirman después en control. Por eso el proceso distingue el fallo antes del commit de
+      control (rollback + compensación) del esquema huérfano (reintento que completa solo control). La
+      institución no se muestra como operativa hasta que ambos lados existen.
+    </p>
+    <p class="colophon">Fuente: backend/app/services/control_service.py §aprovisionar_institucion, _provisionar_tenant_postgres, _compensar_invitacion_aprovisionamiento · backend/app/services/tenant_service.py.</p>
+  </div>
+</body>
+</html>

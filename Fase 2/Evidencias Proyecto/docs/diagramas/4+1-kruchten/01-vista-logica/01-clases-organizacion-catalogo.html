@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clases · organización y catálogo | CompuStock</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper: #f8fafc;
+      --color-ink: #1e293b;
+      --color-muted: #475569;
+      --color-soft: #64748b;
+      --color-accent: #2563eb;
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink);
+      min-height: 100vh; display: flex; align-items: flex-start; justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1440px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; margin-top: 1.5rem; }
+    .eyebrow {
+      font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2.1rem);
+      font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 0.35rem;
+    }
+    .subtitle { color: var(--color-muted); font-size: 0.95rem; max-width: 82ch; }
+    svg { width: 100%; min-width: 1440px; display: block; }
+    .note {
+      margin-top: 1.75rem; padding-top: 1rem; border-top: 1px solid rgba(30,41,59,0.12);
+      font-family: var(--font-serif); font-style: italic; font-size: 1rem;
+      color: var(--color-muted); max-width: 84ch; line-height: 1.55;
+    }
+    .note strong { font-family: var(--font-sans); font-style: normal; font-weight: 600; color: var(--color-ink); }
+    .colophon { margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-muted); }
+    @media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">4+1 · vista lógica · UML class</p>
+    <h1>Clases · organización y catálogo</h1>
+    <p class="subtitle">
+      Entidades de dominio que describen la estructura de una institución, sus sedes, departamentos,
+      usuarios y el catálogo maestro. El aislamiento por tenant se apoya en <em>institucion_id</em> y en
+      claves compuestas; los historiales de ciclo de vida conservan la trazabilidad del catálogo.
+    </p>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1440 820" xmlns="http://www.w3.org/2000/svg"
+           role="img" aria-labelledby="clases-org-title clases-org-desc">
+        <title id="clases-org-title">Diagrama de clases de organización y catálogo</title>
+        <desc id="clases-org-desc">Seis clases de organización (Institucion, Sede, Departamento, Usuario, Rol y DepartamentoEncargado) y cuatro de catálogo (Categoria, Producto y los historiales de transición de producto y categoría), con sus asociaciones y cardinalidades.</desc>
+        <rect width="1440" height="820" fill="#f8fafc"/>
+
+        <!-- ===================== ZONAS ===================== -->
+        <rect x="40" y="88" width="680" height="620" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <text x="60" y="114" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">ORGANIZACIÓN</text>
+        <text x="700" y="114" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">6 CLASES · ÁMBITO TENANT</text>
+
+        <rect x="744" y="88" width="656" height="620" rx="8" fill="rgba(30,41,59,0.02)" stroke="rgba(30,41,59,0.22)" stroke-width="1"/>
+        <text x="764" y="114" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">CATÁLOGO</text>
+        <text x="1380" y="114" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">4 CLASES · CATÁLOGO E HISTORIALES</text>
+
+        <!-- ===================== ARISTAS ===================== -->
+        <g stroke="#475569" stroke-width="1" fill="none">
+          <!-- Institucion 1 -> N Departamento -->
+          <path d="M110,224 L56,224 L56,580 L72,580"/>
+          <!-- Sede 1 -> N Departamento -->
+          <path d="M172,452 L172,512"/>
+          <!-- Sede 1 -> N Usuario -->
+          <path d="M272,340 L316,340 L316,212 L360,212"/>
+          <!-- Departamento 1 -> N Usuario -->
+          <path d="M292,560 L322,560 L322,304 L440,304"/>
+          <!-- Rol 1 -> N Usuario -->
+          <path d="M360,392 L344,392 L344,270 L360,270"/>
+          <!-- Departamento 1 -> N DepartamentoEncargado -->
+          <path d="M150,664 L150,684 L480,684 L480,624"/>
+          <!-- Usuario 1 -> N DepartamentoEncargado -->
+          <path d="M600,240 L648,240 L648,500 L560,500 L560,520"/>
+          <!-- Categoria 1 -> N Producto -->
+          <path d="M1026,196 L1076,196"/>
+          <!-- Categoria 1 -> N HistorialCategoria -->
+          <path d="M876,256 L876,376"/>
+          <!-- Producto 1 -> N HistorialProducto -->
+          <path d="M1216,288 L1216,384"/>
+        </g>
+
+        <!-- cardinalidades -->
+        <g fill="#2563eb" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" font-weight="500">
+          <text x="118" y="218">1</text><text x="62" y="570">N</text>
+          <text x="180" y="464">1</text><text x="180" y="506">N</text>
+          <text x="280" y="334">1</text><text x="350" y="206">N</text>
+          <text x="300" y="554">1</text><text x="446" y="298">N</text>
+          <text x="366" y="386">1</text><text x="350" y="264">N</text>
+          <text x="158" y="676">1</text><text x="486" y="618">N</text>
+          <text x="608" y="234">1</text><text x="566" y="514">N</text>
+          <text x="1022" y="190">1</text><text x="1062" y="190">N</text>
+          <text x="858" y="268">1</text><text x="858" y="368">N</text>
+          <text x="1198" y="300">1</text><text x="1198" y="376">N</text>
+        </g>
+
+        <!-- ===================== INSTITUCION ===================== -->
+        <g>
+          <rect x="72" y="136" width="200" height="88" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="72" y1="176" x2="272" y2="176" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="84" y="151" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«ENTIDAD»</text>
+          <text x="84" y="167" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Institucion</text>
+          <text x="84" y="194" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">institucion_id : VARCHAR(20) <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="84" y="210" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">nombre : VARCHAR(150)</text>
+        </g>
+
+        <!-- ===================== USUARIO ===================== -->
+        <g>
+          <rect x="360" y="136" width="240" height="168" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="360" y1="176" x2="600" y2="176" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="372" y="151" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«ENTIDAD»</text>
+          <text x="372" y="167" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Usuario</text>
+          <text x="372" y="194" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">usuario_id : SERIAL <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="372" y="210" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">nombre : VARCHAR(100)</text>
+          <text x="372" y="226" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">apellido : VARCHAR(100)</text>
+          <text x="372" y="242" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">correo : VARCHAR(150) <tspan fill="#2563eb">«UQ»</tspan></text>
+          <text x="372" y="258" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">departamento_id : INT <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="372" y="274" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">rol_id : INT <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="372" y="290" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">sede_id : INT <tspan fill="#2563eb">«FK»</tspan> <tspan fill="#64748b">nullable</tspan></text>
+        </g>
+
+        <!-- ===================== SEDE ===================== -->
+        <g>
+          <rect x="72" y="316" width="200" height="136" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="72" y1="356" x2="272" y2="356" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="84" y="331" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«ENTIDAD»</text>
+          <text x="84" y="347" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Sede</text>
+          <text x="84" y="374" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">sede_id : SERIAL <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="84" y="390" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">nombre : VARCHAR(100)</text>
+          <text x="84" y="406" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">direccion : VARCHAR(200)</text>
+          <text x="84" y="422" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">institucion_id : VARCHAR(20) <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="84" y="438" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">activo : BOOLEAN</text>
+        </g>
+
+        <!-- ===================== ROL ===================== -->
+        <g>
+          <rect x="360" y="340" width="200" height="104" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="360" y1="380" x2="560" y2="380" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="372" y="355" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«CATÁLOGO»</text>
+          <text x="372" y="371" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Rol</text>
+          <text x="372" y="398" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">rol_id : SERIAL <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="372" y="414" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">nombre_rol : VARCHAR(50)</text>
+          <text x="372" y="430" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">descripcion : VARCHAR(150)</text>
+        </g>
+
+        <!-- ===================== DEPARTAMENTO ===================== -->
+        <g>
+          <rect x="72" y="512" width="220" height="152" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="72" y1="552" x2="292" y2="552" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="84" y="527" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«ENTIDAD»</text>
+          <text x="84" y="543" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Departamento</text>
+          <text x="84" y="570" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">departamento_id : SERIAL <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="84" y="586" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">nombre_dep : VARCHAR(100)</text>
+          <text x="84" y="602" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">descripcion : VARCHAR(200)</text>
+          <text x="84" y="618" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">institucion_id : VARCHAR(20) <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="84" y="634" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">sede_id : INT <tspan fill="#2563eb">«FK»</tspan> <tspan fill="#64748b">nullable</tspan></text>
+          <text x="84" y="650" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">activo : BOOLEAN</text>
+        </g>
+
+        <!-- ===================== DEPARTAMENTO ENCARGADO ===================== -->
+        <g>
+          <rect x="360" y="520" width="240" height="104" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="360" y1="560" x2="600" y2="560" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="372" y="535" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«AUXILIAR»</text>
+          <text x="372" y="551" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">DepartamentoEncargado</text>
+          <text x="372" y="578" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">departamento_encargado_id <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="372" y="594" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">departamento_id : INT <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="372" y="610" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">usuario_id : INT <tspan fill="#2563eb">«FK»</tspan></text>
+        </g>
+
+        <!-- ===================== CATEGORIA ===================== -->
+        <g>
+          <rect x="776" y="136" width="250" height="120" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="776" y1="176" x2="1026" y2="176" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="788" y="151" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«ENTIDAD»</text>
+          <text x="788" y="167" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Categoria</text>
+          <text x="788" y="194" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">categoria_id : SERIAL <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="788" y="210" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">nombre_cat : VARCHAR(100)</text>
+          <text x="788" y="226" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">institucion_id : VARCHAR(20) <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="788" y="242" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">activo : BOOLEAN</text>
+        </g>
+
+        <!-- ===================== PRODUCTO ===================== -->
+        <g>
+          <rect x="1076" y="136" width="280" height="152" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="1076" y1="176" x2="1356" y2="176" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="1088" y="151" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«ENTIDAD»</text>
+          <text x="1088" y="167" fill="#1e293b" font-size="12.5" font-weight="600" font-family="'Geist', system-ui, sans-serif">Producto</text>
+          <text x="1088" y="194" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">producto_id : SERIAL <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="1088" y="210" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">nombre : VARCHAR(150)</text>
+          <text x="1088" y="226" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">unidad_medida : VARCHAR(30)</text>
+          <text x="1088" y="242" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">stock_minimo : INT</text>
+          <text x="1088" y="258" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">categoria_id : INT <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="1088" y="274" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">activo : BOOLEAN</text>
+        </g>
+
+        <!-- ===================== HISTORIAL CATEGORIA ===================== -->
+        <g>
+          <rect x="776" y="376" width="250" height="152" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="776" y1="416" x2="1026" y2="416" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="788" y="391" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«HISTORIAL INMUTABLE»</text>
+          <text x="788" y="407" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">HistorialTransicionCategoria</text>
+          <text x="788" y="434" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">historial_categoria_id <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="788" y="450" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">categoria_id : INT <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="788" y="466" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">usuario_id : INT <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="788" y="482" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">fecha_transicion : TIMESTAMP</text>
+          <text x="788" y="498" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">activo_origen → activo_destino</text>
+          <text x="788" y="514" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">motivo : VARCHAR(500)</text>
+        </g>
+
+        <!-- ===================== HISTORIAL PRODUCTO ===================== -->
+        <g>
+          <rect x="1076" y="384" width="280" height="152" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.25)" stroke-width="1"/>
+          <line x1="1076" y1="424" x2="1356" y2="424" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+          <text x="1088" y="399" fill="#64748b" font-size="7.5" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">«HISTORIAL INMUTABLE»</text>
+          <text x="1088" y="415" fill="#1e293b" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif">HistorialTransicionProducto</text>
+          <text x="1088" y="442" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">historial_producto_id <tspan fill="#2563eb">«PK»</tspan></text>
+          <text x="1088" y="458" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">producto_id : INT <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="1088" y="474" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">usuario_id : INT <tspan fill="#2563eb">«FK»</tspan></text>
+          <text x="1088" y="490" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">fecha_transicion : TIMESTAMP</text>
+          <text x="1088" y="506" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">activo_origen → activo_destino</text>
+          <text x="1088" y="522" fill="#475569" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">motivo : VARCHAR(500)</text>
+        </g>
+
+        <!-- ===================== NOTA DE TRAZABILIDAD ===================== -->
+        <g>
+          <rect x="776" y="556" width="580" height="92" rx="6" fill="#ffffff" stroke="rgba(30,41,59,0.22)" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="792" y="578" fill="#475569" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">TRAZABILIDAD DEL CATÁLOGO</text>
+          <text x="792" y="598" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">Cada transición de vigencia guarda el estado de origen, el destino, el actor y el motivo.</text>
+          <text x="792" y="616" fill="#1e293b" font-size="9.5" font-family="'Geist', system-ui, sans-serif">Los historiales son inmutables: se insertan, no se actualizan ni se borran.</text>
+          <text x="792" y="636" fill="#64748b" font-size="8.5" font-family="'Geist Mono', ui-monospace, monospace">La baja es lógica: <tspan fill="#2563eb">activo = false</tspan>, nunca DELETE.</text>
+        </g>
+
+        <!-- ===================== LEYENDA ===================== -->
+        <line x1="40" y1="734" x2="1400" y2="734" stroke="rgba(30,41,59,0.12)" stroke-width="1"/>
+        <line x1="56" y1="766" x2="116" y2="766" stroke="#475569" stroke-width="1"/>
+        <text x="64" y="760" fill="#2563eb" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">1</text>
+        <text x="108" y="760" fill="#2563eb" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">N</text>
+        <text x="128" y="770" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">asociación 1 — N</text>
+        <text x="300" y="770" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace"><tspan fill="#2563eb">«PK»</tspan> clave primaria · <tspan fill="#2563eb">«FK»</tspan> clave foránea · <tspan fill="#2563eb">«UQ»</tspan> única</text>
+        <text x="760" y="770" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace">Los historiales se escriben en la misma transacción que el cambio de estado.</text>
+        <text x="1400" y="770" fill="#64748b" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="end">17 ENTIDADES DE DOMINIO · ESTA VISTA: 10</text>
+      </svg>
+    </div>
+    <p class="note">
+      <strong>Decisión de lectura.</strong> La jerarquía organizacional se resuelve por composición:
+      una institución contiene sedes y departamentos; el usuario pertenece a un departamento y a un rol.
+      Los historiales no son estructuras auxiliares: son las entidades 16.ª y 17.ª del dominio y
+      registran cada transición real de vigencia con actor y motivo.
+    </p>
+    <p class="colophon">Fuente: backend/app/models/{institucion,usuario,rol,organizacion,producto}.py · docs/spec/stack.md §2 (Features 011, 012, 014).</p>
+  </div>
+</body>
+</html>
